@@ -4,7 +4,7 @@ import os
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 import pandas as pd
 import pprint
 
@@ -231,11 +231,16 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         foldername.mkdir(exist_ok=True)
         return str(foldername)
 
-    def resolve_mounted_path_in_current_os(self, key) -> Path:
-        return Path(resolve_mounted_path_in_current_os(self.config[key]))
+    def resolve_mounted_path_in_current_os(self, key) -> Optional[Path]:
+        path = self.config[key]
+        if path is None:
+            return None
+        return Path(resolve_mounted_path_in_current_os(path))
 
-    def get_folder_with_calibration_for_day(self) -> Path:
+    def get_folder_with_calibration_for_day(self) -> Optional[Path]:
         raw_bigtiff_filename = self.resolve_mounted_path_in_current_os('red_bigtiff_fname')
+        if raw_bigtiff_filename is None:
+            raise FileNotFoundError(raw_bigtiff_filename)
         raw_bigtiff_filename = Path(raw_bigtiff_filename)
         folder_for_entire_day = raw_bigtiff_filename.parents[2]  # 3 folders up
 
