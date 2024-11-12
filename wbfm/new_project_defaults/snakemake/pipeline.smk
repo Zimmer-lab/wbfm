@@ -196,7 +196,8 @@ rule extract_full_traces:
 
 
 # Start snakemake
-
+# Copied from centerline_behavior_annotation... needs work
+# See: https://github.com/Zimmer-lab/centerline_behavior_annotation/issues/42
 
 rule normalize_img:
     input:
