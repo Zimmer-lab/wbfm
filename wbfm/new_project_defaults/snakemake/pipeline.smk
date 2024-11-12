@@ -197,50 +197,15 @@ rule extract_full_traces:
 
 # Start snakemake
 
-rule z_project_background:
-    input:
-        background_video = background_video
-    output:
-        # New: put the background image in the output folder, and make it temporary
-        background_img = _cleanup_helper(background_img)
-    run:
-        from imutils.src.imfunctions import stack_z_projection
-
-        stack_z_projection(
-            str(input.background_video),
-            str(output.background_img),
-            'mean',
-            'uint8',
-            0,
-        )
-
-rule subtract_background:
-    input:
-        ndtiff_subfolder = behavior_btf if os.path.exists(behavior_btf) else raw_data_subfolder,
-        background_img = background_img
-    params:
-        do_inverse = config["do_inverse"]
-    output:
-        background_subtracted_img = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_background_subtracted.btf")
-    run:
-        from imutils.src import imutils_parser_main
-
-        imutils_parser_main.main([
-            "stack_subtract_background",
-            '-i', str(input.ndtiff_subfolder),
-            '-o', str(output.background_subtracted_img),
-            '-bg', str(input.background_img),
-            '-invert', str(params.do_inverse),
-        ])
 
 rule normalize_img:
     input:
-        input_img = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted.btf"
+        input_img = f"{output_behavior_dir}/raw_stack_AVG.btf"
     params:
         alpha = config["alpha"],
         beta = config["beta"]
     output:
-        normalised_img = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised.btf")
+        normalised_img = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_normalised.btf")
     run:
         from imutils.src import imutils_parser_main
 
@@ -254,11 +219,11 @@ rule normalize_img:
 
 rule worm_unet:
     input:
-        input_img = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised.btf"
+        input_img = f"{output_behavior_dir}/raw_stack_AVG_normalised.btf"
     params:
         weights_path = config["main_unet_model"],
     output:
-        worm_unet_prediction = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented.btf")
+        worm_unet_prediction = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_normalised_worm_segmented.btf")
     run:
         from imutils.src import imutils_parser_main
 
@@ -271,12 +236,12 @@ rule worm_unet:
 
 rule binarize:
     input:
-        input_img = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented.btf"
+        input_img = f"{output_behavior_dir}/raw_stack_AVG_normalised_worm_segmented.btf"
     params:
         threshold = config["threshold"],
         max_value = config["max_value"]
     output:
-        binary_img = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented_mask.btf")
+        binary_img = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_normalised_worm_segmented_mask.btf")
     run:
         from imutils.src import imutils_parser_main
 
@@ -290,12 +255,12 @@ rule binarize:
 
 rule coil_unet:
     input:
-        binary_input_img = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented_mask.btf",
-        raw_input_img = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised.btf"
+        binary_input_img = f"{output_behavior_dir}/raw_stack_AVG_normalised_worm_segmented_mask.btf",
+        raw_input_img = f"{output_behavior_dir}/raw_stack_AVG_normalised.btf"
     params:
         weights_path= config["coiled_shape_unet_model"]
     output:
-        coil_unet_prediction = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented_mask_coil_segmented.btf")
+        coil_unet_prediction = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_normalised_worm_segmented_mask_coil_segmented.btf")
     run:
         from imutils.src import imutils_parser_main
 
@@ -309,12 +274,12 @@ rule coil_unet:
 
 rule binarize_coil:
     input:
-        input_img = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented_mask_coil_segmented.btf"
+        input_img = f"{output_behavior_dir}/raw_stack_AVG_normalised_worm_segmented_mask_coil_segmented.btf"
     params:
         threshold = config["coil_threshold"], # 240
         max_value = config["coil_new_value"] # 255
     output:
-        binary_img = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented_mask_coil_segmented_mask.btf")
+        binary_img = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_normalised_worm_segmented_mask_coil_segmented_mask.btf")
     run:
         from imutils.src import imutils_parser_main
 
@@ -328,12 +293,12 @@ rule binarize_coil:
 
 rule tiff2avi:
     input:
-        input_img = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised.btf"
+        input_img = f"{output_behavior_dir}/raw_stack_AVG_normalised.btf"
     params:
         fourcc = config["fourcc"], #"0",
         fps = config["fps"] # "167"
     output:
-        avi = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised.avi")
+        avi = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_normalised.avi")
     run:
         from imutils.src import imutils_parser_main
 
@@ -347,13 +312,13 @@ rule tiff2avi:
 
 rule dlc_analyze_videos:
     input:
-        input_avi = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised.avi"
+        input_avi = f"{output_behavior_dir}/raw_stack_AVG_normalised.avi"
     params:
         dlc_model_configfile_path = config["head_tail_dlc_project"],
         dlc_network_string = config["head_tail_dlc_name"], # Is this used?
         dlc_conda_env = config["dlc_conda_env_name_only_dlc"]
     output:
-        hdf5_file = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised"+config["head_tail_dlc_name"]+".h5"
+        hdf5_file = f"{output_behavior_dir}/raw_stack_AVG_normalised"+config["head_tail_dlc_name"]+".h5"
     shell:
         """
         source /lisc/app/conda/miniconda3/bin/activate {params.dlc_conda_env}
@@ -362,8 +327,8 @@ rule dlc_analyze_videos:
 
 rule create_centerline:
     input:
-        input_binary_img = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented_mask_coil_segmented_mask.btf",
-        hdf5_file = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised"+config["head_tail_dlc_name"]+".h5"
+        input_binary_img = f"{output_behavior_dir}/raw_stack_AVG_normalised_worm_segmented_mask_coil_segmented_mask.btf",
+        hdf5_file = f"{output_behavior_dir}/raw_stack_AVG_normalised"+config["head_tail_dlc_name"]+".h5"
 
     params:
         output_path = f"{output_behavior_dir}/", # Ulises' functions expect the final slash
@@ -570,7 +535,7 @@ rule annotate_turns:
 
 rule self_touch:
     input:
-        binary_img = f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented_mask.btf"
+        binary_img = f"{output_behavior_dir}/raw_stack_AVG_normalised_worm_segmented_mask.btf"
     params:
         external_area = [7000, 20000],
         internal_area = [100, 2000],
