@@ -1086,8 +1086,9 @@ def make_project_like(project_path: str, target_directory: str,
     assert project_path.endswith('.yaml'), f"Must pass a valid config file: {project_path}"
     assert os.path.exists(project_path), f"Must pass a project that exists: {project_path}"
     assert os.path.exists(target_directory), f"Must pass a folder that exists: {target_directory}"
-
-
+    if steps_to_keep is None:
+        steps_to_keep = []
+        
     target_project_name, old_project_dir = make_project_name_like(project_path, target_directory,
                                                               target_suffix=target_suffix,
                                                               new_project_name=new_project_name,
