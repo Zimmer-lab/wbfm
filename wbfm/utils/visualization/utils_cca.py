@@ -176,69 +176,68 @@ class CCAPlotter:
         Calculate the r-squared of reconstruction using either PCA or CCA
 
         If use_pca is True and use_behavior is True, then we use the PCA latent space from the neurons to reconstruct the behaviors
+        In any case (pca or cca), the neuronal latent space is used to reconstruct; only the target space changes
         """
         if isinstance(n_components, list):
             all_r_squared, r_squared_per_row = {}, {}
             for i in n_components:
                 all_r_squared[i], r_squared_per_row[i] = self.calc_r_squared(use_pca, i, use_behavior=use_behavior, **kwargs)
             return all_r_squared, r_squared_per_row
-        # First, calculate the reconstruction
+        
+        # First, get the target to reconstruct
         if use_behavior:
             binary_behaviors = kwargs.get('binary_behaviors', False)
-            X = self._get_beh_df(binary_behaviors=binary_behaviors, raw_not_truncated=True)
+            y = self._get_beh_df(binary_behaviors=binary_behaviors, raw_not_truncated=True)
         else:
-            X = self._df_traces  # Use the non-truncated traces
-
+            y = self._df_traces  # Use the non-truncated traces
+        
+        # Second, get the latent space to reconstruct from, and use linear regression to reconstruct
         if use_pca:
-            # See calc_pca_modes; use the main project class
-
             if use_behavior:
                 # Get the PCA modes from the neuronal activity
                 X_r, _ = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, **self.trace_kwargs)
                 # Transform the neuronal PCA modes to behavior space using linear regression
-                reg = LinearRegression().fit(X_r, X)
-                X_r_recon = reg.predict(X_r)
+                reg = LinearRegression().fit(X_r, y)
+                y_r_recon = reg.predict(X_r)
 
             else:
                 # Just reconstruct the traces
                 pipe = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, 
                                                         return_pca_object=True, **self.trace_kwargs)
-                X_r_recon = pipe.inverse_transform(pipe.fit_transform(X))
+                y_r_recon = pipe.inverse_transform(pipe.fit_transform(y))
 
-            # pipe = Pipeline([
-            #     ('subtract_mean', StandardScaler(with_mean=True, with_std=False)),
-            #     ('pca', PCA(n_components=n_components, whiten=False))
-            # ])
-            # X_r_recon = pipe.inverse_transform(pipe.fit_transform(X))
         else:
-            X_r_recon, Y_r_recon = self.calc_cca_reconstruction(n_components=n_components, **kwargs)
-            if use_behavior:
-                # Binary behaviors are not transformed using PCA
-                binary_behaviors = kwargs.get('binary_behaviors', False)
-                if self.preprocess_behavior_using_pca and not binary_behaviors:
-                    # Transform the reconstructed behaviors back to the original space
-                    Y_r_recon = self._pca_beh.inverse_transform(Y_r_recon)
-                # Later, only X is used
-                X_r_recon = Y_r_recon
-            else:
-                if self.preprocess_traces_using_pca:
-                    # Transform the reconstructed traces back to the original space
-                    X_r_recon = self._pca_traces.inverse_transform(X_r_recon)
+            # Only use the neuronal latent space to reconstruct
+            X_r_recon, _ = self.calc_cca_reconstruction(n_components=n_components, **kwargs)
+            reg = LinearRegression().fit(X_r_recon, y)
+            y_r_recon = reg.predict(X_r_recon)
+            # if use_behavior:
+            #     # Binary behaviors are not transformed using PCA
+            #     binary_behaviors = kwargs.get('binary_behaviors', False)
+            #     if self.preprocess_behavior_using_pca and not binary_behaviors:
+            #         # Transform the reconstructed behaviors back to the original space
+            #         Y_r_recon = self._pca_beh.inverse_transform(Y_r_recon)
+            #     # Later, only X is used
+            #     X_r_recon = Y_r_recon
+            # else:
+            #     if self.preprocess_traces_using_pca:
+            #         # Transform the reconstructed traces back to the original space
+            #         X_r_recon = self._pca_traces.inverse_transform(X_r_recon)
 
         # Then, calculate the r-squared (either behavior or traces)
-        residual_variance = (X - X_r_recon).var().sum()
-        total_variance = X.var().sum()
+        residual_variance = (y - y_r_recon).var().sum()
+        total_variance = y.var().sum()
         r_squared = 1 - residual_variance / total_variance
 
         # Also calculate the variance explained per row
-        residual_variance_per_row = (X - X_r_recon).var(axis=0)
-        total_variance_per_row = X.var(axis=0)
+        residual_variance_per_row = (y - y_r_recon).var(axis=0)
+        total_variance_per_row = y.var(axis=0)
         r_squared_per_row = 1 - residual_variance_per_row / total_variance_per_row
         if DEBUG:
             print(f"Settings: binary_behaviors={kwargs.get('binary_behaviors', False)}, use_pca={use_pca}, n_components={n_components}")
             print(f"total_variance_per_row: {total_variance_per_row}")
             print(f"residual_variance_per_row: {residual_variance_per_row}")
-            print(f"mean per row: {X.mean(axis=0)}")
+            print(f"mean per row: {y.mean(axis=0)}")
             print(f"mean reconstruction per row: {X_r_recon.mean(axis=0)}")
 
         return r_squared, r_squared_per_row
