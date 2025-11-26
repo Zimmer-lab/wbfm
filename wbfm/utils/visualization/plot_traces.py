@@ -7,6 +7,7 @@ from typing import Optional, Union, Callable, List
 import pandas as pd
 from matplotlib.colors import TwoSlopeNorm
 import numpy as np
+import plotly
 import scipy.io
 from sklearn.decomposition import PCA
 
@@ -16,7 +17,7 @@ from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes, options_
 from wbfm.utils.external.custom_errors import NoNeuronsError, NoBehaviorAnnotationsError
 from wbfm.utils.external.utils_matplotlib import get_twin_axis
 from wbfm.utils.external.utils_neuron_names import int2name_neuron, name2int_neuron_and_tracklet
-from wbfm.utils.external.utils_pandas import cast_int_or_nan
+from wbfm.utils.external.utils_pandas import cast_int_or_nan, combine_columns_with_suffix
 from matplotlib import transforms, pyplot as plt
 from matplotlib.ticker import NullFormatter, MultipleLocator
 from tqdm.auto import tqdm
@@ -1414,10 +1415,10 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
                         row_heights=row_heights, vertical_spacing=0.02,
                         #subplot_titles=subplot_titles
                         )
-    fig.update_layout(
-        width=800,
-        height=600
-    )
+    # fig.update_layout(
+    #     width=800,
+    #     height=600
+    # )
 
     for opt in ethogram_opt:
         fig.add_shape(**opt, row=2, col=1)
@@ -2282,3 +2283,82 @@ def _make_trajectory_plot(project_data, **kwargs):
                              ))
 
     return phase_plot_list
+
+
+def plot_stacked_neurons(project, neurons_to_plot: list, show_full=False, x_range=None, 
+                         cmap = plotly.colors.qualitative.D3, to_show=True, trace_opt=None, **beh_kwargs):
+    """
+    Plot stacked neuron traces, with the ability to combine left/right and dorsal/ventral pairs. In that case, the right/ventral name should be passed first.
+    If a neuron is missing, it's color will be skipped to match colors across datasets with incomplete IDs.
+
+    Example:
+    neurons_to_plot = ['RID', 
+                   'BAGR', 'BAGL', 
+                   'RMEV', 'RMED', 
+                   'AVAR', 'AVAL', ]
+    """
+    if trace_opt is None:
+        trace_opt = dict()
+    opt = dict(interpolate_nan=False, min_nonnan=0, rename_neurons_using_manual_ids=True, manual_id_confidence_threshold = 0,
+               use_paper_options=True)
+    opt.update(trace_opt)
+    df = project.calc_default_traces(**opt)
+
+    df_combined = combine_columns_with_suffix(df.copy(), suffixes=['R', 'L'])
+
+    trace_list, trace_opt_list, neurons_plotted = [], [], []
+    i_row = 0
+    for i_trace, col in enumerate(neurons_to_plot):
+        if col in df:
+            y = df[col].copy()
+        elif col in df_combined:
+            y = df_combined[col].copy()
+        else:
+            # Make a dummy time series so that the offsets are the same
+            y = pd.Series(np.nan, index=df.index)
+
+        if col == "RID" or not col.endswith(('L', 'D')):
+            # Increment rows; 'L' and 'D' rows are plotted on top of their partner
+            i_row += 1
+
+            if col.endswith('R'):
+                neurons_plotted.append(col.replace('R', 'L/R'))
+            elif col.endswith('V'):
+                neurons_plotted.append(col.replace('V', 'V/D'))
+            else:
+                neurons_plotted.append(col)
+
+        trace_list.append(go.Scatter(y=y, x=y.index, showlegend=False, line=dict(color=cmap[i_trace%len(cmap)], width=2)))
+        trace_opt_list.append(dict(row=i_row, col=1, secondary_y=False))
+    
+    fig = make_subplots(rows=i_row, cols=1, shared_xaxes=True, shared_yaxes=False,
+                        # row_heights=row_heights, column_widths=column_widths,
+                        horizontal_spacing=0.04, vertical_spacing=0.0)
+    
+    for trace, trace_opt in zip(trace_list, trace_opt_list):
+        fig.add_trace(trace, **trace_opt)
+    
+    ### Final updates
+    apply_figure_settings(fig, width_factor=0.3, height_factor=0.3, plotly_not_matplotlib=True)
+    # Remove ticks
+    if not show_full:
+        fig.update_xaxes(range=[0, 300])
+    fig.update_xaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True, matches='x')
+    fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True)
+
+    fig.update_xaxes(dict(showticklabels=True, title='Time (seconds)'), row=i_row, col=1, overwrite=True, )
+    # Remove black lines for all but bottom subplot
+    for i in range(i_row):
+        if i < i_row-1:
+            fig.update_xaxes(showline=False, row=i+1, overwrite=True)
+        fig.update_yaxes(title=neurons_plotted[i], row=i+1, overwrite=True)
+    
+    project.shade_axis_using_behavior(plotly_fig=fig, **beh_kwargs)
+
+    if x_range is not None:
+        fig.update_xaxes(dict(range=x_range), overwrite=True)
+        
+    if to_show:
+        fig.show()
+
+    return fig
