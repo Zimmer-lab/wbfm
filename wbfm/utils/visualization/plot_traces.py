@@ -2286,9 +2286,11 @@ def _make_trajectory_plot(project_data, **kwargs):
 
 
 def plot_stacked_neurons(project, neurons_to_plot: list, show_full=False, x_range=None, 
-                         cmap = plotly.colors.qualitative.D3, to_show=True, trace_opt=None, **beh_kwargs):
+                         cmap = plotly.colors.qualitative.D3, to_show=True, trace_opt=None, DEBUG=False, **beh_kwargs):
     """
-    Plot stacked neuron traces, with the ability to combine left/right and dorsal/ventral pairs. In that case, the right/ventral name should be passed first.
+    Plot stacked neuron traces, with the ability to combine pairs in two different ways:
+    1. If the basename is given (e.g. AVA, not AVAL or AVAR), then the average of left and right is plotted
+    2. If a list is passed, then that list is plotted on top. In this case the row label is the combined strings
     If a neuron is missing, it's color will be skipped to match colors across datasets with incomplete IDs.
 
     Example:
@@ -2306,32 +2308,55 @@ def plot_stacked_neurons(project, neurons_to_plot: list, show_full=False, x_rang
 
     df_combined = combine_columns_with_suffix(df.copy(), suffixes=['R', 'L'])
 
-    trace_list, trace_opt_list, neurons_plotted = [], [], []
-    i_row = 0
-    for i_trace, col in enumerate(neurons_to_plot):
+    def _get_y_from_colname(col):
         if col in df:
             y = df[col].copy()
         elif col in df_combined:
             y = df_combined[col].copy()
         else:
             # Make a dummy time series so that the offsets are the same
-            y = pd.Series(np.nan, index=df.index)
-
-        if col == "RID" or not col.endswith(('L', 'D')):
-            # Increment rows; 'L' and 'D' rows are plotted on top of their partner
-            i_row += 1
-
-            if col.endswith('R'):
-                neurons_plotted.append(col.replace('R', 'L/R'))
-            elif col.endswith('V'):
-                neurons_plotted.append(col.replace('V', 'V/D'))
-            else:
-                neurons_plotted.append(col)
-
-        trace_list.append(go.Scatter(y=y, x=y.index, showlegend=False, line=dict(color=cmap[i_trace%len(cmap)], width=2)))
-        trace_opt_list.append(dict(row=i_row, col=1, secondary_y=False))
+            y = None
+        return y
     
-    fig = make_subplots(rows=i_row, cols=1, shared_xaxes=True, shared_yaxes=False,
+    def _get_rowname_from_colname(col):
+        if isinstance(col, list):
+            if len(col) == 2 and col[0].endswith('R') and col[1].endswith('L'):
+                return col[0][:-1] + 'R/L'
+            elif len(col) == 2 and col[0].endswith('V') and col[1].endswith('D'):
+                return col[0][:-1] + 'V/D'
+            else:
+                return '/'.join(col)
+        else:
+            return col
+    
+    trace_list, trace_opt_list, row_names = [], [], []
+    def _add_trace_for_col(col, i_traces, i_row):
+        y = _get_y_from_colname(col)
+        if y is None:
+            return False
+        trace = go.Scatter(y=y, x=y.index, showlegend=DEBUG, name=_get_rowname_from_colname(col), 
+                           line=dict(color=cmap[i_traces%len(cmap)], width=2))
+        trace_opt = dict(row=i_row, col=1, secondary_y=False)
+        if DEBUG:
+            print(f'Adding trace for {col} at row {i_row} with color {cmap[i_traces%len(cmap)]} (color index {i_traces%len(cmap)})')
+        # Modify directly in this function
+        trace_list.append(trace)
+        trace_opt_list.append(trace_opt)
+        return True
+
+    i_trace = 0
+    for i_row, col in enumerate(neurons_to_plot):
+        if isinstance(col, list):
+            for c in col:
+                actually_added = _add_trace_for_col(c, i_trace, i_row+1)
+                i_trace += 1
+        else:
+            actually_added = _add_trace_for_col(col, i_trace, i_row+1)
+            i_trace += 1
+        # Build row name from either list or string directly
+        row_names.append(_get_rowname_from_colname(col))
+    print(row_names)
+    fig = make_subplots(rows=i_row+1, cols=1, shared_xaxes=True, shared_yaxes=False,
                         # row_heights=row_heights, column_widths=column_widths,
                         horizontal_spacing=0.04, vertical_spacing=0.0)
     
@@ -2346,12 +2371,27 @@ def plot_stacked_neurons(project, neurons_to_plot: list, show_full=False, x_rang
     fig.update_xaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True, matches='x')
     fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True)
 
-    fig.update_xaxes(dict(showticklabels=True, title='Time (seconds)'), row=i_row, col=1, overwrite=True, )
+    fig.update_xaxes(dict(showticklabels=True, title='Time (seconds)'), row=i_row+1, col=1, overwrite=True, )
     # Remove black lines for all but bottom subplot
-    for i in range(i_row):
-        if i < i_row-1:
-            fig.update_xaxes(showline=False, row=i+1, overwrite=True)
-        fig.update_yaxes(title=neurons_plotted[i], row=i+1, overwrite=True)
+    for i in range(i_row+1):
+        fig.update_xaxes(showline=True, linecolor='black', row=i+1, overwrite=True)
+        # if i < i_row+1:
+        #     fig.update_xaxes(showline=False, row=i+1, overwrite=True)
+        #     if DEBUG:
+        #         print(f'Removed x axis line for row {i+1}')
+        fig.update_yaxes(title=row_names[i], row=i+1, overwrite=True)
+
+    if DEBUG:
+        # Add title to legend
+        fig.update_layout(
+            legend=dict(
+                title=dict(text='Example<br>neurons', font=dict(size=14)),
+                # yanchor="top",
+                # y=1,
+                # xanchor="left",
+                # x=1.02
+            )
+        )
     
     project.shade_axis_using_behavior(plotly_fig=fig, **beh_kwargs)
 

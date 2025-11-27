@@ -1025,7 +1025,7 @@ def plot_foldchange_boxes(
             )
     # X ticks
     # xtick_positions = [xi * (bw + behavior_hspace) + bw / 2.0 for xi in range(n_beh)]
-    print(xtick_positions)
+    # print(xtick_positions)
     if 'sub' in xtick_positions:
         ax.set_xticks(xtick_positions['sub'])
         ax.set_xticklabels(xtick_labels['sub'])
