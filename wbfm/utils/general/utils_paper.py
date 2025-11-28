@@ -319,6 +319,10 @@ def behavior_name_mapping(shorten=False):
         eigenworm_1='Eigenworm 2',
         eigenworm_2='Eigenworm 3',
         eigenworm_3='Eigenworm 4',
+        eigenworm0='Eigenworm 1',
+        eigenworm1='Eigenworm 2',
+        eigenworm2='Eigenworm 3',
+        eigenworm3='Eigenworm 4',
     )
     if shorten:
         name_mapping = {k: v.replace(' curvature', '') for k, v in name_mapping.items()}
@@ -1080,7 +1084,7 @@ def plot_foldchange_boxes(
     sm.set_array(all_values)
     cbar = fig.colorbar(sm, ax=ax, fraction=0.06, pad=0.03)
     cbar_label = "Signed -log10(adj p-value)" if use_pval_log10 else value_col.replace("_", " ").title()
-    cbar.set_label(cbar_label,fontsize=16)
+    cbar.set_label(cbar_label,fontsize=10)
 
     # --- Modify colorbar tick labels if clipping happened ---
     ticks = cbar.get_ticks()
