@@ -221,21 +221,21 @@ def load_paper_datasets(genotype: Union[str, list] = 'gcamp', require_behavior=F
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-12_immob'
         good_projects.update(load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs))
     elif genotype == 'hannah_O2_fm':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/zeillinger/wbfm_projects/analyze/freely_moving_wt'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/freely_moving_wt'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/zeillinger/wbfm_projects/analyze/IM_to_FM_freely_moving'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/IM_to_FM_freely_moving'
         good_projects.update(load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs))
     elif genotype == 'hannah_O2_immob':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/zeillinger/wbfm_projects/analyze/immobilized_wt'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/immobilized_wt'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif genotype == 'itamar_O2_immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immob_wbfm_o2'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif genotype == 'hannah_O2_fm_mutant' or genotype == 'mutant':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/zeillinger/wbfm_projects/analyze/freely_moving_mutant'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/freely_moving_mutant'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif genotype == 'hannah_O2_immob_mutant' or genotype == 'immob_mutant_o2':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/zeillinger/wbfm_projects/analyze/immobilized_mutant'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/immobilized_mutant'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif genotype == 'O2_hiscl' or genotype == 'immob_o2_hiscl':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/muscle_hiscl_o2_stimulation'
