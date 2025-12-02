@@ -1867,8 +1867,6 @@ class WormFullVideoPosture:
         if raw_behavior_subfolder is not None:
             all_files = WormFullVideoPosture._check_ulises_pipeline_files_in_subfolder(raw_behavior_subfolder)
         else:
-            project_config.logger.warning("behavior_fname search failed; "
-                                          "All calculations with curvature (kymograph) will fail")
             all_files = dict()
 
         # In newer projects, the behavior output files will be local, not mixed with the raw data

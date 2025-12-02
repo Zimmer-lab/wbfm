@@ -828,9 +828,9 @@ def add_figure_panel_references_to_df(df):
 
 if __name__ == '__main__':
     # Generate the paper plots for the main paper projects
-    all_projects_gcamp = load_paper_datasets(genotype=['gcamp', 'hannah_O2_fm'])
-    all_projects_gfp = load_paper_datasets(genotype=['gfp', 'hannah_O2_fm'])
-    all_projects_immob = load_paper_datasets(genotype=['immob'])
+    all_projects_gcamp = load_paper_datasets(data_type=['gcamp', 'hannah_O2_fm'])
+    all_projects_gfp = load_paper_datasets(data_type=['gfp', 'hannah_O2_fm'])
+    all_projects_immob = load_paper_datasets(data_type=['immob'])
 
     for project_dict in [all_projects_immob, all_projects_gcamp, all_projects_gfp]:
         for project_name, project_data in tqdm(project_dict.items()):

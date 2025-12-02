@@ -153,7 +153,7 @@ def load_all_data_as_dataframe():
     return pd.concat(all_data)
 
 
-def load_paper_datasets(genotype: Union[str, list] = 'gcamp', require_behavior=False, only_load_paths=False,
+def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=False, only_load_paths=False,
                         **kwargs) -> dict:
     """
 
@@ -173,23 +173,23 @@ def load_paper_datasets(genotype: Union[str, list] = 'gcamp', require_behavior=F
     """
     from wbfm.utils.projects.finished_project_data import load_all_projects_from_list, load_all_projects_in_folder
 
-    if isinstance(genotype, str):
-        if genotype == '':
+    if isinstance(data_type, str):
+        if data_type == '':
             # Load default gcamp paper projects
-            genotype = ['gcamp', 'hannah_O2_fm']
-        elif genotype == 'immob_o2':
+            data_type = ['gcamp', 'hannah_O2_fm']
+        elif data_type == 'immob_o2':
             # There are two different folders for this
-            genotype = ['hannah_O2_immob', 'itamar_O2_immob']
+            data_type = ['hannah_O2_immob', 'itamar_O2_immob']
 
-    if isinstance(genotype, list):
+    if isinstance(data_type, list):
         good_projects = {}
-        for this_genotype in genotype:
+        for this_genotype in data_type:
             good_projects.update(load_paper_datasets(this_genotype, require_behavior=require_behavior,
                                                      only_load_paths=only_load_paths, **kwargs))
         return good_projects
 
     # Build a dictionary of all
-    if genotype == 'gcamp':
+    if data_type == 'gcamp':
         folder_and_id_dict = {
             "2022-11-23_spacer_7b_2per_agar": [8, 9, 10, 11, 12],
             "2022-11-27_spacer_7b_2per_agar": [1, 3, 4, 5, 6],
@@ -200,7 +200,7 @@ def load_paper_datasets(genotype: Union[str, list] = 'gcamp', require_behavior=F
         list_of_all_projects = _resolve_project_from_worm_id(folder_and_id_dict)
 
         good_projects = load_all_projects_from_list(list_of_all_projects, only_load_paths=only_load_paths, **kwargs)
-    elif genotype == 'gcamp_good':
+    elif data_type == 'gcamp_good':
         # Determined by looking at the data and deciding which ones are good
         folder_and_id_dict = {
             "2022-11-27_spacer_7b_2per_agar": [1, 3, 5, 6],
@@ -210,38 +210,53 @@ def load_paper_datasets(genotype: Union[str, list] = 'gcamp', require_behavior=F
         }
         list_of_all_projects = _resolve_project_from_worm_id(folder_and_id_dict)
         good_projects = load_all_projects_from_list(list_of_all_projects, only_load_paths=only_load_paths, **kwargs)
-    elif genotype == 'gfp':
+    elif data_type == 'gfp':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-10_spacer_7b_2per_agar_GFP'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
-    elif genotype == 'immob':
+    elif data_type == 'immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-03_immob_adj_settings_2'
         require_behavior = False  # No annotation of behavior here
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
         # Second folder, which extends above dictionary
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-12_immob'
         good_projects.update(load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs))
-    elif genotype == 'hannah_O2_fm':
+    elif data_type == 'hannah_O2_fm':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/freely_moving_wt'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/IM_to_FM_freely_moving'
         good_projects.update(load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs))
-    elif genotype == 'hannah_O2_immob':
+    elif data_type == 'hannah_O2_immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/immobilized_wt'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
-    elif genotype == 'itamar_O2_immob':
+    elif data_type == 'itamar_O2_immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immob_wbfm_o2'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
-    elif genotype == 'hannah_O2_fm_mutant' or genotype == 'mutant':
+    elif data_type == 'hannah_O2_fm_mutant' or data_type == 'mutant':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/freely_moving_mutant'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
-    elif genotype == 'hannah_O2_immob_mutant' or genotype == 'immob_mutant_o2':
+    elif data_type == 'hannah_O2_immob_mutant' or data_type == 'immob_mutant_o2':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/immobilized_mutant'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
-    elif genotype == 'O2_hiscl' or genotype == 'immob_o2_hiscl':
+    elif data_type == 'O2_hiscl' or data_type == 'immob_o2_hiscl':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/muscle_hiscl_o2_stimulation'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
-    else:
+    elif data_type == '505_488_505_fm':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505'
+        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
+    elif data_type == '488_505_488_fm':
         raise NotImplementedError
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505'
+        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
+    elif data_type == '505_488_505_immob':
+        raise NotImplementedError
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505_finished'
+        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
+    elif data_type == '488_505_488_immob':
+        raise NotImplementedError
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505_finished'
+        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
+    else:
+        raise NotImplementedError(f"Data type {data_type} not recognized for paper datasets")
 
     if require_behavior and not only_load_paths:
         print("Filtering out projects without behavior")
