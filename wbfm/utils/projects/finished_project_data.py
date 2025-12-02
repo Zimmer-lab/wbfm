@@ -2,10 +2,12 @@ import concurrent
 import logging
 import shutil
 from collections import defaultdict
-
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
-
+from copy import copy
+from typing import Sequence, List, Optional
+import numpy as np
+import dask.array as da
 from wbfm.utils.external.utils_pandas import combine_columns_with_suffix
 
 import tables
@@ -2955,3 +2957,255 @@ def rename_manual_ids_from_excel_in_project(project_data: ProjectData, dryrun=Fa
         project_data.data_cacher.rename_columns_in_existing_cached_dataframes(previous2new)
     else:
         print(f"Modifications to be made: {[(k, v) for k, v in previous2new.items() if k!=v]}")
+
+
+def get_time_length_from_object(obj) -> Optional[int]:
+    if hasattr(obj, "num_frames"):
+        val = getattr(obj, "num_frames")
+        if val is not None:
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                print(f"get_time_length_from_object: num_frames present but not coercible to int ({val})")
+    for v in vars(obj).values():
+        if isinstance(v, (pd.DataFrame, pd.Series)):
+            return len(v)
+        if isinstance(v, np.ndarray) and getattr(v, "ndim", 0) > 0:
+            return int(v.shape[0])
+        # dask arrays have tuple-like shape
+        if hasattr(v, "shape") and isinstance(getattr(v, "shape"), tuple) and len(v.shape) > 0:
+            try:
+                return int(v.shape[0])
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def slice_time_like_object(
+    obj,
+    start: int,
+    stop: int,
+    T: int = None,
+    copy_obj: bool = True,
+    load_cached: bool = False,
+    verbose: bool = False,
+    reference_T: Optional[int] = None,
+    allow_rate_conversion: bool = False,
+    off_by_one_tolerance: int = 1
+):
+    """
+    Return a (shallow) copy of obj where time-major attributes (DataFrame/Series, ndarray, dask.Array)
+    whose length/shape[0] == T (or inferable) are sliced to [start:stop].
+
+    Behavior specifics:
+    - If T is None it will be inferred.
+    - If reference_T is provided and allow_rate_conversion=True, start/stop are interpreted
+      in the reference timebase and will be mapped to the object's timebase.
+    - Fields whose length differs from T by <= off_by_one_tolerance are still sliced but a
+      message will be printed in verbose mode.
+    - load_cached=True will attempt to materialize properties/cached-properties before slicing.
+    """
+    new_obj = copy(obj) if copy_obj else obj
+
+    # materialize only known descriptors if requested
+    if load_cached:
+        cls_dict = getattr(obj.__class__, "__dict__", {})
+        for nm, descriptor in cls_dict.items():
+            is_property = isinstance(descriptor, property)
+            is_cached_prop = descriptor.__class__.__name__.lower().endswith("cached_property")
+            if not (is_property or is_cached_prop):
+                continue
+            try:
+                getattr(obj, nm)
+            except (AttributeError, TypeError, NoBehaviorAnnotationsError) as e:
+                if verbose:
+                    print(f"slice_time_like_object: skipping materialization of {obj.__class__.__name__}.{nm}: {e}")
+
+    # infer T if needed
+    if T is None:
+        T = get_time_length_from_object(obj)
+    if T is None:
+        if verbose:
+            print(f"slice_time_like_object: no time-length inferred for {obj.__class__.__name__}; nothing to slice")
+        return new_obj
+
+    # if conversion requested, convert start/stop from reference timebase -> obj timebase
+    if reference_T is not None and allow_rate_conversion:
+        obj_T = get_time_length_from_object(obj)
+        if obj_T is None:
+            raise RuntimeError(f"Cannot determine target time-length to convert from reference_T={reference_T}")
+        if obj_T == reference_T:
+            mapped_start, mapped_stop = start, stop
+        else:
+            scale = obj_T / float(reference_T)
+            mapped_start = int(round(start * scale))
+            mapped_stop = int(round(stop * scale))
+            if verbose:
+                print(f"slice_time_like_object: converting [{start}:{stop}] (ref T={reference_T}) "
+                      f"-> [{mapped_start}:{mapped_stop}] (obj T={obj_T}), scale={scale:.6f}")
+        # bounds check using obj_T
+        if not (0 <= mapped_start < mapped_stop <= obj_T):
+            raise ValueError(f"Converted slice [{mapped_start}:{mapped_stop}] out of bounds for object length {obj_T}")
+        start_idx, stop_idx, target_T = mapped_start, mapped_stop, obj_T
+    else:
+        # no conversion — operate in object's timebase
+        start_idx, stop_idx, target_T = start, stop, T
+        if not (0 <= start_idx < stop_idx <= target_T):
+            raise ValueError(f"Invalid slice bounds [{start_idx}:{stop_idx}] for inferred length T={target_T}")
+
+    sliced_fields: List[str] = []
+    # iterate only instance attributes
+    for name, val in list(vars(obj).items()):
+        # DataFrame/Series handling
+        if isinstance(val, (pd.DataFrame, pd.Series)):
+            try:
+                val_len = len(val)
+            except TypeError:
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} — len() not supported")
+                continue
+            if val_len == target_T:
+                setattr(new_obj, name, val.iloc[start_idx:stop_idx].copy())
+                sliced_fields.append(name)
+                continue
+            # tolerance handling for off-by-one differences
+            if abs(val_len - target_T) <= off_by_one_tolerance:
+                # cap the stop_idx to available length
+                adj_stop = min(stop_idx, val_len)
+                if verbose:
+                    print(f"slice_time_like_object: field {name} length {val_len} differs from expected {target_T}, "
+                          f"using slice [{start_idx}:{adj_stop}]")
+                setattr(new_obj, name, val.iloc[start_idx:adj_stop].copy())
+                sliced_fields.append(name)
+                continue
+            else:
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} — length {val_len} does not match target {target_T}")
+                continue
+
+        # numpy arrays
+        if isinstance(val, np.ndarray):
+            ndims = getattr(val, "ndim", 0)
+            if ndims == 0 or ndims > 3:
+                continue
+            val_len = val.shape[0]
+            if val_len == target_T:
+                setattr(new_obj, name, val[start_idx:stop_idx].copy())
+                sliced_fields.append(name)
+                continue
+            if abs(val_len - target_T) <= off_by_one_tolerance:
+                adj_stop = min(stop_idx, val_len)
+                if verbose:
+                    print(f"slice_time_like_object: field {name} ndarray length {val_len} differs from {target_T}, "
+                          f"using slice [{start_idx}:{adj_stop}]")
+                setattr(new_obj, name, val[start_idx:adj_stop].copy())
+                sliced_fields.append(name)
+                continue
+            else:
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} ndarray — length {val_len} != target {target_T}")
+                continue
+
+        # dask array / array-like with shape
+        if hasattr(val, "shape") and isinstance(getattr(val, "shape"), tuple) and 3 > len(val.shape) > 0:
+            try:
+                val_len = int(val.shape[0])
+            except (TypeError, ValueError):
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} — non-indexable shape")
+                continue
+            if val_len == target_T:
+                setattr(new_obj, name, val[start_idx:stop_idx])
+                sliced_fields.append(name)
+                continue
+            if abs(val_len - target_T) <= off_by_one_tolerance:
+                adj_stop = min(stop_idx, val_len)
+                if verbose:
+                    print(f"slice_time_like_object: field {name} shape[0]={val_len} differs from {target_T}, using [{start_idx}:{adj_stop}]")
+                setattr(new_obj, name, val[start_idx:adj_stop])
+                sliced_fields.append(name)
+                continue
+            else:
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} — shape[0] {val_len} != target {target_T}")
+                continue
+
+    if verbose:
+        print(f"Sliced {len(sliced_fields)} fields on {obj.__class__.__name__} [{start_idx}:{stop_idx}]: {sliced_fields}")
+
+    return new_obj
+
+
+def split_project_data_in_time(project_data: "ProjectData",
+                               starts_stops: Sequence[tuple],
+                               verbose: bool = False,
+                               convert_posture_to_high_res: bool = True,
+                               off_by_one_tolerance: int = 1) -> List["ProjectData"]:
+    """
+    Split ProjectData into explicit time segments.
+
+    - starts_stops: sequence of (start, stop) tuples defining segments.
+    - convert_posture_to_high_res: if True, maps project's indices to posture timebase when slicing worm_posture_class.
+    - off_by_one_tolerance: tolerate small length mismatches.
+    """
+    if not starts_stops:
+        raise ValueError("starts_stops must be a non-empty sequence of (start, stop) tuples")
+    if not isinstance(starts_stops, (list, tuple)):
+        raise TypeError("starts_stops must be a sequence of (start, stop) tuples")
+
+    T = get_time_length_from_object(project_data)
+    if T is None:
+        raise RuntimeError("Unable to determine canonical time length for splitting")
+
+    segments_spec: List[tuple] = []
+    for seg in starts_stops:
+        if not (isinstance(seg, (list, tuple)) and len(seg) == 2):
+            raise ValueError("Each element of starts_stops must be a (start, stop) tuple")
+        s, e = int(seg[0]), int(seg[1])
+        if s < 0 or e < 0:
+            raise ValueError("start and stop must be non-negative")
+        if s >= e:
+            raise ValueError("start must be strictly less than stop")
+        if e > T:
+            raise ValueError(f"stop index {e} exceeds project length {T}")
+        segments_spec.append((s, e))
+
+    segments: List[ProjectData] = []
+    for start, stop in segments_spec:
+        if verbose:
+            print(f"Creating segment for frames [{start}:{stop}] (project T={T})")
+
+        new_pd = copy(project_data)
+        new_pd = slice_time_like_object(new_pd, start, stop, T=T, copy_obj=False,
+                                        load_cached=False, verbose=verbose,
+                                        reference_T=None, allow_rate_conversion=False,
+                                        off_by_one_tolerance=off_by_one_tolerance)
+
+        posture = getattr(project_data, "worm_posture_class", None)
+        if posture is not None:
+            posture_ref_T = T if convert_posture_to_high_res else None
+            posture_copy = slice_time_like_object(
+                posture,
+                start,
+                stop,
+                T=None,
+                copy_obj=True,
+                load_cached=True,
+                verbose=verbose,
+                reference_T=posture_ref_T,
+                allow_rate_conversion=convert_posture_to_high_res,
+                off_by_one_tolerance=off_by_one_tolerance
+            )
+            setattr(new_pd, "worm_posture_class", posture_copy)
+
+        new_pd.num_frames = stop - start
+        for cache_name in ("_trace_plotter", "data_cacher", "_nwb_io", "_nwb_obj"):
+            if hasattr(new_pd, cache_name):
+                setattr(new_pd, cache_name, None)
+
+        new_pd._custom_frame_indices = list(range(start, stop))
+        segments.append(new_pd)
+
+    return segments
+
+
