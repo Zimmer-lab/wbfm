@@ -1272,3 +1272,26 @@ def compute_xpos_map(df, behavior_col='behavior', sub_behavior_col=None,
     }
     
     return xpos_map, xtick_positions, xtick_labels, behavior_positions, total_width
+
+
+def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per_pixel: float = 100, brightness_threshold: float = 0):
+    total_green = df_green.loc[:, (slice(None), 'intensity_image')].T.sum() - background_per_pixel*df_green.loc[:, (slice(None), 'area')].T.sum()
+    # Get the time points with laser on/off switches, based on negative (near-zero) values after background subtraction
+    is_laser_off = total_green < brightness_threshold
+    # Convert to starts and stops of laser ON periods
+    laser_on_periods = []
+    in_laser_on = False
+    for i in range(len(is_laser_off)):
+        if not is_laser_off.iloc[i] and not in_laser_on:
+            # Laser just turned ON
+            start_idx = i
+            in_laser_on = True
+        elif is_laser_off.iloc[i] and in_laser_on:
+            # Laser just turned OFF
+            end_idx = i
+            laser_on_periods.append((start_idx, end_idx))
+            in_laser_on = False
+    # Handle case where laser is ON until the end
+    if in_laser_on:
+        laser_on_periods.append((start_idx, len(is_laser_off)))
+    return laser_on_periods
