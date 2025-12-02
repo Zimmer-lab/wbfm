@@ -261,7 +261,7 @@ def _do_first_volume2d(frame_list: list, mask_fname: str, num_frames: int,
 def get_volume_using_bbox(all_bounding_boxes: dict, i_volume: int, video_dat: Union[zarr.Array, da.Array]) \
         -> np.ndarray:
     if all_bounding_boxes is None:
-        raise NotImplementedError("Bounding box not found, but will cause significant artifacts")
+        raise NotImplementedError("Bounding box not found; this may cause significant artifacts")
         # volume = video_dat[i_volume, ...]
     else:
         bbox = all_bounding_boxes[i_volume]
@@ -390,7 +390,7 @@ def segment_and_save2d(i, i_volume, masks_zarr, opt_postprocessing,
 
 
 def save_volume_using_bbox(all_bounding_boxes, final_masks, i, i_volume, masks_zarr):
-    if all_bounding_boxes is None:
+    if all_bounding_boxes is None or all_bounding_boxes[i_volume] is None or len(all_bounding_boxes[i_volume]) == 0:
         masks_zarr[i, :, :, :] = final_masks
     else:
         bbox = all_bounding_boxes[i_volume]

@@ -106,7 +106,7 @@ def build_digraph_from_matches(pairwise_matches,
 
 def calc_bipartite_from_candidates(all_candidate_matches, min_confidence_after_sum=1e-3, verbose=0,
                                    min_confidence_before_sum=1e-3,
-                                   apply_tanh_to_confidence=True):
+                                   apply_tanh_to_confidence=True, DEBUG=False):
     """
     Sparse version of calc_bipartite_from_distance
 
@@ -136,6 +136,8 @@ def calc_bipartite_from_candidates(all_candidate_matches, min_confidence_after_s
     for i0, i1, conf in all_candidate_matches:
         if conf > min_confidence_before_sum:
             conf_matrix[int(i0), int(i1)] += conf
+        elif conf > 0 and DEBUG:
+            print(f"Discarding candidate match ({int(i0)}, {int(i1)}) with low confidence ({conf})")
 
     # Note: bipartite matching is very sensitive to outliers
     conf_matrix = np.where(conf_matrix < min_confidence_after_sum, 0.0, conf_matrix)
@@ -151,6 +153,11 @@ def calc_bipartite_from_candidates(all_candidate_matches, min_confidence_after_s
     else:
         conf = np.array([conf_matrix[i0, i1] for i0, i1 in matches])
     to_keep = conf > min_confidence_after_sum
+    if DEBUG:
+        print(f"Keeping {np.sum(to_keep)} matches out of {len(matches)}")
+        print("Discarding: ")
+        for m, c in zip(matches[~to_keep], conf[~to_keep]):
+            print(f" - Match {m} with confidence {c}")
     matches = matches[to_keep]
     conf = conf[to_keep]
 

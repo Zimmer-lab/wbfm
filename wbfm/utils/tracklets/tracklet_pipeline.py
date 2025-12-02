@@ -9,15 +9,16 @@ import numpy as np
 import pandas as pd
 
 from wbfm.utils.neuron_matching.class_frame_pair import FramePair, FramePairOptions
-from wbfm.utils.nn_utils.superglue import SuperGlueUnpacker
-from wbfm.utils.nn_utils.worm_with_classifier import WormWithSuperGlueClassifier
-from wbfm.utils.segmentation.util.utils_metadata import DetectedNeurons
+from wbfm.utils.nn_utils.superglue import SuperGlueUnpackerWithTemplate
+from wbfm.utils.nn_utils.worm_with_classifier import PostprocessedFeatureSpaceTemplateMatcher, SuperGlueFullVideoTrackerWithTemplate
+from wbfm.utils.neuron_matching.utils_candidate_matches import fit_umap_using_frames
 
 from wbfm.utils.neuron_matching.feature_pipeline import match_all_adjacent_frames
 from wbfm.utils.projects.finished_project_data import ProjectData
 from wbfm.utils.external.utils_neuron_names import name2int_neuron_and_tracklet, int2name_tracklet
 from wbfm.utils.general.high_performance_pandas import delete_tracklets_using_ground_truth, PaddedDataFrame, \
     get_names_from_df, check_if_heterogenous_columns, get_next_name_generator, split_multiple_tracklets
+from wbfm.utils.segmentation.util.utils_metadata import DetectedNeurons
 from wbfm.utils.tracklets.tracklet_class import TrackedWorm
 from wbfm.utils.tracklets.utils_tracklets import build_tracklets_dfs, \
     remove_tracklets_from_dictionary_without_database_match
@@ -44,12 +45,6 @@ def match_all_adjacent_frames_using_config(project_config: ModularProjectConfig,
     project_data = ProjectData.load_final_project_data_from_config(project_config)
     project_config.logger.info(f"Matching frames (pairwise)")
 
-    # Check for previously produced intermediate products
-    raw_fname = training_config.resolve_relative_path(os.path.join('raw', 'clust_df_dat.pickle'),
-                                                      prepend_subfolder=True)
-    # if os.path.exists(raw_fname):
-    #     raise FileExistsError(f"Found old raw data at {raw_fname}; either rename or skip this step to reuse")
-
     # Load the previous step
     all_frame_dict = project_data.raw_frames
 
@@ -63,7 +58,10 @@ def match_all_adjacent_frames_using_config(project_config: ModularProjectConfig,
     if frame_pair_options.use_superglue:
         all_frame_pairs = build_frame_pairs_using_superglue(all_frame_dict, frame_pair_options, project_data)
     else:
-        all_frame_pairs = match_all_adjacent_frames(all_frame_dict, end_volume, frame_pair_options, start_volume)
+        # Use UMAP embedding by default
+        umap = fit_umap_using_frames(all_frame_dict)
+        all_matcher_dict = {k: PostprocessedFeatureSpaceTemplateMatcher(template_frame=v, postprocesser=umap.transform) for k, v in all_frame_dict.items()}
+        all_frame_pairs = match_all_adjacent_frames(all_matcher_dict, start_volume, end_volume, frame_pair_options, use_tracker_class=True)
 
     with safe_cd(project_config.project_dir):
         _save_matches_and_frames(all_frame_dict, all_frame_pairs, training_config)
@@ -82,8 +80,8 @@ def build_frame_pairs_using_superglue(all_frame_dict, frame_pair_options, projec
     else:
         raise FileNotFoundError(superglue_path)
 
-    superglue_unpacker = SuperGlueUnpacker(project_data=project_data)
-    tracker = WormWithSuperGlueClassifier(superglue_unpacker=superglue_unpacker, path_to_model=path_to_model)
+    superglue_unpacker = SuperGlueUnpackerWithTemplate(project_data=project_data)
+    tracker = SuperGlueFullVideoTrackerWithTemplate(superglue_unpacker=superglue_unpacker, path_to_model=path_to_model)
     num_frames = project_data.num_frames - 1
     all_frame_pairs = {}
     for t in tqdm(range(num_frames)):
@@ -91,8 +89,8 @@ def build_frame_pairs_using_superglue(all_frame_dict, frame_pair_options, projec
         frame_pair = FramePair(options=frame_pair_options, frame0=frame0, frame1=frame1)
         if frame_pair.check_both_frames_valid():
             # Use new method to match
-            matches_with_conf = tracker.match_two_time_points(t, t + 1)
-            frame_pair.feature_matches = matches_with_conf
+            matches_class = tracker.match_two_time_points(t, t + 1)
+            frame_pair.feature_matches = matches_class.array_matches_with_conf.tolist()
             # Explicitly load data to prevent frame class using original video path
             dat0, dat1 = project_data.red_data[t], project_data.red_data[t+1]
             frame_pair.load_raw_data(dat0, dat1)
@@ -133,10 +131,10 @@ def save_all_tracklets(df, df_multi_index_format, training_config):
         training_config.pickle_data_in_local_project(df_multi_index_format, out_fname, custom_writer=pd.to_pickle)
 
 
-def _unpack_config_for_tracklets(training_config, segmentation_config):
+def unpack_config_for_tracklets(training_config, segmentation_config):
     params = training_config.config['pairwise_matching_params']
-    z_threshold = params['z_threshold']
-    min_confidence = params['min_confidence']
+    z_threshold = params.get('z_threshold', None)
+    min_confidence = params.get('min_confidence', 0.1)
     # matching_method = params['matching_method']
 
     fname = os.path.join('raw', 'match_dat.pickle')
@@ -180,10 +178,7 @@ def _unpack_config_frame2frame_matches(project_data, training_config, DEBUG):
 
     video_fname = preprocessing_class.get_path_to_preprocessed_data(red_not_green=True)
 
-    metadata_fname = tracker_params['external_detections']
-    tracker_params['external_detections'] = training_config.resolve_relative_path(metadata_fname)
-
-    track_on_green_channel = project_config.config['dataset_params']['segment_and_track_on_green_channel']
+    track_on_green_channel = project_config.config['dataset_params'].get('segment_and_track_on_green_channel', False)
 
     return video_fname, tracker_params, frame_pair_options, track_on_green_channel
 

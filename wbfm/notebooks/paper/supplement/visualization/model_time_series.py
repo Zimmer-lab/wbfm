@@ -54,7 +54,7 @@ def load_all_traces(foldername):
                 pass
     return all_traces
 
-parent_folder = '/lisc/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling'
+parent_folder = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling'
 # suffix = '_only_eigenworms'
 # suffix = '_eigenworms34_speed'
 # suffix = ''

@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Clean and run the integration test, i.e. a shortened dataset
-DATA_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/test_data/immobilized/2024-04-23_19-11_worm13_7b_short_test"
-PARENT_PROJECT_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/test_projects/immobilized"
-CODE_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
+DATA_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/test_data/immobilized/2024-04-23_19-11_worm13_7b_short_test"
+PARENT_PROJECT_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/test_projects/immobilized"
+CODE_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
 
 # Remove project if it exists
 PROJECT_PATH=$PARENT_PROJECT_DIR/"pytest-2024-04-23"

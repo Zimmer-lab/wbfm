@@ -3,7 +3,7 @@ import os
 
 from ruamel.yaml import YAML
 from wbfm.utils.external.custom_errors import NoBehaviorDataError, RawDataFormatError
-from wbfm.utils.projects.project_config_classes import ModularProjectConfig
+from wbfm.utils.projects.finished_project_data import ProjectData
 import snakemake
 
 from wbfm.utils.general.hardcoded_paths import load_hardcoded_neural_network_paths
@@ -21,7 +21,8 @@ if not snakemake.__version__.startswith("7.32"):
     logging.warning(f"Note: this pipeline is only tested on snakemake version 7.32.X, but found {snakemake.__version__}")
 
 # Load the folders needed for the behavioral part of the pipeline
-project_config = ModularProjectConfig(project_cfg_fname)
+project_data = ProjectData.load_final_project_data(project_cfg_fname, allow_hybrid_loading=True)
+project_config = project_data.project_config
 output_visualization_directory = project_config.get_visualization_config().absolute_subfolder
 
 try:
@@ -79,6 +80,7 @@ def _cleanup_helper(output_path):
 # Note that branch was only added in version 8+ of snakemake, which requires python 3.9 for 8.0 and 3.11 for others :(
 
 # Alternate: function to split the branches
+# Note that this is needed instead of ruleorder because the output files are different
 # https://stackoverflow.com/questions/40510347/can-snakemake-avoid-ambiguity-when-two-different-rule-paths-can-generate-a-given
 def _choose_tracker():
     if config.get('use_barlow_tracker', False):
@@ -86,24 +88,45 @@ def _choose_tracker():
     else:
         return os.path.join(project_dir, "3-tracking/postprocessing/combined_3d_tracks.h5")
 
+# For skipping some steps, use ruleorder
+if project_data.check_segmentation():
+    print("Detected completed segmentation; allowing rules that skip segmentation")
+    ruleorder: alt_build_frame_objects > build_frame_objects
+    ruleorder: alt_barlow_embedding > barlow_embedding
+else:
+    ruleorder: build_frame_objects > alt_build_frame_objects
+    ruleorder: barlow_embedding > alt_barlow_embedding
 
+if project_data.check_preprocessed_data():
+    print("Detected completed preprocessing; allowing rules that skip preprocessing")
+    ruleorder: alt_preprocessing > preprocessing
+    # Further check that metadata exists
+    if project_data.check_segmentation_metadata():
+        ruleorder: alt_segmentation > segmentation
+    else:
+        ruleorder: segmentation > alt_segmentation
+else:
+    ruleorder: preprocessing > alt_preprocessing
+    ruleorder: segmentation > alt_segmentation
 
 #
 # Snakemake for overall targets (either with or without behavior)
 #
 
-# By default, wbfm projects will run everything
-rule traces_and_behavior:
-    input:
-        traces=os.path.join(project_dir, "4-traces/green_traces.h5"),
-        trace_summary=os.path.join(output_visualization_directory, "heatmap_with_behavior.mp4"),
-        beh_figure=f"{output_behavior_dir}/behavioral_summary_figure.pdf",
-        beh_hilbert=f"{output_behavior_dir}/hilbert_inst_amplitude.csv"
-
+# By default, wbfm projects will run only traces
 # This is important for immobilized worms, which don't have behavior
 rule traces:
     input:
         traces=os.path.join(project_dir, "4-traces/green_traces.h5")
+
+# Many projects will also want to run behavior
+rule traces_and_behavior:
+    input:
+        traces=os.path.join(project_dir, "4-traces/green_traces.h5"),
+        #trace_summary=os.path.join(output_visualization_directory, "heatmap_with_behavior.mp4"),
+        beh_figure=f"{output_behavior_dir}/behavioral_summary_figure.pdf",
+        beh_hilbert=f"{output_behavior_dir}/hilbert_inst_amplitude.csv"
+
 
 rule behavior:
     input:
@@ -127,6 +150,15 @@ rule preprocessing:
             pass
         _run_helper("0b-preprocess_working_copy_of_data", str(input.cfg))
 
+# Already have the preprocessed data, but need to make sure that the metadata files are present
+rule alt_preprocessing:
+    input:
+        cfg=project_cfg_fname
+    output:
+        os.path.join(project_dir, "dat/bounding_boxes.pickle")
+    run:
+        _run_helper("pipeline_alternate.0+build_bounding_boxes", str(input.cfg))
+
 #
 # Segmentation
 #
@@ -141,6 +173,16 @@ rule segmentation:
     run:
         _run_helper("1-segment_video", str(input.cfg))
 
+# No input version, i.e. remote preprocessing
+rule alt_segmentation:
+    input: cfg=project_cfg_fname
+    output:
+        metadata=os.path.join(project_dir, "1-segmentation/metadata.pickle"),
+        masks=directory(os.path.join(project_dir, "1-segmentation/masks.zarr"))
+    threads: 56
+    run:
+        _run_helper("1-segment_video", str(input.cfg))
+    
 
 #
 # Tracklets
@@ -160,8 +202,6 @@ rule build_frame_objects:
 rule match_frame_pairs:
     input:
         cfg=project_cfg_fname,
-        masks=ancient(os.path.join(project_dir, "1-segmentation/masks.zarr")),
-        metadata=os.path.join(project_dir, "1-segmentation/metadata.pickle"),
         frames=os.path.join(project_dir, "2-training_data/raw/frame_dat.pickle")
     output:
         matches=os.path.join(project_dir, "2-training_data/raw/match_dat.pickle")
@@ -182,24 +222,33 @@ rule postprocess_matches_to_tracklets:
     run:
         _run_helper("2c-postprocess_matches_to_tracklets", str(input.cfg))
 
+
+# No input version, e.g. from nwb or remote segmentation
+rule alt_build_frame_objects:
+    input: cfg=project_cfg_fname
+    output:
+        os.path.join(project_dir, "2-training_data/raw/frame_dat.pickle")
+    threads: 56
+    run:
+        _run_helper("2a-build_frame_objects", str(input.cfg))
+
 #
 # Tracking
 #
 rule tracking:
     input:
         cfg=project_cfg_fname,
-        metadata=os.path.join(project_dir, "1-segmentation/metadata.pickle"),
         frames=os.path.join(project_dir, "2-training_data/raw/frame_dat.pickle"),
     output:
-        tracks_global=os.path.join(project_dir, "3-tracking/postprocessing/df_tracks_superglue.h5"),
+        tracks_global=os.path.join(project_dir, "3-tracking/postprocessing/df_tracks_postprocessed.h5"),
     threads: 48
     run:
-        _run_helper("3a-track_using_superglue", str(input.cfg))
+        _run_helper("3a-track_time_independent", str(input.cfg))
 
 rule combine_tracking_and_tracklets:
     input:
         cfg=project_cfg_fname,
-        tracks_global=os.path.join(project_dir, "3-tracking/postprocessing/df_tracks_superglue.h5"),
+        tracks_global=os.path.join(project_dir, "3-tracking/postprocessing/df_tracks_postprocessed.h5"),
         tracklets=os.path.join(project_dir, "2-training_data/all_tracklets.pickle"),
     output:
         tracks_combined=os.path.join(project_dir, "3-tracking/postprocessing/combined_3d_tracks.h5"),
@@ -209,11 +258,22 @@ rule combine_tracking_and_tracklets:
         _run_helper("3b-match_tracklets_and_tracks_using_neuron_initialization", str(input.cfg))
 
 # Alternate tracker that doesn't need tracklets
-rule barlow_tracking:
+
+rule barlow_embedding:
     input:
         cfg=project_cfg_fname,
         metadata=os.path.join(project_dir, "1-segmentation/metadata.pickle"),
-        # frames=os.path.join(project_dir, "2-training_data/raw/frame_dat.pickle"),
+    output:
+        embedding=os.path.join(project_dir, "3-tracking/barlow_tracker/worm_tracker_barlow.pickle"),
+    threads: 48
+    run:
+        _run_helper("pipeline_alternate.3-embed_using_barlow", str(input.cfg),
+            model_fname=config["barlow_model_path"])
+
+rule barlow_tracking:
+    input:
+        cfg=project_cfg_fname,
+        embedding=os.path.join(project_dir, "3-tracking/barlow_tracker/worm_tracker_barlow.pickle"),
     output:
         tracks_global=os.path.join(project_dir, "3-tracking/barlow_tracker/df_barlow_tracks.h5"),
     threads: 48
@@ -221,6 +281,15 @@ rule barlow_tracking:
         _run_helper("pipeline_alternate.3-track_using_barlow", str(input.cfg),
             model_fname=config["barlow_model_path"])
 
+# No input version, e.g. from nwb or remote segmentation
+rule alt_barlow_embedding:
+    input: cfg=project_cfg_fname
+    output:
+        embedding=os.path.join(project_dir, "3-tracking/barlow_tracker/worm_tracker_barlow.pickle"),
+    threads: 48
+    run:
+        _run_helper("pipeline_alternate.3-embed_using_barlow", str(input.cfg),
+            model_fname=config["barlow_model_path"])
 
 #
 # Traces
@@ -229,7 +298,6 @@ rule extract_full_traces:
     input:
         cfg=project_cfg_fname,
         tracks_combined=_choose_tracker(),
-        metadata=os.path.join(project_dir, "1-segmentation/metadata.pickle"),
     output:
         os.path.join(project_dir, "4-traces/all_matches.pickle"),
         os.path.join(project_dir, "4-traces/red_traces.h5"),
@@ -237,7 +305,11 @@ rule extract_full_traces:
         masks=os.path.join(project_dir, "4-traces/reindexed_masks.zarr.zip")
     threads: 56
     run:
-        shell("ml p7zip")  # Needed as of May 2025
+        try:
+            shell("ml p7zip")  # Needed on the cluster as of May 2025
+        except:
+            # Then we are running locally, so ignore
+            pass
         _run_helper("4-make_final_traces", str(input.cfg))
 
 
@@ -333,7 +405,7 @@ rule worm_unet:
 
 rule sam2_segment:
     input:
-        avi_path=f"{output_behavior_dir}/raw_stack.avi",  # Output of tiff2avi
+        ndtiff_subfolder = behavior_btf if os.path.exists(behavior_btf) else raw_data_subfolder,
         dlc_csv=f"{output_behavior_dir}/raw_stack_dlc.csv"
     output:
         output_file=_cleanup_helper(f"{output_behavior_dir}/raw_stack_mask.btf"),
@@ -341,61 +413,24 @@ rule sam2_segment:
         column_names=["pharynx"],
         model_path=config["sam2_model"],
         sam2_conda_env_name=config["sam2_conda_env_name"],
-        batch_size=400
+        batch_size=300
     shell:
         """
         # I started getting an error with the xml_catalog_files_libxml2 variable, so check if it is set
         if [ -z "${{xml_catalog_files_libxml2:-}}" ]; then
-            #echo "Warning: xml_catalog_files_libxml2 is not set, setting it to /lisc/app/conda/miniforge3/etc/xml/catalog"
             export xml_catalog_files_libxml2=""
-        fi 
-        
+        fi
+
+        # Enable CuDNN backend for faster attention
+        export TORCH_CUDNN_SDPA_ENABLED=1
+
+        module load cuda-toolkit/12.9.0
+
         # Activate the environment and the correct cuda
         source /lisc/app/conda/miniforge3/bin/activate {params.sam2_conda_env_name}
-        module load cuda-toolkit/12.6.3
-        
-        # Display the temporary directory being used
-        echo "Using temporary directory: $TMPDIR"
 
-        # Copy input files to the temporary directory with verification
-        cp {input.avi_path} $TMPDIR/track.avi
-        while [ ! -f $TMPDIR/track.avi ] || [ ! -s $TMPDIR/track.avi ]; do
-            sleep 1
-            echo "Waiting for avi file to be fully copied..."
-        done
-
-        cp {input.dlc_csv} $TMPDIR/track_dlc.csv
-        while [ ! -f $TMPDIR/track_dlc.csv ] || [ ! -s $TMPDIR/track_dlc.csv ]; do
-            sleep 1
-            echo "Waiting for CSV file to be fully copied..."
-        done
-
-        # Add a small delay to ensure filesystem sync
-        sleep 2
-
-        # Run the script within the temporary directory
-        python -c "from SAM2_snakemake_scripts.sam2_video_processing_from_jpeg_batch_pipeline import main; main(['-video_path', '$TMPDIR/track.avi', '-output_file_path', '$TMPDIR/track_mask.btf', '-DLC_csv_file_path', '$TMPDIR/track_dlc.csv', '-column_names', '{params.column_names}', '-SAM2_path', '{params.model_path}', '--batch_size', '{params.batch_size}', '--device', '${{CUDA_VISIBLE_DEVICES:-0}}'])"
-
-        # Verify output file exists and wait for it to be fully written
-        while [ ! -f $TMPDIR/track_mask.btf ] || [ ! -s $TMPDIR/track_mask.btf ]; do
-            sleep 1
-            echo "Waiting for output file to be fully written..."
-        done
-
-        # Add a small delay before moving
-        sleep 2
-
-        # Move the output file back to the final output path
-        mv $TMPDIR/track_mask.btf {output.output_file}
-
-        # Verify the move completed successfully
-        while [ ! -f {output.output_file} ] || [ ! -s {output.output_file} ]; do
-            sleep 1
-            echo "Waiting for final file move to complete..."
-        done
-
-        # Clean up the temporary directory
-        rm -rf $TMPDIR/*
+        # Run the script directly without temp directory overhead
+        python -c "from SAM2_snakemake_scripts.sam2_video_processing_miscroscope_data_loader import main; main(['-tiff_path', '{input.ndtiff_subfolder}', '-output_file_path', '{output.output_file}', '-DLC_csv_file_path', '{input.dlc_csv}', '-column_names', '{params.column_names}', '-SAM2_path', '{params.model_path}', '--batch_size', '{params.batch_size}', '--device', '${{CUDA_VISIBLE_DEVICES:-0}}'])"
         """
 
 rule binarize:
@@ -493,7 +528,7 @@ rule dlc_analyze_videos:
         fi 
         
         source /lisc/app/conda/miniforge3/bin/activate {params.dlc_conda_env}
-        module load cuda-toolkit/12.6.3
+        module load cuda-toolkit/12.9.0
         # Also rename the output file to the expected name
         # We don't actually know the name without querying deeplabcut, so just rename it
         python -c "import deeplabcut, os; fname = deeplabcut.analyze_videos('{params.dlc_model_configfile_path}', '{input.input_avi}', videotype='avi', gputouse=${{CUDA_VISIBLE_DEVICES:-0}}, save_as_csv=True); print('Produced raw files with name: ' + fname); os.rename(f'{output_behavior_dir}/raw_stack'+fname+'.h5', '{output_behavior_dir}/raw_stack_dlc.h5'); os.rename(f'{output_behavior_dir}/raw_stack'+fname+'.csv', '{output_behavior_dir}/raw_stack_dlc.csv')"

@@ -456,7 +456,7 @@ class SuperGlueModel(LightningModule):
 
 
 @dataclass
-class SuperGlueUnpacker:
+class SuperGlueUnpackerWithTemplate:
 
     project_data: ProjectData = None
 
@@ -570,7 +570,7 @@ class SuperGlueUnpacker:
         # Use my class to convert from a list of gt ids to a list of matches
         from wbfm.utils.neuron_matching.matches_class import MatchesWithConfidence
         match_obj = MatchesWithConfidence.matches_from_list_of_gt_ids(zxy_id0[:, 3], zxy_id1[:, 3])
-        all_matches = torch.tensor(match_obj.matches_without_conf)
+        all_matches = torch.tensor(match_obj.array_matches_without_conf)
 
         image3d_sz = (1, 1, 1)  # Leifer is already approximately z-scored?
         image5d_sz = torch.tensor((1, 1) + image3d_sz)
@@ -650,7 +650,7 @@ class SuperGlueFullVolumeNeuronImageFeaturesDatasetFromProject(AbstractNeuronIma
         super().__init__(project_data)
         self.num_to_calculate = num_to_calculate
 
-        self.unpacker = SuperGlueUnpacker(project_data=project_data)
+        self.unpacker = SuperGlueUnpackerWithTemplate(project_data=project_data)
 
         self._calculate_time_points(num_to_calculate, project_data, use_adjacent_time_points)
 

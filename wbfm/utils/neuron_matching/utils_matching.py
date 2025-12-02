@@ -74,6 +74,56 @@ def calc_matches_from_positions_using_softmax(query_embedding, trained_embedding
     return matches
 
 
+def calc_bipartite_from_ids(xyz0: np.ndarray, xyz1: np.ndarray,
+                                  gamma: float = 1.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Uses scipy implementation of linear_sum_assignment to calculate best matches based on mismatch counts.
+
+    Parameters
+    ==============
+    xyz0 - array-like; shape=(n0,m)
+        Array of identifiers or values for the first set
+    xyz1 - array-like; shape=(n1,m)
+        Array of identifiers or values for the second set
+    max_dist - float (default=1e9)
+        Distance over which to remove matches (currently unused)
+    gamma - float (default=1.0)
+        Confidence scaling factor
+    """
+    import numba
+    @numba.jit(nopython=True)
+    def nandist(u, v):
+        """
+        Distance = sum of mismatches:
+        - +1 for each element that differs
+        - +1 if one is NaN and the other is not
+        """
+        dist = 0
+        for i in range(u.shape[0]):
+            if np.isnan(u[i]) and np.isnan(v[i]):
+                continue
+            if np.isnan(u[i]) or np.isnan(v[i]) or u[i] != v[i]:
+                dist += 1
+        return float(dist)
+
+    cost_matrix = cdist(np.array(xyz0), np.array(xyz1), nandist)
+
+    try:
+        matches = linear_sum_assignment(cost_matrix)
+    except ValueError:
+        logging.warning("Value error: inf or nan detected in cost matrix.")
+        raise ValueError
+
+    raw_matches = [[m0, m1] for (m0, m1) in zip(matches[0], matches[1])]
+    matches = np.array(raw_matches)
+
+    # Confidence based on mismatch cost matrix
+    conf = calc_confidence_from_distance_array_and_matches(cost_matrix, matches, gamma)
+
+    return matches, conf, np.array(raw_matches)
+
+
+
 def calc_bipartite_from_positions(xyz0: np.ndarray, xyz1: np.ndarray,
                                   max_dist: float = None,
                                   gamma: float = 1.0,

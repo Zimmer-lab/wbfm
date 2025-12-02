@@ -273,7 +273,46 @@ class TriggeredAverageIndices:
     z_score: bool = False
     normalize_amplitude_at_onset: bool = False
 
+    cached_ind: list = field(default=None, init=False, repr=False)
+    cache_is_valid: bool = False
+
     DEBUG: bool = False
+
+    def set_min_duration(self, value):
+        self.min_duration = value
+        self.cache_is_valid = False
+
+    def set_max_duration(self, value):
+        self.max_duration = value
+        self.cache_is_valid = False
+
+    def set_beh_vec(self, value):
+        self.behavioral_annotation = pd.Series(value)
+        self.cache_is_valid = False
+
+    def set_dict_of_events_to_keep(self, value):
+        self.dict_of_events_to_keep = value
+        self.cache_is_valid = False
+
+    def set_ind_preceding(self, value):
+        self.ind_preceding = value
+        self.cache_is_valid = False
+
+    def set_ind_delay(self, value):
+        self.ind_delay = value
+        self.cache_is_valid = False
+
+    def set_fixed_num_points_after_event(self, value):
+        self.fixed_num_points_after_event = value
+        self.cache_is_valid = False
+
+    def set_max_num_points_after_event(self, value):
+        self.max_num_points_after_event = value
+        self.cache_is_valid = False
+    
+    def set_cached_ind(self, value):
+        self.cached_ind = value
+        self.cache_is_valid = True
 
     def __post_init__(self):
         # Check the types of the behavioral annotation and state
@@ -391,7 +430,17 @@ class TriggeredAverageIndices:
         if self.trigger_on_downshift:
             binary_state = ~binary_state
 
-        all_ind = calculate_and_filter_triggered_average_indices(binary_state, **opt)
+        # I can't use an LRU cache here because the arguments are not hashable, so just create a single-value cache that invalidates if any of these args change
+
+        if self.cache_is_valid:
+            if self.cached_ind is not None:
+                all_ind = self.cached_ind
+            else:
+                all_ind = calculate_and_filter_triggered_average_indices(binary_state, **opt)
+                self.cached_ind = all_ind
+        else:
+            all_ind = calculate_and_filter_triggered_average_indices(binary_state, **opt)
+            self.cached_ind = all_ind
         return all_ind
 
     def calc_triggered_average_matrix(self, raw_trace: pd.Series, custom_ind: List[np.ndarray]=None,
@@ -883,7 +932,8 @@ class TriggeredAverageIndices:
         return duration_vec, censored_vec
 
     def __repr__(self):
-        return f"TriggeredAverageIndices: {self.behavioral_state.name} ({self.num_events} events found)"
+        beh_name = self.behavioral_state.name if self.behavioral_state is not None else "None"
+        return f"TriggeredAverageIndices: {beh_name} ({self.num_events} events found)"
 
 
 @dataclass
@@ -2624,7 +2674,7 @@ def calc_time_series_from_starts_and_ends(all_starts, all_ends, num_pts, min_dur
     return state_trace
 
 
-def clustered_triggered_averages_from_dict_of_projects(all_projects: dict, cluster_opt=None, **kwargs) \
+def clustered_triggered_averages_from_dict_of_projects(all_projects: dict, cluster_opt=None, verbose=0, **kwargs) \
         -> Tuple[ClusteredTriggeredAverages,
         Tuple[Dict[str, FullDatasetTriggeredAverages], pd.DataFrame, Dict[str, pd.DataFrame]]]:
     """
@@ -2652,7 +2702,7 @@ def clustered_triggered_averages_from_dict_of_projects(all_projects: dict, clust
             trigger_opt_default.update(kwargs['trigger_opt'])
         kwargs.pop('trigger_opt')
 
-    for name, p in tqdm(all_projects.items()):
+    for name, p in tqdm(all_projects.items(), leave=False, desc='Precalculating traces and triggered average indices'):
         try:
             triggered_averages_class = FullDatasetTriggeredAverages.load_from_project(p, trigger_opt=trigger_opt_default,
                                                                                       **kwargs)
@@ -2663,40 +2713,43 @@ def clustered_triggered_averages_from_dict_of_projects(all_projects: dict, clust
     if len(all_triggered_average_classes) == 0:
         raise NoBehaviorAnnotationsError("No datasets had the requested behavior annotation")
 
+    tqdm_opt = dict(leave=False, disable=not verbose)
     # Combine all triggered averages dataframes, renaming to contain dataset information
     df_triggered_good = pd.concat(
-        {name: c.df_of_all_triggered_averages() for name, c in all_triggered_average_classes.items()}, axis=1)
+        {name: c.df_of_all_triggered_averages() for name, c in tqdm(all_triggered_average_classes.items(), **tqdm_opt, desc='Combining triggered averages')}, axis=1)
     df_triggered_good = flatten_multiindex_columns(df_triggered_good)
 
     # Combine all full traces dataframes, renaming to contain dataset information
     df_traces_good = pd.concat(
-        {name: c.df_traces for name, c in all_triggered_average_classes.items()}, axis=1)
+        {name: c.df_traces for name, c in tqdm(all_triggered_average_classes.items(), **tqdm_opt, desc='Combining full traces')}, axis=1)
     df_traces_good = flatten_multiindex_columns(df_traces_good)
 
     # Combine all behavior time series, renaming to contain dataset information
     df_behavior = pd.concat(
-        {name: c.ind_class.behavioral_annotation for name, c in all_triggered_average_classes.items()}, axis=1)
+        {name: c.ind_class.behavioral_annotation for name, c in tqdm(all_triggered_average_classes.items(), **tqdm_opt, desc='Combining behavior annotations')}, axis=1)
     # This one doesn't need to be flattened, because each dataset only has one column
 
     # Build a map back to the original data
     dict_of_triggered_traces = {}
-    for name, c in all_triggered_average_classes.items():
+    for name, c in tqdm(all_triggered_average_classes.items(), **tqdm_opt, desc='Building map to original data'):
         c.ind_class.z_score = False
         dict_of_triggered_traces[name] = c.dict_of_all_triggered_averages()
     dict_of_triggered_traces = flatten_nested_dict(dict_of_triggered_traces)
 
     # Check that the ind_preceding is the same between all ind_class, and save it
     ind_preceding = None
-    for name, c in all_triggered_average_classes.items():
+    for name, c in tqdm(all_triggered_average_classes.items(), **tqdm_opt, desc='Validating indices'):
         if ind_preceding is None:
             ind_preceding = c.ind_class.ind_preceding
         else:
             assert ind_preceding == c.ind_class.ind_preceding, "ind_preceding must be the same for all datasets"
 
     # Build a combined class
-    # Clustering settings don't matter much
+    # I'm not actually using the clustering functionality, this is just an old class
     default_cluster_opt = dict(linkage_threshold=12, verbose=1)
     default_cluster_opt.update(cluster_opt)
+    if verbose > 1:
+        print("Building final triggered average class")
     good_dataset_clusterer = ClusteredTriggeredAverages(df_triggered_good, **default_cluster_opt,
                                                         dict_of_triggered_traces=dict_of_triggered_traces,
                                                         _df_traces=df_traces_good,

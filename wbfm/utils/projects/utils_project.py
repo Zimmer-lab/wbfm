@@ -112,12 +112,28 @@ def delete_all_analysis_files(project_path: str, dryrun=False, verbose=2):
         print("If you want to really delete things, then use 'dryrun=False' in the command line")
 
 
-def update_project_config_path(abs_dir_name, project_config_updates=None):
+def update_project_config_path(abs_dir_name, project_config_updates=None, no_new_entries=True):
+    """
+    Update the project_config.yaml file to have the correct absolute path to itself, and any other updates
+
+    By default, does not add new entries to the config file, only updates existing ones
+    """
     dest_fname = 'project_config.yaml'
     project_fname = osp.join(abs_dir_name, dest_fname)
     project_fname = Path(project_fname).resolve()
     if project_config_updates is None:
         project_config_updates = dict(project_path=str(project_fname))
+    elif no_new_entries:
+        # Remove any new entries
+        current_config = load_config(project_fname)
+        for k, v in project_config_updates.items():
+            if k not in current_config:
+                print(f"Warning: not adding new entry {k} to project config")
+            # Only keep entries that are already present
+            else:
+                project_config_updates[k] = v
+        # Always update the project path
+        project_config_updates['project_path'] = str(project_fname)
     edit_config(str(project_fname), project_config_updates)
     return project_fname
 

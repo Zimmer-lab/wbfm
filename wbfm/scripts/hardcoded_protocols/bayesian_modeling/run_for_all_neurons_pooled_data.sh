@@ -129,12 +129,12 @@ neuron_list=(
 # Now loop through the list of neurons and run the model
 # But parallelize so that 12 are running at a time
 
-CMD="/lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/utils/external/utils_pymc.py"
+CMD="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/utils/external/utils_pymc.py"
 # Changes if running on gfp
 if [ "$do_gfp" == "True" ]; then
-  LOG_DIR="/lisc/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/logs"
+  LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/logs"
 else
-  LOG_DIR="/lisc/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling/logs"
+  LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling/logs"
 fi
 
 for neuron in "${neuron_list[@]}"

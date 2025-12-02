@@ -9,7 +9,7 @@
 #   bash create_multiple_projects_from_data_parent_folder.sh -t <DATA_PARENT_FOLDER> -p <PROJECT_PARENT_FOLDER> -n <is_dry_run>
 #
 # Example:
-#   bash create_multiple_projects_from_data_parent_folder.sh -t /lisc/scratch/neurobiology/zimmer/wbfm/data -p/lisc/scratch/neurobiology/zimmer/wbfm/projects
+#   bash create_multiple_projects_from_data_parent_folder.sh -t /lisc/data/scratch/neurobiology/zimmer/wbfm/data -p/lisc/data/scratch/neurobiology/zimmer/wbfm/projects
 
 function usage {
   echo "Usage: $0 [-t DATA_PARENT_FOLDER] [-p PROJECT_PARENT_FOLDER] [-n is_dry_run] [-b run_in_background]"
@@ -36,7 +36,7 @@ do
 done
 
 # Actually run
-COMMAND="/lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/scripts/0a-create_new_project.py"
+COMMAND="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/scripts/0a-create_new_project.py"
 
 # Loop through the parent folder, then try to get the config file within each of these parent folders
 # Counter for number of jobs actually submitted

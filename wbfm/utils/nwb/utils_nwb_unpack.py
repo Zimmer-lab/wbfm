@@ -6,7 +6,7 @@ import dask.array as da
 import argparse
 
 
-def unpack_nwb_to_project_structure(project_dir, nwb_path=None):
+def unpack_nwb_to_project_structure(project_dir):
     """
     Unpack an NWB file into the expected on-disk project structure for the pipeline.
     
@@ -20,20 +20,13 @@ def unpack_nwb_to_project_structure(project_dir, nwb_path=None):
     nwb_path : str or Path
         Path to the .nwb file.
     """
-    # 1. Load project
-    if nwb_path is None:
-        # Load the project directory and try find the NWB file
-        project_data = ProjectData.load_final_project_data(project_dir, allow_hybrid_loading=True)
-        cfg = project_data.project_config
-        nwb_cfg = cfg.get_nwb_config()
-        nwb_path = nwb_cfg.resolve_relative_path_from_config("nwb_filename")
-        if nwb_path is None or not os.path.exists(nwb_path):
-            raise FileNotFoundError(f"Expected NWB file at {nwb_path}; otherwise, please provide the nwb_path argument.")
-    else:
-        raise NotImplementedError("This method won't find the proper subfolder config files")
-        # This should be within a project already
-        project_data = ProjectData.load_final_project_data_from_nwb(nwb_path)
-        cfg = project_data.project_config
+    # Load the project directory and try find the NWB file
+    project_data = ProjectData.load_final_project_data(project_dir, allow_hybrid_loading=True)
+    cfg = project_data.project_config
+    nwb_cfg = cfg.get_nwb_config()
+    nwb_path = nwb_cfg.resolve_relative_path_from_config("nwb_filename")
+    if nwb_path is None or not os.path.exists(nwb_path):
+        raise FileNotFoundError(f"Expected NWB file at {nwb_path}; otherwise, please provide the nwb_path argument.")
 
     # Write preprocessed videos as zarr
     if project_data.red_data is not None and project_data.green_data is not None:
@@ -69,7 +62,6 @@ def unpack_nwb_to_project_structure(project_dir, nwb_path=None):
     else:
         project_data.logger.info("No preprocessed video data found in the NWB file.")
 
-
     # Write segmentation as zarr
     if project_data.raw_segmentation is not None:
         segment_cfg = cfg.get_segmentation_config()
@@ -102,7 +94,11 @@ def unpack_nwb_to_project_structure(project_dir, nwb_path=None):
         # Ensure the directory exists
         os.makedirs(os.path.dirname(reindexed_masks_path), exist_ok=True)
         # Save the reindexed masks as zarr
-        zarr.save_array(reindexed_masks_path, project_data.segmentation, chunks=(1,)+project_data.segmentation.shape[1:])
+        if isinstance(project_data.segmentation, da.Array):
+            project_data.logger.info("Reindexed segmentation is a dask array; saving as zarr using dask's save functionality.")
+            da.to_zarr(project_data.segmentation, reindexed_masks_path, overwrite=True)
+        else:
+            zarr.save_array(reindexed_masks_path, project_data.segmentation, chunks=(1,)+project_data.segmentation.shape[1:])
         reindexed_masks_path_zip = zip_raw_data_zarr(reindexed_masks_path)
         # Update the config with the reindexed masks path
         traces_cfg.config['reindexed_masks'] = str(cfg.unresolve_absolute_path(reindexed_masks_path_zip))

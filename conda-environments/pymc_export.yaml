@@ -1,4 +1,4 @@
-name: /lisc/scratch/neurobiology/zimmer/.conda/envs/pymc
+name: /lisc/data/scratch/neurobiology/zimmer/.conda/envs/pymc
 channels:
   - defaults
   - conda-forge
@@ -358,4 +358,4 @@ dependencies:
       - ruamel-yaml-clib==0.2.8
       - tifffile==2023.7.10
       - tqdm==4.66.4
-prefix: /lisc/scratch/neurobiology/zimmer/.conda/envs/pymc
+prefix: /lisc/data/scratch/neurobiology/zimmer/.conda/envs/pymc

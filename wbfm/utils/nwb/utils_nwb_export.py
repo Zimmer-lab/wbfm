@@ -2,6 +2,8 @@ import logging
 import os
 import re
 from pathlib import Path
+from wbfm.utils.external.utils_neuron_names import name2int_neuron_and_tracklet
+from skimage.segmentation import watershed
 
 from dask import compute, delayed
 import dask.array as da
@@ -25,7 +27,7 @@ from ndx_multichannel_volume import CElegansSubject, OpticalChannelReferences, O
 from skimage.measure import regionprops
 from tifffile import tifffile
 from tqdm.auto import tqdm
-from wbfm.utils.external.utils_pandas import convert_binary_columns_to_one_hot
+from wbfm.utils.external.utils_pandas import convert_binary_columns_to_one_hot, fill_missing_indices_with_nan
 
 import itertools
 from wbfm.utils.projects.finished_project_data import ProjectData
@@ -76,7 +78,8 @@ def create_vol_seg_centers(name, description, ImagingVolume, positions,
     return vs
 
 
-def nwb_using_project_data(project_data: ProjectData, include_image_data=True, output_folder=None, DEBUG=False):
+def nwb_using_project_data(project_data: ProjectData, include_image_data=True, output_folder=None,
+                           enforce_nonoverlapping_behaviors=False, DEBUG=False):
     """
     Convert a ProjectData class to an NWB h5 file, optionally including all raw image data.
 
@@ -205,21 +208,26 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
         behavior_time_series_dict['eigenworms'] = video_class.eigenworms(fluorescence_fps=True, reset_index=False)
         # Also add a dataframe of the discrete behaviors
         from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
-        discrete_time_series_names = BehaviorCodes.default_state_hierarchy(use_strings=True)
+        discrete_time_series_names = BehaviorCodes.default_state_hierarchy(use_strings=True,
+                                                                           include_self_collision=True)
         df_discrete = video_class.calc_behavior_from_alias(discrete_time_series_names, include_slowing=True,
                                                            reset_index=False)
-        idx = behavior_time_series_dict['continuous_behaviors']['velocity'].index
-        df_discrete = convert_binary_columns_to_one_hot(pd.DataFrame(df_discrete, index=idx),
-                                                        discrete_time_series_names)
+        if enforce_nonoverlapping_behaviors:
+            idx = behavior_time_series_dict['continuous_behaviors']['velocity'].index
+            df_discrete = convert_binary_columns_to_one_hot(pd.DataFrame(df_discrete, index=idx),
+                                                            discrete_time_series_names)
         behavior_time_series_dict['discrete_states'] = df_discrete
 
     else:
         print("No behavior data found")
         behavior_video, behavior_time_series_dict = None, None
 
+    # Unpack centroids and segmentation-to-final-id mapping
+    df_tracking = project_data.final_tracks
+
     nwb_file, fname = nwb_with_traces_from_components(calcium_video_dict, segmentation_video, gce_quant_dict,
                                                       session_start_time, subject_id, strain, physical_units_class,
-                                                      behavior_video, behavior_time_series_dict,
+                                                      behavior_video, behavior_time_series_dict, df_tracking,
                                                       output_fname, include_image_data)
     # Update in the project config
     if cfg_nwb is not None:
@@ -300,7 +308,7 @@ def nwb_from_matlab_tracker(matlab_fname, output_folder=None):
 
 
 def nwb_with_traces_from_components(calcium_video_dict, segmentation_video, gce_quant_dict, session_start_time, subject_id, strain,
-                                    physical_units_class, behavior_video, behavior_time_series_dict,
+                                    physical_units_class, behavior_video, behavior_time_series_dict, df_tracking,
                                     output_fname, include_image_data):
     # Initialize and populate the NWB file
     nwbfile = initialize_nwb_file(session_start_time, strain, subject_id)
@@ -338,6 +346,19 @@ def nwb_with_traces_from_components(calcium_video_dict, segmentation_video, gce_
         nwbfile = convert_behavior_series_to_nwb(nwbfile, behavior_time_series_dict)
     else:
         print("No behavior time series data found, skipping...")
+    
+    # Add centroids (output of the tracking), if it exists
+    if df_tracking is not None:
+        position, dt = df_to_nwb_tracking(df_tracking)
+        
+        if position is not None:
+            nwbfile.processing['CalciumActivity'].add(position)
+        else:
+            raise ValueError(f"Tracking dataframe was found (shape: {df_tracking.shape}), but could not convert it into centroids")
+
+        if include_image_data:
+            # This table is not useful (and perhaps misleading) without the corresponding segmentation
+            nwbfile.processing['CalciumActivity'].add(dt)
 
     if output_fname:
         logging.info(f"Saving NWB file to {output_fname}")
@@ -872,10 +893,10 @@ def convert_nwb_to_trace_dataframe(nwbfile):
             elif f'{channel}RawFluor' in activity.data_interfaces:
                 red = activity[f'{channel}RawFluor'][f'{channel}CalciumImResponseSeries'].data
             else:
-                logging.warning(f"Failed to extract traces data for channel {channel}")
+                logging.debug(f"Failed to extract traces data for channel {channel}")
                 continue
         except KeyError:
-            logging.warning(f"Failed to extract traces data for channel {channel}")
+            logging.debug(f"Failed to extract traces data for channel {channel}")
             continue
 
         if rois is not None:
@@ -1378,11 +1399,11 @@ class CustomDataChunkIterator(GenericDataChunkIterator):
         return self.array.dtype
 
 
-def df_to_nwb_tracking(df, timestamps=None, reference_frame="unknown", unit="pixels"):
+def df_to_nwb_tracking(df, timestamps=None, reference_frame="unknown", unit="pixels", centroids_are_tracked=True):
     """
     Converts a MultiIndex DataFrame to NWB SpatialSeries + object-ID table.
 
-    df: pandas DataFrame indexed by, e.g., time and object_id, with cols x,y,z,raw_segmentation_id
+    df: pandas DataFrame indexed by, e.g., time and object_id, with cols x,y,z (optional: also raw_segmentation_id)
     timestamps: array of timestamps aligned to df.index (first level should be time)
 
     """
@@ -1396,14 +1417,19 @@ def df_to_nwb_tracking(df, timestamps=None, reference_frame="unknown", unit="pix
     if timestamps is None:
         timestamps = np.arange(len(df.index))
 
-    # Build DynamicTable of neurons with correct raw segmentation IDs for all time points
-    dt = DynamicTable(name="NeuronSegmentationID", description="Segmentation IDs per neuron", id=timestamps)
-    for nid in tqdm(neuron_ids, desc="Adding neuron IDs to DynamicTable"):
-        seg_ids = df.loc[:, (nid, 'raw_segmentation_id')].values
-        dt.add_column(name=str(nid), description=f"Raw Seg ID for {nid}", data=seg_ids)
+    if centroids_are_tracked:
+        # Build DynamicTable of neurons with correct raw segmentation IDs for all time points
+        dt = DynamicTable(name="NeuronSegmentationID", description="Segmentation IDs per neuron", id=timestamps)
+        for nid in tqdm(neuron_ids, desc="Adding neuron IDs to DynamicTable"):
+            seg_ids = df.loc[:, (nid, 'raw_segmentation_id')].values
+            dt.add_column(name=str(nid), description=f"Raw Seg ID for {nid}", data=seg_ids)
+        position_name = "NeuronCentroids"
+    else:
+        dt = None
+        position_name = "NeuronCentroidsUntracked"
 
     if coord_names is not None:
-        position = Position(name="NeuronCentroids")
+        position = Position(name=position_name)
         for neuron in tqdm(neuron_ids, desc="Adding centroids to Position"):
             neuron_df = df[neuron]
             data = neuron_df[coord_names].to_numpy()
@@ -1436,7 +1462,31 @@ def load_per_neuron_position(nwbfile_module):
             timestamps = series.timestamps[:]
 
     df = pd.DataFrame(data_dict, index=timestamps)
-    df.columns = pd.MultiIndex.from_tuples(df.columns)
+
+    # Currently the Leifer data is stored just as xyz positions in a very tall dataframe, and it should be converted to a multiindex
+    if df.shape[1] == 3:
+        logging.warning("Detected single-series (tall) format for centroids, converting to multiindex format")
+        # Reshape from (objects per time)*(time) x 3 and seg IDs to (time) x (objects per time) x 4
+
+        # Drop the improperly formed multiindex column level
+        df.columns = df.columns.droplevel(0)
+
+        # The segmentation id (track id) is stored in the "control" field of the series (there is only one series in this case)
+        assert len(nwbfile_module.spatial_series) == 1, "Expected only one spatial series"
+        series = list(nwbfile_module.spatial_series.values())[0]
+        raw_neuron_ind_in_list = series.control[:]
+        # Pivot the values, multiindex columns = (object_id, variable)
+        df['raw_neuron_ind_in_list'] = raw_neuron_ind_in_list
+        df['raw_segmentation_id'] = df['raw_neuron_ind_in_list'] + 1
+        df['neuron_name'] = df['raw_segmentation_id'].apply(lambda x: int2name_neuron(x))
+        df = df.reset_index(names='time').pivot(index="time", columns="neuron_name", values=["x", "y", "z", "raw_segmentation_id", "raw_neuron_ind_in_list"])
+
+        # Reorder to (neuron_name, z/x/y)
+        df = df.swaplevel(0, 1, axis=1).sort_index(axis=1, level=0)
+        df, _ = fill_missing_indices_with_nan(df, expected_max_t=int(df.index.max()))
+    else:
+        df.columns = pd.MultiIndex.from_tuples(df.columns)
+
     return df
 
 
@@ -1489,28 +1539,170 @@ def add_centroid_data_to_df_tracking(seg_dask, df_tracking, df_tracking_offset=0
     coord_names = ['x', 'y', 'z']
     all_keys = itertools.product(all_neurons, coord_names)
     def _init_nan_numpy():
-        _array = np.empty(np.max(df_tracking.index.values))  # Should not be the shape of df_tracking, which might have empty rows
+        _array = np.empty(np.max(df_tracking.index.values) + 1)  # Should not be the shape of df_tracking, which might have empty rows
         _array[:] = np.nan
         return _array
     mapped_centroids_dict = {k: _init_nan_numpy() for k in all_keys}
     
     # Note that df_tracking is 1-indexed, so the index will have to be fixed later
     for t, these_centroids in tqdm(centroids_dict.items(), desc="Mapping centroids to segmentation"):
+        if t + df_tracking_offset not in df_tracking.index:
+            logging.warning(f"Time {t + df_tracking_offset} not found in df_tracking index, skipping")
+            continue
+        # For each neuron, get the raw_segmentation_id at this time point and map it to the centroid coordinates
         for neuron in all_neurons:
             try:
                 raw_seg = df_tracking.loc[t+df_tracking_offset, (neuron, 'raw_segmentation_id')]
             except KeyError:
-                raw_seg = np.nan
+                logging.warning(f"Tracking DataFrame does not contain entry for neuron {neuron} at time {t+df_tracking_offset}")
+                continue
             if np.isnan(raw_seg):
                 continue
+
             try:
                 this_centroid = these_centroids[int(raw_seg)]
             except KeyError:
-                logging.error(f"Ground truth was annotated as {int(raw_seg)} at t={t}, but it doesn't exist in the image")
+                logging.error(f"Ground truth was annotated as {int(raw_seg)} at t={t}, but it doesn't exist in the image... this probably means the ground truth has an off-by-one error")
             for _name, _c in zip(coord_names, this_centroid):
                 mapped_centroids_dict[(neuron, _name)][t] = _c
     # Convert to dataframe, then combine with original tracking dataframe
     df_centroids = pd.DataFrame(mapped_centroids_dict)
+    # assert df_centroids.index.equals(df_tracking.index), f"Centroid DataFrame index {df_centroids.index} does not match tracking DataFrame index {df_tracking.index}"
     df_tracking = pd.concat([df_centroids, df_tracking], axis=1)
 
     return df_tracking
+
+
+def calc_simple_segmentation_mapping_table(df_tracking):
+    """Create nwb table with the ids, assuming the column names correspond to the raw segmentation ids"""
+    timestamps = np.arange(len(df_tracking.index))
+    neuron_ids = df_tracking.columns.get_level_values(0).unique()
+    dt = DynamicTable(name="NeuronSegmentationID", description="Segmentation IDs per neuron", id=timestamps)
+    for nid in tqdm(neuron_ids, desc="Adding neuron IDs to DynamicTable"):
+        # Create a vector with the id (i.e. column name) for each time point with a valid centroid, otherwise NaN
+        seg_ids = np.zeros(len(timestamps), dtype=float)
+        seg_ids[:] = name2int_neuron_and_tracklet(nid)  # Convert the neuron name to an integer ID
+        # Remove any invalid time points, assuming all xyz coordinates are either present or nan
+        valid_times = timestamps[df_tracking.loc[:, (nid, 'x')].notna()]
+        seg_ids[~np.isin(timestamps, valid_times)] = np.nan
+        # Add the column to the DynamicTable
+        dt.add_column(name=str(nid), description=f"Raw Seg ID for {nid}", data=seg_ids)
+    return dt
+
+
+def add_segmentation_ids_given_video_segmentation(nwb_file, DEBUG=False):
+    """
+    In the case where the final neuron centroids are saved in the nwb file, but the table mapping those ids to neuron names is not,
+    this function will add the centroid ids to the tracking dataframe.
+
+    This assumes that any segmentation will be generated from the centroids themselves, and retain the same ids as the centroids.
+    """
+    # Load the NWB file
+    with NWBHDF5IO(nwb_file, mode='r+') as nwb_io:
+        nwb_obj = nwb_io.read()
+
+        activity = nwb_obj.processing['CalciumActivity']
+        # Check if the segmentation ids are already present
+        if 'NeuronSegmentationID' in activity.data_interfaces:
+            logging.info(f"Segmentation IDs already present in {nwb_file}, skipping addition.")
+            return nwb_obj
+
+        # Get the final centroid ids
+        df_tracking = load_per_neuron_position(activity['NeuronCentroids'])
+        if DEBUG:
+            print(f"Loaded tracking DataFrame with shape {df_tracking.shape}: {df_tracking.head()}")
+
+        dt = calc_simple_segmentation_mapping_table(df_tracking)
+        nwb_obj.processing['CalciumActivity'].add(dt)
+
+        # Save the NWB file
+        nwb_io.write(nwb_obj)
+        
+    logging.info(f"Added segmentation IDs to NWB file {nwb_file}.")
+    return nwb_obj
+
+
+def dask_stack_volumes(volume_iter):
+    """Stack a generator of volumes into a dask array along time."""
+    return da.stack(volume_iter, axis=0)
+
+
+def segment_from_centroids_using_watershed(centroids, video, compactness=0.5, dtype=np.uint16, noise_threshold=3, DEBUG=False):
+
+    if len(video.shape) == 5:
+        video = video[..., 0]  # Just take the red channel
+    T, X, Y, Z = video.shape
+
+    client = get_client()
+    video_future = client.scatter(video, broadcast=True)
+    
+    # Stack results
+    segmented_video = dask_stack_volumes([da.from_delayed(_iter_segment_video(video_future, centroids[t], t, noise_threshold, dtype, compactness), shape=(X, Y, Z), dtype=dtype) for t in range(T)])
+
+    return segmented_video
+
+@delayed
+def _iter_segment_video(video, frame_centroids, t, noise_threshold, dtype, compactness):
+    """Segment a single timepoint using watershed"""
+    video_frame = video[t]
+    X, Y, Z = video_frame.shape
+    
+    # Create markers as a full-size volume from centroids
+    markers = np.zeros_like(video_frame, dtype=np.int32)
+    
+    for i, (x, y, z) in enumerate(frame_centroids):
+        # Convert to integer coordinates and ensure they're within bounds
+        if np.isnan(x):
+            continue
+        x_int, y_int, z_int = int(round(x)), int(round(y)), int(round(z))
+        
+        if (0 <= z_int < Z and 0 <= y_int < Y and 0 <= x_int < X):
+            # Labels start from 1, and assume the centroids are in the correct order
+            markers[x_int, y_int, z_int] = i + 1
+            # Also make sure that this exact point is not 0 in the video
+            if video_frame[x_int, y_int, z_int] <= noise_threshold:
+                video_frame[x_int, y_int, z_int] = noise_threshold + 1
+                logging.warning(f"Very dim centroid ({i+1}) found for time {t}; setting coordinates to threshold level ({noise_threshold+1}) ")
+    
+    # If no valid markers, return empty segmentation
+    if markers.max() == 0:
+        return np.zeros_like(video_frame, dtype=dtype)
+    
+    try:
+        # Apply distance transform to the volume
+        distance = ndi.distance_transform_edt(video_frame)
+    
+        # Apply watershed segmentation
+        segmentation = watershed(
+            -distance,
+            markers, 
+            compactness=compactness,
+            mask=video_frame > noise_threshold,
+            watershed_line=False
+        )
+    except Exception as e:
+        logging.warning(f"Watershed failed for frame {t} with {len(markers)} markers: {e}")
+        return np.zeros_like(video_frame, dtype=dtype)
+
+    # # Remap segmentation so each region gets the marker label that seeded it (watershed skips missing indices)  
+    # unique_labels = np.unique(segmentation)
+    # remapped = np.zeros_like(segmentation, dtype=dtype)
+    # for label in unique_labels:
+    #     if label == 0:
+    #         continue  # background
+    #     # Find which marker generated this region
+    #     mask = (segmentation == label)
+    #     marker_labels = markers[mask]
+    #     marker_labels = marker_labels[marker_labels > 0]
+    #     if len(marker_labels) > 0:
+    #     # Assign the most common marker label to the region
+    #         new_label = np.bincount(marker_labels).argmax()
+    #     remapped[mask] = new_label
+    # segmentation = remapped
+    # yield da.from_array(segmentation.astype(dtype))
+    return segmentation.astype(dtype)
+            
+        # except Exception as e:
+        #     logging.warning(f"Watershed failed for frame {frame_idx}: {e}")
+        #     return markers.astype(dtype)
+

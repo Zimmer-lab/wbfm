@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Clean and run the integration test, i.e. a shortened dataset
-DATA_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/test_data/freely_moving/ZIM2165_Gcamp7b_worm1"
-PARENT_PROJECT_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/test_projects/freely_moving"
-CODE_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
+DATA_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/test_data/freely_moving/ZIM2165_Gcamp7b_worm1"
+PARENT_PROJECT_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/test_projects/freely_moving"
+CODE_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
 
 # Remove project if it exists
 PROJECT_PATH=$PARENT_PROJECT_DIR/"pytest-raw"

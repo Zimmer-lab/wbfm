@@ -1,7 +1,7 @@
 import logging
 import os
 from typing import Callable
-import pandas as pd
+from tables.exceptions import HDF5ExtError
 
 
 def cache_to_disk(cache_filename: str,
@@ -80,7 +80,7 @@ def cache_to_disk_class(cache_filename_method: str,
                 output = func(self)
                 try:
                     func_save_to_disk(cache_filename, output)
-                except (PermissionError, AttributeError, TypeError):
+                except (PermissionError, AttributeError, TypeError, HDF5ExtError):
                     logging.warning(f'Could not save cache file {cache_filename} to disk. '
                                     f'Permission denied. Continuing without saving.')
                 return output

@@ -14,10 +14,10 @@ bash "path to copy_config_file_to_multiple_projects.sh" -t "target parent folder
 
 ### or more concrete
 increase runtime: 
-bash /lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/scripts/postprocessing/copy_config_file_to_multiple_projects.sh -t "target path" -c /lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/alternative_project_defaults/long_video/cluster_config.yaml (-n)
+bash /lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/scripts/postprocessing/copy_config_file_to_multiple_projects.sh -t "target path" -c /lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/alternative_project_defaults/long_video/cluster_config.yaml (-n)
 
 decrease runtime:
-bash /lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/scripts/postprocessing/copy_config_file_to_multiple_projects.sh -t "target path" -c /lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/alternative_project_defaults/short_video/cluster_config.yaml (-n)
+bash /lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/scripts/postprocessing/copy_config_file_to_multiple_projects.sh -t "target path" -c /lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/alternative_project_defaults/short_video/cluster_config.yaml (-n)
 
 You can also use this script to copy other (config) files. 
 

@@ -10,7 +10,9 @@ __default__:
     mem: 128G
     output: log_snakemake_step-%j.out
     mail_type: FAIL,TIME_LIMIT
-    gres: # Should be empty
+    gres: null # Should be null
+    constraint: "hdd|ssd" # Dummy values, because it can't be empty
+    no-requeue: "" # Should be empty
 
 # Note: may need to push over to himem if the cluster is busy
 preprocessing:
@@ -23,34 +25,58 @@ segmentation:
     mem: 256G
     cpus_per_task: 40
 
+alt_segmentation:
+    time: 1-12:00:00
+    mem: 256G
+    cpus_per_task: 40
+
 match_frame_pairs:
-    gpus_per_node: 1
     time: 0-12:00:00
     mem: 128G
-    gres: gpu:1
+    gres: shard:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 build_frame_objects:
     time: 0-12:00:00
     cpus_per_task: 20
+    mem: 128G
+    gres: shard:1
+    constraint: "l40s|a30|t4|v100|l4"
+
+alt_build_frame_objects:
+    time: 0-12:00:00
+    cpus_per_task: 20
+    mem: 128G
+    gres: shard:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 postprocess_matches_to_tracklets:
     cpus_per_task: 1
     time: 0-2:00:00
-    gres: gpu:1
+    gres: shard:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 combine_tracking_and_tracklets:
     time: 0-18:00:00
     cpus_per_task: 20
 
 tracking:
-    gpus_per_node: 1
     cpus_per_task: 16
-    gres: gpu:1
+    gres: shard:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 barlow_tracking:
-    gpus_per_node: 1
+    cpus_per_task: 32
+
+barlow_embedding:
     cpus_per_task: 16
-    gres: gpu:1
+    gres: shard:1
+    constraint: "l40s|a30|t4|v100|l4"
+
+alt_barlow_embedding: 
+    cpus_per_task: 16
+    gres: shard:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 # Behavior
 subtract_background:
@@ -66,6 +92,7 @@ dlc_analyze_videos:
     time: 0-08:00:00
     cpus_per_task: 24
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 create_centerline:
     time: 0-12:00:00
@@ -81,16 +108,19 @@ worm_unet:
     time: 0-08:00:00
     cpus_per_task: 24
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 sam2_segment:
     time: 0-12:00:00  # Might be faster than this, needs testing
     cpus_per_task: 24
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 coil_unet:
     time: 0-08:00:00
     cpus_per_task: 24
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 binarize:
     time: 0-06:00:00

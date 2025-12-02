@@ -1270,7 +1270,7 @@ all_classes = {'triggered_average_gcamp_plotter': triggered_average_gcamp_plotte
                'triggered_average_gcamp_plotter_immob_hiscl': triggered_average_gcamp_plotter_immob_hiscl,
                'triggered_average_gcamp_plotter_GFP': triggered_average_gcamp_plotter_GFP}
 
-folder_name = '/lisc/scratch/neurobiology/zimmer/fieseler/paper/triggered_average_dataframes'
+folder_name = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/triggered_average_dataframes'
 
 for name, trigger_class in tqdm(all_classes.items()):
     

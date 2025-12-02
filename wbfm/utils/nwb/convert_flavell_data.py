@@ -72,28 +72,51 @@ def get_flavell_tracking_file(base_dir):
     return tracking_files[0]
 
 
-def convert_flavell_tracking_to_df(base_dir, tracking_fraction_threshold=0.5):
+def convert_flavell_tracking_to_df(base_dir, tracking_fraction_threshold=0.5, DEBUG=False):
     """Convert Flavell tracking data to DataFrame format."""
     tracking_file = get_flavell_tracking_file(base_dir)
     with open(tracking_file, 'r') as f:
         tracking_data = json.load(f)
         # Build DataFrame: rows=time, columns=UIDs (i.e. neuron names), values=segmentation id (of the raw segmentation)
         df = pd.DataFrame.from_dict(tracking_data, orient='index').T
+        if DEBUG:
+            print(f"Tracking data loaded from {tracking_file} with shape {df.shape}")
+            print(df.head())
         # Flatten any list values in the DataFrame; Some UIDs may have multiple segmentation IDs... technically should be the union of the two
-        df = df.applymap(lambda x: x[0] if isinstance(x, list) else x)
+        def _process_elements(x):
+            if isinstance(x, list):
+                return x[0] if len(x) == 1 else np.nan
+            elif isinstance(x, (int, float)):
+                # assert np.isnan(x) # This is the only case where we expect a single value
+                return x
+            else:
+                raise TypeError(f"Unexpected type {type(x)} in tracking data: {x}; expected list")
+        df = df.applymap(_process_elements)
+        if DEBUG:
+            print(f"After processing of list data, has shape {df.shape} with df.count()={df.count()}")
+            print(df.head())
         # Remove objects with too few tracking points
         df = df.loc[:, df.notna().sum() >= tracking_fraction_threshold * len(df)]
+        if DEBUG:
+            print(f"After removing low tracking objects, has shape {df.shape} with df.count()={df.count()}")
+            print(df.head())
 
         # Convert datatypes
+        if DEBUG:
+            print(f"Converting index from")
         df.index.name = 'time'
-        df.index = [int(i) for i in df.index]
+        # Translate from 1-based to 0-based indexing
+        df.index = [int(i) - 1 for i in df.index]
         df.sort_index(inplace=True)
-        
+        # Needed for NWB compatibility
         df.columns = df.columns.astype(str)
 
-        # Add MultiIndex columns if desired
+        # Add MultiIndex column
         df.columns = pd.MultiIndex.from_product([df.columns, ['raw_segmentation_id']])
-    return df
+        if DEBUG:
+            print(f"Final DataFrame has shape {df.shape} with df.count()={df.count()}")
+            print(df.head())
+    return df, tracking_file
 
 
 def find_min_max_timepoint(base_dir, channel=None, segmentation=False):
@@ -280,11 +303,11 @@ def convert_flavell_to_nwb(
     ))
 
     # Add tracking information
-    df_tracking = convert_flavell_tracking_to_df(base_dir)
+    df_tracking, tracking_file = convert_flavell_tracking_to_df(base_dir, DEBUG=DEBUG)
     if df_tracking.empty:
-        raise RuntimeError("No tracking data found in the specified base directory.")
+        raise RuntimeError(f"Tracking file did not produce a valid dataframe; check formatting of {tracking_file}")
     
-    df_tracking = add_centroid_data_to_df_tracking(seg_dask, df_tracking, df_tracking_offset=1)
+    df_tracking = add_centroid_data_to_df_tracking(seg_dask, df_tracking)
     
     position, dt = df_to_nwb_tracking(df_tracking)
     if position is not None:
@@ -315,7 +338,8 @@ if __name__ == "__main__":
 
     # If the output path is not an absolute path, make it absolute by joining with the base_dir
     if args.output_path is None:
-        args.output_path = os.path.join(args.base_dir, 'flavell_data.nwb')
+        suffix = '_DEBUG' if args.debug else ''
+        args.output_path = os.path.join(args.base_dir, f'flavell_data{suffix}.nwb')  
     if not os.path.isabs(args.output_path):
         args.output_path = os.path.join(args.base_dir, args.output_path)
 

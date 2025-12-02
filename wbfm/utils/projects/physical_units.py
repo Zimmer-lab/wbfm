@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 import numpy as np
-
+import pandas as pd
 from wbfm.utils.external.custom_errors import IncompleteConfigFileError
 
 
@@ -52,7 +52,7 @@ class PhysicalUnitConversion:
 
     def zimmer2physical_fluorescence(self, vol0_zxy: np.ndarray) -> np.ndarray:
         """
-        Assumes that z is the 0th dimension, and x/y are 1, 2
+        Assumes that z is the 0th column, and x/y are 1, 2
 
         Parameters
         ----------
@@ -73,6 +73,29 @@ class PhysicalUnitConversion:
         zxy_in_phyical = np.hstack([z_in_physical, xy_in_physical])
 
         return zxy_in_phyical
+    
+    def zimmer2physical_final_tracks(self, df_tracks: pd.DataFrame) -> pd.DataFrame:
+        """
+        Converts the tracks from zimmer coordinates to physical coordinates.
+        Assumes that the DataFrame has multiindex columns; top level is the neuron, and second level contains (at least) 'z', 'x', 'y' in pixel space.
+
+        Parameters
+        ----------
+        df_tracks : pd.DataFrame
+            DataFrame containing tracks with columns 'z', 'x', 'y'.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with converted coordinates in physical units.
+        """
+        # Convert z, x, y columns to physical units
+        df_tracks = df_tracks.copy()
+        df_tracks.loc[:, (slice(None), 'z')] *= self.zimmer_um_per_pixel_z
+        df_tracks.loc[:, (slice(None), 'x')] *= self.zimmer_fluroscence_um_per_pixel_xy
+        df_tracks.loc[:, (slice(None), 'y')] *= self.zimmer_fluroscence_um_per_pixel_xy
+
+        return df_tracks
 
     def zimmer2physical_fluorescence_single_column(self, dat0: np.ndarray, which_col=0) -> np.ndarray:
         """Converts just a single column, in place"""
@@ -134,7 +157,7 @@ class PhysicalUnitConversion:
                 project_cfg.logger.debug("Using hard coded camera fps; this depends on the exposure time")
                 camera_fps = opt.get('camera_fps', 1000)
                 if 'exposure_time' not in opt:
-                    logging.warning("exposure_time not found in physical_units or project config; using default")
+                    logging.debug("exposure_time not found in physical_units or project config; using default")
                 exposure_time = opt.get('exposure_time', 12)
                 frames_per_volume = get_behavior_fluorescence_fps_conversion(project_cfg)
                 opt['volumes_per_second'] = camera_fps / exposure_time / frames_per_volume
@@ -160,7 +183,7 @@ class PhysicalUnitConversion:
         raw_data_cfg = project_cfg.get_raw_data_config()
         if not raw_data_cfg.has_valid_self_path:
             opt['num_flyback_planes_discarded'] = 0
-            logging.warning("No raw data config found; assuming no flyback planes discarded")
+            logging.debug("No raw data config found; assuming no flyback planes discarded")
         elif not raw_data_cfg.config.get('flyback_saved', False):
             num_flyback_planes_discarded = raw_data_cfg.config.get('num_flyback_planes_discarded', None)
             if num_flyback_planes_discarded is None:

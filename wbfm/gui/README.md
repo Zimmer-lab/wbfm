@@ -13,6 +13,9 @@ On Windows I suggest anaconda prompt (this comes with an anaconda installation) 
 Either way, you should begin by installing anaconda if you don't already have it:
 https://www.anaconda.com/products/individual
 
+However, please check the user agreements, which have recently changed for anaconda.
+An alternative is mamba: https://mamba.readthedocs.io/en/latest/
+
 ### Step 1
 In the folder conda-environments, there is a specific environment for this purpose: "gui_only.yaml"
 
@@ -74,7 +77,7 @@ python wbfm/gui/trace_explorer.py --project_path /path/to/your/project/project_c
 
 If you do NOT have a working installation, read the next section.
 
-All GUIs are designed to be accessed from the "progress gui" or directly from the various "explorer" guis. 
+All GUIs are designed to be accessed from the "progress gui" or directly from the various "explorer" guis (see list above). 
 For example:
 
 ```commandline
@@ -99,9 +102,10 @@ Instructions to satisfy these assumptions are in the next sections.
 
 See the main [README](../../README.md) file for instructions, or use a pre-generated project
 
-## Detailed explanation of complex GUI: ID'ing and tracklet/segmentation correction
 
-Open the trace explorer gui:
+## Trace_explorer GUI: two workflows
+
+First, open the trace explorer gui:
 
 ```commandline
 conda activate gui_only
@@ -113,7 +117,25 @@ This opens a new Napari window with several layers, designed to be used to view 
 This may take some time, ~1 minute.
 Rarely, it simply won't open; if it takes longer than 5 minutes, quit it and try again.
 
-### Overall explanation
+### Detailed explanation: Identifying neurons
+
+Neurons can be identified using the additional excel-style table that opens with the trace_explorer GUI.
+The normal workflow is this:
+1. Identify a neuron (how to do this is outside the scope of this repo)
+2. Select the "colored_segmentation" layer on the napari GUI (shortcut: shift-s)
+3. If the neuron was not tracked at the current time point, change time points to find it
+4. Middle-mouse click on the neuron, which will highlight the correct cell in excel-style table
+5. Type in the neuron name
+
+At the end of a session, you can simply close the GUI. 
+This will save everything by default.
+
+#### Updating traces with IDs
+
+None of the trace dataframes will be automatically updated with new neuron IDs.
+See the [tutorial notebook](https://github.com/Zimmer-lab/wbfm/blob/dev/wbfm/notebooks/tutorials/remake_paper_traces.ipynb) for step by step instructions to regenerate these dataframes.
+
+### Detailed explanation: tracklet/segmentation correction
 
 We have created a [YouTube](https://youtube.com/playlist?list=PL0LLlJzm-VqQhX4Kw2KqoeccJVk4jhPS3) tutorial playlist.
 The first two videos are broadly useful, and the later ones are more specific to tracklet and segmentation correction.
@@ -147,7 +169,7 @@ The following layers below to this level, and are related to the currently selec
 
 In addition, if the user uses interactions to click on certain neurons, then more layers will be added that relate to the clicked neuron.
 
-### Explanation of interactivity
+### Explanation of manual correction interactivity
 
 By default, interactivity is off, and must be turned on with the checkbox in the top right.
 

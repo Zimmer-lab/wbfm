@@ -40,5 +40,5 @@ def combine_tracks(_config, _run, _log):
     match_tracks_and_tracklets_using_config(cfg, DEBUG=DEBUG)
 
     training_cfg = cfg.get_training_config()
-    z_threshold = training_cfg.config['pairwise_matching_params']['z_threshold']
+    z_threshold = training_cfg.config['pairwise_matching_params'].get('z_threshold', 2.5)
     consolidate_tracklets_using_config(cfg, z_threshold=z_threshold, DEBUG=DEBUG)

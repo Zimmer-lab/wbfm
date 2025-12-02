@@ -83,13 +83,6 @@ class NapariLayerInitializer:
         # n0_zxy[0, :] = z_to_xy_ratio * n0_zxy[0, :]
         # n1_zxy[0, :] = z_to_xy_ratio * n1_zxy[0, :]
 
-        list_of_matches = getattr(match_object, which_matches)
-        list_of_matches = [m for m in list_of_matches if -1 not in m]
-        if min_confidence > 0.0:
-            list_of_matches = [m for m in list_of_matches if m[2] > min_confidence]
-
-        all_tracks_list = napari_tracks_from_match_list(list_of_matches, n0_zxy, n1_zxy)
-
         v = napari.view_image(raw_red_data, ndisplay=3, scale=(1.0, z_to_xy_ratio, 1.0, 1.0))
         v.add_labels(raw_seg_data, scale=(1.0, z_to_xy_ratio, 1.0, 1.0), visible=False)
 
@@ -110,7 +103,19 @@ class NapariLayerInitializer:
         v.add_points(**options)
         # v.add_points(n0_zxy, size=3, face_color='green', symbol='x', n_dimensional=True)
         # v.add_points(n1_zxy, size=3, face_color='blue', symbol='o', n_dimensional=True)
-        v.add_tracks(all_tracks_list, head_length=2, name=which_matches)
+
+        if not isinstance(which_matches, list):
+            which_matches = [which_matches]
+        for these_matches in which_matches:
+            list_of_matches = getattr(match_object, these_matches)
+            list_of_matches = [m for m in list_of_matches if -1 not in m]
+            if min_confidence > 0.0:
+                list_of_matches = [m for m in list_of_matches if m[2] > min_confidence]
+            if len(list_of_matches) > 0:
+                all_tracks_list = napari_tracks_from_match_list(list_of_matches, n0_zxy, n1_zxy)
+                v.add_tracks(all_tracks_list, head_length=2, name=these_matches)
+            else:
+                print(f"No valid matches found for {these_matches}")
 
         # Add text overlay; temporarily change the neuron locations on the frame
         original_zxy = match_object.frame0.neuron_locs

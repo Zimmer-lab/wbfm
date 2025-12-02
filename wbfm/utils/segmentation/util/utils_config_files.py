@@ -25,7 +25,7 @@ def _unpack_config_file(preprocessing_cfg, segment_cfg, project_cfg, DEBUG):
     stardist_model_name = segment_cfg.config['segmentation_params']['stardist_model_name']
     zero_out_borders = segment_cfg.config['segmentation_params']['zero_out_borders']
     # Preprocessing information
-    bbox_fname = preprocessing_cfg.config.get('bounding_boxes_fname', None)
+    bbox_fname = preprocessing_cfg.resolve_relative_path_from_config('bounding_boxes_fname')
     if bbox_fname is not None:
         all_bounding_boxes = pickle_load_binary(bbox_fname)
         project_cfg.logger.info(f"Found bounding boxes at: {bbox_fname}")

@@ -68,8 +68,12 @@ def bbox2ind(bbox):
 
 ## Optional main traces function
 def calculate_bounding_boxes_from_cfg_and_save(cfg, bbox_fname, red_not_green=True):
+    from wbfm.utils.projects.finished_project_data import ProjectData
+    project_data = ProjectData.load_final_project_data(cfg, allow_hybrid_loading=True)
 
-    video_4d = cfg.get_preprocessing_class().open_raw_data_as_4d_dask(red_not_green=red_not_green)
+    video_4d = project_data.red_data if red_not_green else project_data.green_data
+    if video_4d is None:
+        video_4d = cfg.get_preprocessing_class().open_raw_data_as_4d_dask(red_not_green=red_not_green)
     all_bboxes = calculate_bounding_boxes_full_video(video_4d)
 
     try:

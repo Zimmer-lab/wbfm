@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Commands
-CODE_FOLDER="/lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
+CODE_FOLDER="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
 COPY_VIS_COMMAND=$CODE_FOLDER/"scripts/visualization/copy_visualizations_for_paper_folders.sh"
-OUTPUT_PARENT_FOLDER="/lisc/scratch/neurobiology/zimmer/wbfm/SummaryPlots/gcamp"
+OUTPUT_PARENT_FOLDER="/lisc/data/scratch/neurobiology/zimmer/wbfm/SummaryPlots/gcamp"
 
 echo "Running copy_visualizations_for_paper_folders.sh for all datasets..."
 

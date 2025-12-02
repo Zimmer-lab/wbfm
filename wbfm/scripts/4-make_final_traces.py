@@ -20,7 +20,7 @@ SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 # Initialize sacred experiment
 ex = Experiment(save_git_info=False)
 # Add single variable so that the cfg() function works
-ex.add_config(project_path=None, allow_only_global_tracker=False, allow_hybrid_loading=True, DEBUG=False)
+ex.add_config(project_path=None, allow_only_global_tracker=False, match_using_indices=True, allow_hybrid_loading=True, DEBUG=False)
 
 
 @ex.config
@@ -47,4 +47,5 @@ def main(_config, _run):
 
     full_step_4_make_traces_from_config(project_cfg, allow_only_global_tracker, 
                                         allow_hybrid_loading=_config['allow_hybrid_loading'], 
+                                        match_using_indices=_config['match_using_indices'],
                                         DEBUG=DEBUG)

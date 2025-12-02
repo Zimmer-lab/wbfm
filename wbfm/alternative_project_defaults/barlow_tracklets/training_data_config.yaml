@@ -1,0 +1,52 @@
+# Default parameters for creating a new project
+# Do not edit!
+
+self_path: 2-training_data/training_data_config.yaml # for programmatic updating
+
+#########################
+# Tracking settings
+#########################
+
+# Parameters for tracklet neural network, i.e. to generate the feature space
+tracker_params: # OPTIMIZE
+#  num_frames: 100  # Uncomment this if you want a different number from the main project!
+  z_depth_neuron_encoding: 3.0
+  external_detections: null # TODO: deprecate
+  use_barlow_network: true
+  encoder_opt:
+    network_path: /lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedBarlow/barlow_ZIM2165_Gcamp7b_worm1-2022_11_28_from_search/trial_13/resnet50.pth # Path to the Barlow network model folder, which should accept a 3d image
+    use_projection_space: false
+
+# Parameters for additional methods of matching or postprocessing of the feature space
+pairwise_matching_params:
+  add_affine_to_candidates: true
+  affine_num_candidates: 1
+  add_gp_to_candidates: false # Doesn't work on cluster
+  gp_num_candidates: 1
+  add_fdnc_to_candidates: false
+  fdnc_options:
+    topn: 1
+  min_confidence: 0.01
+  z_threshold: 2.5
+  matching_method: bipartite  # Or unanimous
+  preprocess_using_global_rotation: false
+  use_superglue: false # As a postprocessing of the feature space matching
+
+# Parameters for postprocessing tracklets, i.e. splitting them
+postprocessing_params:
+  min_length_to_save: 5
+  volume_percent_threshold: 0.4 # Max allowed change between time points
+
+# Output filenames
+df_3d_tracklets: 2-training_data/all_tracklets.pickle
+
+#########################
+# DEPRECATED
+#########################
+df_training_3d_tracks: 2-training_data/training_data_tracks.pickle
+reindexed_masks: 2-training_data/reindexed_masks.zarr
+reindexed_metadata: 2-training_data/reindexed_metadata.pickle
+
+training_data_3d:
+  num_training_frames: 5 # trade-off between number of neurons and number of frames
+  which_frames: null # To be calculated

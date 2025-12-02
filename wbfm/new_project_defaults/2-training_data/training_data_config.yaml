@@ -7,13 +7,17 @@ self_path: 2-training_data/training_data_config.yaml # for programmatic updating
 # Tracking settings
 #########################
 
-# Parameters for tracklet neural network
+# Parameters for tracklet neural network, i.e. to generate the feature space
 tracker_params: # OPTIMIZE
 #  num_frames: 100  # Uncomment this if you want a different number from the main project!
   z_depth_neuron_encoding: 3.0
   external_detections: null # Will be synchronized with segmentation
+  use_barlow_network: false
+  encoder_opt:
+    network_path: # Path to the Barlow network model folder, which should accept a 3d image
+    use_projection_space: false
 
-# Parameters for additional methods of matching
+# Parameters for additional methods of matching or postprocessing of the feature space
 pairwise_matching_params:
   add_affine_to_candidates: true
   affine_num_candidates: 1

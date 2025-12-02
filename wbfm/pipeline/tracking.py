@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 import tensorflow as tf
+
 tf.__version__  # tf must be imported, see https://github.com/pytorch/pytorch/issues/81140
+from wbfm.utils.neuron_matching.utils_candidate_matches import fit_umap_using_frames
 
 from wbfm.utils.external.utils_pandas import fill_missing_indices_with_nan
 from wbfm.utils.neuron_matching.long_range_matching import _unpack_for_track_tracklet_matching, \
@@ -13,9 +15,9 @@ from wbfm.utils.neuron_matching.long_range_matching import _unpack_for_track_tra
 
 from wbfm.utils.neuron_matching.utils_candidate_matches import rename_columns_using_matching, \
     combine_dataframes_using_bipartite_matching
-from wbfm.utils.nn_utils.superglue import SuperGlueUnpacker
-from wbfm.utils.nn_utils.worm_with_classifier import _unpack_project_for_global_tracking, \
-    WormWithSuperGlueClassifier, track_using_template, WormWithNeuronClassifier
+from wbfm.utils.nn_utils.superglue import SuperGlueUnpackerWithTemplate
+from wbfm.utils.nn_utils.worm_with_classifier import DirectFeatureSpaceTemplateMatcher, PostprocessedFeatureSpaceTemplateMatcher, _unpack_project_for_global_tracking, \
+    SuperGlueFullVideoTrackerWithTemplate, track_using_template
 from wbfm.utils.external.random_templates import generate_random_valid_template_frames
 from wbfm.utils.projects.finished_project_data import ProjectData
 from wbfm.utils.projects.project_config_classes import ModularProjectConfig
@@ -25,12 +27,36 @@ from wbfm.utils.tracklets.utils_tracklets import split_all_tracklets_at_once
 from wbfm.utils.external.utils_pandas import crop_to_same_time_length
 
 
-def track_using_superglue_using_config(project_cfg, DEBUG):
+def track_using_using_config(project_cfg, use_superglue_tracker=False, DEBUG=False):
     all_frames, num_frames, num_random_templates, project_data, t_template, tracking_cfg, use_multiple_templates = _unpack_project_for_global_tracking(
         DEBUG, project_cfg)
-    superglue_unpacker = SuperGlueUnpacker(project_data=project_data, t_template=t_template)
-    tracker = WormWithSuperGlueClassifier(superglue_unpacker=superglue_unpacker)
-    model = tracker.model  # Save for later initialization
+
+    # Do this by default for barlow embeddings
+    use_umap_preprocessing = not use_superglue_tracker
+
+    # Create the helper classes that actually do the matching
+    if use_superglue_tracker:
+        superglue_unpacker = SuperGlueUnpackerWithTemplate(project_data=project_data, t_template=t_template)
+        tracker = SuperGlueFullVideoTrackerWithTemplate(superglue_unpacker=superglue_unpacker)
+        model = tracker.model # Save for future tracker initialization
+
+        def _init_tracker(t):
+            superglue_unpacker = SuperGlueUnpackerWithTemplate(project_data=project_data, t_template=t)
+            tracker = SuperGlueFullVideoTrackerWithTemplate(superglue_unpacker=superglue_unpacker,  model=model)
+            return tracker
+        
+    elif use_umap_preprocessing:
+        umap = fit_umap_using_frames(all_frames)
+        def _init_tracker(t):
+            return PostprocessedFeatureSpaceTemplateMatcher(template_frame=all_frames[t], confidence_gamma=100, postprocesser=umap.transform)
+        
+        tracker = _init_tracker(t=t_template)
+    
+    else:
+        # Simplest; direct matching in the feature space
+        def _init_tracker(t):
+            return DirectFeatureSpaceTemplateMatcher(template_frame=all_frames[t], confidence_gamma=100)
+
     min_neurons_for_template = 50
     all_dfs_raw = []
 
@@ -47,10 +73,9 @@ def track_using_superglue_using_config(project_cfg, DEBUG):
         all_dfs_names_aligned = [df_base]
         all_dfs_raw = [df_base]
         for i, t in enumerate(tqdm(all_templates[1:])):
-            superglue_unpacker = SuperGlueUnpacker(project_data=project_data, t_template=t)
-            tracker = WormWithSuperGlueClassifier(superglue_unpacker=superglue_unpacker, model=model)
+            tracker = _init_tracker(t=t)
             df = track_using_template(all_frames, num_frames, project_data, tracker)
-            df_name_aligned, _, _, _ = rename_columns_using_matching(df_base, df, try_to_fix_inf=True)
+            df_name_aligned, _, _, _ = rename_columns_using_matching(df_base, df, try_to_fix_inf=True)#, column='raw_segmentation_id')
             all_dfs_names_aligned.append(df_name_aligned)
             all_dfs_raw.append(df)
 
@@ -58,7 +83,7 @@ def track_using_superglue_using_config(project_cfg, DEBUG):
         df_final = combine_dataframes_using_bipartite_matching(all_dfs_names_aligned)
 
     # Save
-    out_fname = '3-tracking/postprocessing/df_tracks_superglue.h5'
+    out_fname = '3-tracking/postprocessing/df_tracks_postprocessed.h5'
     out_fname = tracking_cfg.save_data_in_local_project(df_final, out_fname, also_save_csv=True,
                                                         make_sequential_filename=True)
     out_fname = tracking_cfg.unresolve_absolute_path(out_fname)
@@ -66,7 +91,7 @@ def track_using_superglue_using_config(project_cfg, DEBUG):
 
     # Also save the intermediate dataframes
     if use_multiple_templates:
-        out_fname = '3-tracking/postprocessing/df_tracks_superglue_template-0.h5'
+        out_fname = '3-tracking/postprocessing/df_tracks_template-0.h5'
         for df in all_dfs_raw:
             out_fname = tracking_cfg.save_data_in_local_project(df, out_fname, also_save_csv=False,
                                                                 make_sequential_filename=True)
@@ -93,8 +118,8 @@ def match_two_projects_using_superglue_using_config(project_cfg_base: ModularPro
     all_frames_target, num_frames, _, project_data_target, _, _, _ = _unpack_project_for_global_tracking(
         DEBUG, project_cfg_target)
 
-    superglue_unpacker = SuperGlueUnpacker(project_data=project_data_base, t_template=t_template)
-    tracker_base = WormWithSuperGlueClassifier(superglue_unpacker=superglue_unpacker)
+    superglue_unpacker = SuperGlueUnpackerWithTemplate(project_data=project_data_base, t_template=t_template)
+    tracker_base = SuperGlueFullVideoTrackerWithTemplate(superglue_unpacker=superglue_unpacker)
     model = tracker_base.model  # Save for later initialization
     min_neurons_for_template = 50
     if only_match_same_time_points:
@@ -114,8 +139,8 @@ def match_two_projects_using_superglue_using_config(project_cfg_base: ModularPro
         all_dfs_names_aligned = [df_base]
         all_dfs_raw = [df_base]
         for i, t in enumerate(tqdm(all_templates[1:])):
-            superglue_unpacker = SuperGlueUnpacker(project_data=project_data_base, t_template=t)
-            tracker = WormWithSuperGlueClassifier(superglue_unpacker=superglue_unpacker, model=model)
+            superglue_unpacker = SuperGlueUnpackerWithTemplate(project_data=project_data_base, t_template=t)
+            tracker = SuperGlueFullVideoTrackerWithTemplate(superglue_unpacker=superglue_unpacker, model=model)
             if only_match_same_time_points:
                 _all_frames_target = all_frames_target[t]
             else:
@@ -182,50 +207,6 @@ def _map_only_named(x):
         return new_name
     else:
         return ''
-
-
-def track_using_embedding_using_config(project_cfg, DEBUG):
-    all_frames, num_frames, num_random_templates, project_data, t_template, tracking_cfg, use_multiple_templates = _unpack_project_for_global_tracking(
-        DEBUG, project_cfg)
-
-    min_neurons_for_template = 100
-
-    all_dfs = []
-    if not use_multiple_templates:
-        tracker = WormWithNeuronClassifier(template_frame=all_frames[t_template])
-        df_final = track_using_template(all_frames, num_frames, project_data, tracker)
-    else:
-        all_templates = generate_random_valid_template_frames(all_frames, min_neurons_for_template,
-                                                              num_frames, num_random_templates, t_template)
-        # All subsequent dataframes will have their names mapped to this
-        t = all_templates[0]
-        tracker = WormWithNeuronClassifier(template_frame=all_frames[t])
-        df_base = track_using_template(all_frames, num_frames, project_data, tracker)
-        all_dfs = [df_base]
-        for i, t in enumerate(tqdm(all_templates[1:])):
-            tracker = WormWithNeuronClassifier(template_frame=all_frames[t])
-            df = track_using_template(all_frames, num_frames, project_data, tracker)
-            df, _, _, _ = rename_columns_using_matching(df_base, df)
-            all_dfs.append(df)
-
-        tracking_cfg.config['t_templates'] = all_templates
-        df_final = combine_dataframes_using_bipartite_matching(all_dfs)
-
-    # Save
-    out_fname = '3-tracking/postprocessing/df_tracks_embedding.h5'
-    out_fname = tracking_cfg.save_data_in_local_project(df_final, out_fname, also_save_csv=True,
-                                                        make_sequential_filename=True)
-    out_fname = tracking_cfg.unresolve_absolute_path(out_fname)
-    tracking_cfg.config['leifer_params']['output_df_fname'] = str(out_fname)
-
-    # Also save the intermediate dataframes
-    if use_multiple_templates:
-        out_fname = '3-tracking/postprocessing/df_tracks_embedding_template-0.h5'
-        for df in all_dfs:
-            out_fname = tracking_cfg.save_data_in_local_project(df, out_fname, also_save_csv=False,
-                                                                make_sequential_filename=True)
-
-    tracking_cfg.update_self_on_disk()
 
 
 def match_tracks_and_tracklets_using_config(project_config: ModularProjectConfig, to_save=True, verbose=0,

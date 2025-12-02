@@ -190,7 +190,7 @@ rule tracking:
         tracks_global=os.path.join(project_dir, "3-tracking/postprocessing/df_tracks_superglue.h5"),
     threads: 48
     run:
-        _run_helper("3a-track_using_superglue", str(input.cfg))
+        _run_helper("3a-track_time_independent", str(input.cfg))
 
 rule combine_tracking_and_tracklets:
     input:
@@ -348,7 +348,7 @@ rule sam2_segment:
         
         # Activate the environment and the correct cuda
         source /lisc/app/conda/miniforge3/bin/activate {params.sam2_conda_env_name}
-        module load cuda-toolkit/12.6.3
+        module load cuda-toolkit/12.9.0
         
         # Display the temporary directory being used
         echo "Using temporary directory: $TMPDIR"
@@ -489,7 +489,7 @@ rule dlc_analyze_videos:
         fi 
         
         source /lisc/app/conda/miniforge3/bin/activate {params.dlc_conda_env}
-        module load cuda-toolkit/12.6.3
+        module load cuda-toolkit/12.9.0
         # Also rename the output file to the expected name
         # We don't actually know the name without querying deeplabcut, so just rename it
         python -c "import deeplabcut, os; fname = deeplabcut.analyze_videos('{params.dlc_model_configfile_path}', '{input.input_avi}', videotype='avi', gputouse=${{CUDA_VISIBLE_DEVICES:-0}}, save_as_csv=True); print('Produced raw files with name: ' + fname); os.rename(f'{output_behavior_dir}/raw_stack'+fname+'.h5', '{output_behavior_dir}/raw_stack_dlc.h5'); os.rename(f'{output_behavior_dir}/raw_stack'+fname+'.csv', '{output_behavior_dir}/raw_stack_dlc.csv')"

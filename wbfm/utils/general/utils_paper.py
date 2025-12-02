@@ -258,8 +258,8 @@ def apply_figure_settings(fig=None, width_factor=1, height_factor=1, plotly_not_
         fig.update_xaxes(showgrid=False, zeroline=False)
         fig.update_yaxes(showgrid=False, zeroline=False)
         # Remove margin
-        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
-        # Add black lines on edges of plot (only left and bottom
+        fig.update_layout(margin=dict(l=2, r=0, t=0, b=2))
+        # Add black lines on edges of plot (only left and bottom)
         fig.update_xaxes(showline=True, linewidth=1, linecolor='black')
         fig.update_yaxes(showline=True, linewidth=1, linecolor='black')
     else:

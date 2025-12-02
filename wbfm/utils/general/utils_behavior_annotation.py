@@ -492,7 +492,8 @@ class BehaviorCodes(Flag):
             return individual_names
 
     @classmethod
-    def default_state_hierarchy(cls, use_strings=False):
+    def default_state_hierarchy(cls, use_strings=False,
+                                include_slowing=True, include_self_collision=False):
         """
         Returns the default state hierarchy for this behavior
 
@@ -500,8 +501,12 @@ class BehaviorCodes(Flag):
         -------
 
         """
-        vec = [cls.REV, cls.VENTRAL_TURN, cls.DORSAL_TURN, cls.PAUSE, cls.SLOWING, cls.FWD,
+        vec = [cls.REV, cls.VENTRAL_TURN, cls.DORSAL_TURN, cls.PAUSE, cls.FWD,
                cls.TRACKING_FAILURE, cls.UNKNOWN]
+        if include_slowing:
+            vec.insert(3, cls.SLOWING)
+        if include_self_collision:
+            vec.insert(1, cls.SELF_COLLISION)
         if use_strings:
             return [v.name for v in vec]
         else:
@@ -2152,3 +2157,34 @@ def save_background_in_project(cfg, **kwargs):
     tifffile.imwrite(fname, background)
 
     return background
+
+
+def convert_starts_and_ends_to_behavior_vector(csv_fname, num_frames, min_duration=0, DEBUG=False):
+    """
+    Converts starts and ends (read from a csv) to a binary vector, which is usually forward or reverse
+
+    Parameters
+    ----------
+    csv_fname
+    num_frames
+    DEBUG
+
+    Returns
+    -------
+
+    """
+    df = pd.read_csv(csv_fname)
+    print(df)
+    all_starts = df['start'].values
+    all_ends = df['end'].values
+    
+    state_trace = np.zeros(num_frames)
+    for start, end in zip(all_starts, all_ends):
+        if end - start < min_duration:
+            continue
+
+        state_trace[start:end] = 1
+    
+    # Write it back as a new csv
+    new_fname = csv_fname.replace('.csv', f'_binary_vector.csv')
+    pd.DataFrame(state_trace).to_csv(new_fname, index=True)

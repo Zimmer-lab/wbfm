@@ -9,6 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
+from wbfm.utils.external.custom_errors import MissingAnalysisError
 from wbfm.utils.general.postprocessing.utils_metadata import regionprops_one_volume
 from wbfm.utils.general.utils_filenames import pickle_load_binary
 from wbfm.utils.external.utils_neuron_names import name2int_neuron_and_tracklet, int2name_neuron
@@ -141,7 +142,9 @@ class DetectedNeurons:
         -------
 
         """
-        assert Path(self.detection_fname).exists(), f"{self.detection_fname} doesn't exist!"
+        if not Path(self.detection_fname).exists():
+            raise FileNotFoundError(f"{self.detection_fname} doesn't exist!")
+        
         if self._segmentation_metadata is None:
             # Note: dict of dataframes
             try:
@@ -387,12 +390,12 @@ def recalculate_metadata_from_config(project_cfg, name_mode, DEBUG=False,
     # Load from the project directly instead of passing the config files
     masks_zarr = project_data.raw_segmentation
     if masks_zarr is None:
-        raise ValueError("No segmentation masks found in the project data. "
-                         "Please run the segmentation pipeline first.")
+        raise MissingAnalysisError("No segmentation masks found in the project data. "
+                                   "Please run the segmentation pipeline first.")
     video_dat = project_data.red_data
     if video_dat is None:
-        raise ValueError("No video data found in the project data. "
-                         "Please run the preprocessing pipeline first.")
+        raise MissingAnalysisError("No video data found in the project data. "
+                                             "Please run the preprocessing pipeline first.")
 
     frame_list = list(range(video_dat.shape[0]))
 

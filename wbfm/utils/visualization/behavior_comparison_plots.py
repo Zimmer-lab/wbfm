@@ -941,7 +941,7 @@ class NeuronToMultivariateEncoding(NeuronEncodingBase):
     allow_negative_correlations: bool = True
 
     def __post_init__(self):
-        if self.project_data.worm_posture_class.has_full_kymograph and self.project_data.has_traces():
+        if self.project_data.worm_posture_class.has_full_kymograph and self.project_data.check_traces():
             self.is_valid = True
         else:
             logging.warning("Kymograph not found, this class will not work")

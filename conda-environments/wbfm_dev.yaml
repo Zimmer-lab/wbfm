@@ -12,32 +12,36 @@ channels:
   - bioconda
   - nodefaults
 dependencies:
-  - python=3.9
+  - python=3.8
   - pip
+  - numpy
+  - pandas
+  - tqdm
+  - zarr
+  - scipy
+  - torchaudio
+  - cudatoolkit=10.0.130
+  - cudnn=7.6.5
+  - matplotlib
+  - torchvision
+  - scikit-learn
+  - scikit-image
+  - networkx
+  - lmfit
+  - natsort
+  - snakemake
+  - napari[all]
+  - pytorch=1.13.0
+  - torchvision
+  - pytorch-cuda=11.6
+  - plotly
   - pip:
-    - tifffile
-    - natsort
-    - scikit-image
-    - networkx
-    - matplotlib
-    - tqdm
-    - snakemake
-    - lmfit
-    - torch
-    - torchvision
-    - torchaudio
-    - torchmetrics
-    - napari[all]
-    - plotly
-    - zarr>=2,<3
-    - scipy
-    - scikit-learn
-    - numpy
-    - pandas
-    - opencv-contrib-python
+    - tifffile==2023.7.10
+    - simpleitk==2.2.1
+    - opencv-contrib-python-headless
     - tables
     - networkx
-    - tensorflow[and-cuda]
+    - tensorflow
     - sacred
     - ruamel.yaml
     - stardist  # Use 0.8.4 for printing fix, but not actually necessary
@@ -46,7 +50,6 @@ dependencies:
     - tinydb-serialization
     - openpyxl
     - pytest
-    - ruptures
     - backports.cached_property
     - pytorch-lightning
     - wandb
@@ -56,9 +59,15 @@ dependencies:
     - ppca
     - methodtools
     - kaleido
-    - skan # For behavior pipeline
+    - skan==0.9 # For behavior pipeline
     - loguru  # For imutils
     - ndtiff
     - ndstorage
     - torchio
-    - pulp<2.8
+    - umap-learn
+    - pynwb
+    - ndx_multichannel_volume
+    - arviz
+    - xlrd
+    - submitit
+    - kaleido

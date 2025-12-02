@@ -58,7 +58,7 @@ suffix = ''
 # suffix = '_only_eigenworms'
 
 # Load data from many dataframes
-output_dir = '/lisc/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling/output' + suffix
+output_dir = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling/output' + suffix
 # output_dir = os.path.join(get_hierarchical_modeling_dir(), 'output')
 all_dfs = {}
 for filename in tqdm(Path(output_dir).iterdir()):
@@ -72,7 +72,7 @@ df = pd.concat(all_dfs).reset_index(names=['neuron_name', 'model_type'])
 
 
 # Also load gfp
-output_dir = '/lisc/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/output' + suffix
+output_dir = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/output' + suffix
 
 # output_dir = os.path.join(get_hierarchical_modeling_dir(gfp=True), 'output')
 all_dfs_gfp = {}
@@ -538,7 +538,7 @@ def load_all_traces(foldername):
                 print(f"Error for neuron {neuron}; this is not surprising if some are still being written: {e}")
     return all_traces
 
-parent_folder = '/lisc/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling'
+parent_folder = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling'
 # suffix = '_only_eigenworms'
 # suffix = '_eigenworms34_speed'
 suffix = ''

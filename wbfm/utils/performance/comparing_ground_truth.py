@@ -8,7 +8,6 @@ import torch
 from wbfm.utils.neuron_matching.utils_matching import filter_matches
 from matplotlib import pyplot as plt
 from tqdm.auto import tqdm
-import seaborn as sns
 
 from wbfm.utils.external.utils_pandas import df_to_matches, accuracy_of_matches
 from wbfm.utils.general.postprocessing.postprocessing_utils import filter_dataframe_using_likelihood
@@ -88,29 +87,6 @@ def get_confidences_of_tp_and_outliers(m_final):
 
     return conf_tp, conf_outliers
 
-##
-## Using manually_tracked ground truth
-##
-# TRACKED_IND = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 16, 21, 26, 30, 31, 32, 33, 34, 35, 39, 41, 42, 43, 44, 45, 46, 47, 49, 53, 55, 56, 61, 62, 71, 72, 75, 82, 84, 86, 95]
-TRACKED_IND = [1, 2, 3, 4, 5,
-               6, 8, 9, 10,
-               11, 12, 14,
-               16,
-               21,
-               26, 27, 28, 29, 30,
-               31, 32, 33, 34, 35,
-               37, 39,
-               41, 42, 43, 44, 45,
-               46, 47, 48, 49, 50,
-               51, 52, 53, 55,
-               56,
-               61, 62, 65,
-               71, 72, 75,
-               78, 79, 80,
-               82, 84,
-               86, 90,
-               95]
-
 
 def calc_all_dist(df1, df2):
     # Check if they are same neuron, i.e. right on top of each other
@@ -182,7 +158,8 @@ def plot_histogram_at_likelihood_thresh(df1, df2, likelihood_thresh):
     df2_filter = filter_dataframe_using_likelihood(df2, likelihood_thresh)
     df_all_acc = calculate_accuracy_from_dataframes(df1, df2_filter)
 
-    dat = [df_all_acc['matches_to_gt_nonnan'], df_all_acc['mismatches'], df_all_acc['nan_in_fdnc']]
+    dat = [df_all_acc['matches_to_gt_nonnan'], df_all_acc['mismatches'], df_all_acc['nan_in_gt']]
+    import seaborn as sns
 
     sns.histplot(dat, common_norm=False, stat="percent", multiple="stack")
     # sns.histplot(dat, multiple="stack")
@@ -196,13 +173,17 @@ def plot_histogram_at_likelihood_thresh(df1, df2, likelihood_thresh):
 
 def calculate_accuracy_from_dataframes(df_gt: pd.DataFrame, df2_filter: pd.DataFrame, column_names=None) -> pd.DataFrame:
     """
-    Calculates accuracy of two dataframes assuming they have the same column names
+    Calculates accuracy of two dataframes assuming they have the same column names (i.e. neuron names).
+    Format of the dataframes should be the tracking format as produced by the pipeline, i.e. columns are multiindexed with
+    neuron names and the column name 'raw_neuron_ind_in_list' containing the neuron indices
+
+    In principle these dataframes should be loaded via the ProjectData class (final_tracks or intermediate_global_tracks), but this is not strictly necessary.
 
     Return dataframe has columns:
         matches: fraction of matches to ground truth
         matches_to_gt_nonnan: fraction of matches to ground truth, excluding ground truth time points that are nan
         mismatches: fraction of mismatches to ground truth
-        nan_in_fdnc: fraction of ground truth time points that are nan
+        nan_in_gt: fraction of ground truth time points that are nan
 
     Parameters
     ----------
@@ -226,14 +207,14 @@ def calculate_accuracy_from_dataframes(df_gt: pd.DataFrame, df2_filter: pd.DataF
             all_acc_dict['matches'].append(np.nan)
             all_acc_dict['matches_to_gt_nonnan'].append(np.nan)
             all_acc_dict['mismatches'].append(np.nan)
-            all_acc_dict['nan_in_fdnc'].append(np.nan)
+            all_acc_dict['nan_in_gt'].append(np.nan)
             continue
         matches, mismatches, nan = calc_accuracy(all_dist_dict[name])
         num_total1, num_total2 = all_total1[name], all_total2[name]
         all_acc_dict['matches'].append(matches / num_t)
         all_acc_dict['matches_to_gt_nonnan'].append(matches / num_total1)
         all_acc_dict['mismatches'].append(mismatches / num_t)
-        all_acc_dict['nan_in_fdnc'].append((num_t - num_total2) / num_t)
+        all_acc_dict['nan_in_gt'].append((num_t - num_total2) / num_t)
     df_all_acc = pd.DataFrame(all_acc_dict, index=tracked_names)
     return df_all_acc
 
@@ -394,13 +375,13 @@ def test_baseline_and_new_matcher_on_embeddings(project_data, t0=0, t1=1):
 
     """
     from wbfm.utils.nn_utils.superglue import SuperGlue
-    from wbfm.utils.nn_utils.worm_with_classifier import WormWithNeuronClassifier
+    from wbfm.utils.nn_utils.worm_with_classifier import SuperglueFeatureSpaceTemplateMatcher
     f0 = project_data.raw_frames[t0]
     f1 = project_data.raw_frames[t1]
     df_gt = project_data.get_final_tracks_only_finished_neurons()[0]
 
     # Unpack
-    tracker = WormWithNeuronClassifier(f0)
+    tracker = SuperglueFeatureSpaceTemplateMatcher(f0)
 
     kpts0 = torch.tensor(f0.neuron_locs).float()
     kpts1 = torch.tensor(f1.neuron_locs).float()

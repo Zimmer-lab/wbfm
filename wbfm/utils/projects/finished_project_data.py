@@ -2,6 +2,7 @@ import concurrent
 import logging
 import shutil
 from collections import defaultdict
+
 from wbfm.utils.external.utils_pandas import combine_columns_with_suffix
 
 import tables
@@ -161,14 +162,14 @@ class ProjectData:
 
             self.data_cacher = PaperDataCache(self)
         else:
-            self.logger.warning("ProjectData initialized without a project_config object; "
+            self.logger.debug("ProjectData initialized without a project_config object; "
                                 "if this is from a NWB file, this is expected")
 
     @cached_property
     def neuropal_manager(self):
         try:
             neuropal_config = self.project_config.get_neuropal_config()
-        except FileNotFoundError:
+        except (FileNotFoundError, IncompleteConfigFileError):
             return NeuropalManager(None)
         return NeuropalManager(neuropal_config)
 
@@ -180,7 +181,7 @@ class ProjectData:
         Names are aligned with the final traces
         """
         if not self.project_config.has_valid_self_path:
-            self.logger.warning("ProjectData initialized without a project_config object; intermediate tracks can't be loaded")
+            self.logger.debug("ProjectData initialized without a project_config object; intermediate tracks can't be loaded")
             return None
         tracking_cfg = self.project_config.get_tracking_config()
 
@@ -237,7 +238,7 @@ class ProjectData:
         Names are aligned with the final traces
         """
         if not self.project_config.has_valid_self_path:
-            self.logger.warning("ProjectData initialized without a project_config object; final tracks can't be loaded")
+            self.logger.debug("ProjectData initialized without a project_config object; final tracks can't be loaded")
             return None
         tracking_cfg = self.project_config.get_tracking_config()
 
@@ -380,7 +381,7 @@ class ProjectData:
         if self.verbose >= 1 and not dryrun:
             self.logger.info("First time loading all the tracklets, may take a while...")
         if not self.project_config.has_valid_self_path:
-            self.logger.warning("ProjectData initialized without a project_config object; tracklets can't be loaded")
+            self.logger.debug("ProjectData initialized without a project_config object; tracklets can't be loaded")
             return None, None
         train_cfg = self.project_config.get_training_config()
         track_cfg = self.project_config.get_tracking_config()
@@ -405,7 +406,7 @@ class ProjectData:
     def tracklet_annotator(self) -> TrackletAndSegmentationAnnotator:
         """Custom class that implements manual modification of tracklets and segmentation"""
         if not self.project_config.has_valid_self_path:
-            self.logger.warning("ProjectData initialized without a project_config object; tracklet annotator can't be loaded")
+            self.logger.debug("ProjectData initialized without a project_config object; tracklet annotator can't be loaded")
             return None
         tracking_cfg = self.project_config.get_tracking_config()
         training_cfg = self.project_config.get_training_config()
@@ -503,6 +504,14 @@ class ProjectData:
             # Loads the raw data, which may be slow
             num_frames = self.project_config.get_num_frames_robust()
         return num_frames
+    
+
+    def num_frames_minus_tracking_failures(self, **kwargs):
+        tracking_failures = self.estimate_tracking_failures_from_project(**kwargs)
+        if tracking_failures is not None:
+            return self.num_frames - len(tracking_failures)
+        else:
+            return self.num_frames
 
     def custom_frame_indices(self) -> list:
         """For overriding the normal iterator over frames, for skipping problems etc."""
@@ -683,9 +692,17 @@ class ProjectData:
         # Hybrid loading using both styles:
         #   If the project was loaded via a config file path, but has steps missing, then try to also load the nwb
         if not loaded_via_nwb and allow_hybrid_loading:
-            cfg_nwb = project_data.project_config.get_nwb_config()
+            try:
+                # First check if there is an nwb file at all
+                cfg_nwb = project_data.project_config.get_nwb_config()
+            except PermissionError as e:
+                project_data.logger.warning(f"Hybrid loading was set to True, but got a permission error; unable to load nwb. If there is no nwb file, this is not a problem. Full error: {e}")
+                allow_hybrid_loading = False
+
+        if not loaded_via_nwb and allow_hybrid_loading:
+
             nwb_filename = cfg_nwb.resolve_relative_path_from_config('nwb_filename')
-            if nwb_filename is not None:
+            if nwb_filename is not None and os.path.exists(nwb_filename):
                 project_data.logger.info(f"Found nwb file at {nwb_filename}; attempting to load additional data or analysis")
                 initialization_kwargs = kwargs.get('initialization_kwargs', dict())
                 project_data_nwb = ProjectData.load_final_project_data_from_nwb(nwb_filename, **initialization_kwargs)
@@ -708,26 +725,36 @@ class ProjectData:
                         project_data.logger.info(f"Successfully imported raw data from nwb file")
                     else:
                         project_data.logger.info(f"Did not find raw data in nwb file, continuing")
-                # Second: load preprocessed data
-                if project_data.red_data is None:
-                    if project_data_nwb.red_data is not None:
-                        project_data.red_data = project_data_nwb.red_data
-                        project_data.green_data = project_data_nwb.green_data
-                        _update_project_with_nwb_file_handles()
-                        project_data.logger.info(f"Successfully loaded red and green data from nwb file (no metadata loaded)")
-                    else:
-                        project_data.logger.info(f"Did not find red and green data in nwb file, continuing")
 
-                # Third: load raw segmentation
-                if project_data.raw_segmentation is None:
-                    if project_data_nwb.raw_segmentation is not None:
-                        project_data.raw_segmentation = project_data_nwb.raw_segmentation
-                        _update_project_with_nwb_file_handles()
-                        project_data.logger.info(f"Successfully loaded raw segmentation from nwb file (no metadata loaded)")
-                    else:
-                        project_data.logger.info(f"Did not find raw segmentation in nwb file, continuing")
+                # Define processing fields to attempt to load from the NWB project
+                fields_to_load = [
+                    ("red_data", True),
+                    ("green_data", True),
+                    ("red_traces", True),
+                    ("green_traces", True),
+                    ("segmentation", True),
+                    ("raw_segmentation", True),
+                    ("final_tracks", False),
+                    ("intermediate_global_tracks", False),
+                ]
+
+                for field, update_handles in fields_to_load:
+                    if getattr(project_data, field, None) is None:
+                        nwb_value = getattr(project_data_nwb, field, None)
+                        if nwb_value is not None:
+                            setattr(project_data, field, nwb_value)
+                            if update_handles:
+                                _update_project_with_nwb_file_handles()
+                            project_data.logger.info(
+                                f"Successfully loaded {field.replace('_', ' ')} from nwb file"
+                                f"{' (no metadata loaded)' if field in ['red_data', 'green_data', 'raw_segmentation'] else ''}"
+                            )
+                        else:
+                            project_data.logger.info(
+                                f"Did not find {field.replace('_', ' ')} in nwb file, continuing"
+                            )
             else:
-                project_data.logger.info(f"Found no nwb file, continuing")
+                project_data.logger.debug(f"Found no nwb file, continuing")
 
         return project_data
 
@@ -787,7 +814,7 @@ class ProjectData:
 
         nwb_io = NWBHDF5IO(nwb_path, mode='r', load_namespaces=True)
         if isinstance(nwb_io, NWBFile):
-            print('NWB file loaded successfully')
+            obj.logger.debug('NWB file loaded successfully')
             nwb_obj = nwb_io
         else:
             nwb_obj = nwb_io.read()
@@ -796,29 +823,45 @@ class ProjectData:
         project_config = ModularProjectConfig(None)
         obj = ProjectData(nwb_path, project_config, **kwargs)
 
-        # Initialize the relevant fields
+        # Fluorescence data
         preprocessing_settings = PreprocessingSettings()
         obj.project_config._preprocessing_class = preprocessing_settings
         if 'CalciumImageSeries' in nwb_obj.acquisition:
             # Transpose data from TXYZC to TZXY (splitting the channel)
-            obj.red_data = da.from_array(nwb_obj.acquisition['CalciumImageSeries'].data, lock=True)[..., 0].transpose((0, 3, 1, 2))
-            obj.green_data = da.from_array(nwb_obj.acquisition['CalciumImageSeries'].data, lock=True)[..., 1].transpose((0, 3, 1, 2))
-            print(f"Loaded red and green data from NWB file: {obj.red_data.shape}")
+            dat = nwb_obj.acquisition['CalciumImageSeries'].data
+            chunks = (1, ) + dat.shape[1:-1] + (1,)
+            if len(dat.shape) == 5 and dat.shape[-1] >= 2:
+                obj.red_data = da.from_array(dat, chunks=chunks)[..., 0].transpose((0, 3, 1, 2))
+                obj.green_data = da.from_array(dat, chunks=chunks)[..., 1].transpose((0, 3, 1, 2))
+                obj.logger.debug(f"Loaded red and green data from NWB file: {obj.red_data.shape}")
 
-            # Load this into the raw data as well; needed for certain steps
-            preprocessing_settings._raw_red_data = da.from_array(nwb_obj.acquisition['CalciumImageSeries'].data, lock=True)[..., 0].transpose((0, 3, 1, 2))
-            preprocessing_settings._raw_green_data = da.from_array(nwb_obj.acquisition['CalciumImageSeries'].data, lock=True)[..., 1].transpose(
-                (0, 3, 1, 2))
+                # Load this into the raw data as well; needed for certain steps
+                preprocessing_settings._raw_red_data = da.from_array(dat, chunks=chunks)[..., 0].transpose((0, 3, 1, 2))
+                preprocessing_settings._raw_green_data = da.from_array(dat, chunks=chunks)[..., 1].transpose((0, 3, 1, 2))
+
+                if dat.shape[-1] > 2:
+                    obj.logger.warning(f"Expected 1 or 2 channels in CalciumImageSeries, found {dat.shape[-1]}; ignoring extras")
+            elif (len(dat.shape) == 5 and dat.shape[-1] == 1) or (len(dat.shape) == 4):
+                # Then only one channel present; set both to be this data
+                obj.red_data = da.from_array(dat, chunks=chunks).squeeze().transpose((0, 3, 1, 2))
+                obj.green_data = da.from_array(dat, chunks=chunks).squeeze().transpose((0, 3, 1, 2))
+
+                preprocessing_settings._raw_red_data = da.from_array(dat, chunks=chunks).squeeze().transpose((0, 3, 1, 2))
+                preprocessing_settings._raw_green_data = da.from_array(dat, chunks=chunks).squeeze().transpose((0, 3, 1, 2))
+                obj.logger.debug("WARNING, only one video channel found; setting both channels as this data")
+                obj.logger.debug(f"Loaded data from NWB file: {obj.red_data.shape}")
+
         if 'RawCalciumImageSeries' in nwb_obj.acquisition:
             # Load this, but it's not actually part of the main ProjectData class
             # Transpose data from TXYZC to TZXY (splitting the channel)
-            preprocessing_settings._raw_red_data = da.from_array(nwb_obj.acquisition['RawCalciumImageSeries'].data, lock=True)[..., 0].transpose((0, 3, 1, 2))
-            preprocessing_settings._raw_green_data = da.from_array(nwb_obj.acquisition['RawCalciumImageSeries'].data, lock=True)[..., 1].transpose(
+            chunks = (1, ) + nwb_obj.acquisition['RawCalciumImageSeries'].data.shape[1:-1] + (1,)
+            preprocessing_settings._raw_red_data = da.from_array(nwb_obj.acquisition['RawCalciumImageSeries'].data, chunks=chunks)[..., 0].transpose((0, 3, 1, 2))
+            preprocessing_settings._raw_green_data = da.from_array(nwb_obj.acquisition['RawCalciumImageSeries'].data, chunks=chunks)[..., 1].transpose(
                 (0, 3, 1, 2))
 
-        # Note that there should always be 'CalciumActivity' but it may be a stub
-        # Load the traces, and copy to the tracks using the same dataframes (they should all have xyz info)
+        # Traces
         try:
+            # Load the traces, and the tracks using the same dataframes (they should all have xyz info)
             both_df_traces = convert_nwb_to_trace_dataframe(nwb_obj)
             # There may not be a reference, but there is always the signal
             obj.green_traces = both_df_traces['Signal']
@@ -826,60 +869,71 @@ class ProjectData:
             obj.final_tracks = obj.red_traces.copy()
 
         except KeyError as e:
-            obj.final_tracks = None
-            obj.logger.warning(f"Could not load traces from NWB file: {e}")
+            obj.logger.info(f"Could not load traces from NWB file: {e}")
 
-        # If the traces aren't found, try to load the tracks alone
-        if obj.final_tracks is None:
-            try:
-                from wbfm.utils.nwb.utils_nwb_export import load_per_neuron_position
+        # Tracking (overwrites final_tracks above, if found)
+        try:
+            activity = nwb_obj.processing['CalciumActivity']
 
-                activity = nwb_obj.processing['CalciumActivity']
-                centroids = load_per_neuron_position(activity['NeuronCentroids'])
-                seg_ids = activity['NeuronSegmentationID'].to_dataframe()
-                # Add a second layer to the columns to match format
-                seg_ids.columns = pd.MultiIndex.from_product([seg_ids.columns, ['raw_segmentation_id']])
-                # If the top level column names are integers, make them neuron_XYZ like my code expects
-                df_tracking = pd.concat([centroids, seg_ids], axis=1)
+            from wbfm.utils.nwb.utils_nwb_export import load_per_neuron_position
+            df_tracking = load_per_neuron_position(activity['NeuronCentroids'])
+            obj.final_tracks = df_tracking
+            obj.intermediate_global_tracks = df_tracking
+        except KeyError as e:
+            obj.logger.debug(f"Could not load tracks (centroids) from NWB file: {e}")
 
-                new_cols = []
-                for col in df_tracking.columns:
-                    if isinstance(col[0], int) or (isinstance(col[0], str) and 'neuron' not in col[0]):
-                        new_col = (int2name_neuron(int(col[0]), ignore_error=True), col[1])
-                    else:
-                        new_col = col
-                    new_cols.append(new_col)
-                df_tracking.columns = pd.MultiIndex.from_tuples(new_cols)
-                
-                obj.final_tracks = df_tracking
-                obj.intermediate_global_tracks = df_tracking
-                obj.logger.warning("Loaded both final tracks and intermediate tracks as the same dataframe")
+        try:
+            activity = nwb_obj.processing['CalciumActivity']
+            df_seg_id = activity['NeuronSegmentationID'].to_dataframe()
+            # This is a dataframe with neuron names as columns, and segmentation ids as values
+            # We want to join this as a subcolumn within the final_tracks dataframe, but first it needs to be made multiindexed with the column name 'raw_segmentation_id'
+            df_seg_id.columns = pd.MultiIndex.from_product([df_seg_id.columns, ['raw_segmentation_id']])
+            df_tracking = obj.final_tracks
+            if df_tracking is not None:
+                df_seg_id.index = df_tracking.index
+                df_tracking = pd.concat([df_tracking, df_seg_id], axis=1)
+            else:
+                obj.logger.info("No final tracks found, saving only segmentation ids")
+                df_tracking = df_seg_id
+            obj.final_tracks = df_tracking
+        except KeyError as e:
+            obj.logger.info(f"Could not load segmentation ids from NWB file: {e}")
 
-            except KeyError as e:
-                obj.logger.warning(f"Could not load tracks from NWB file: {e}")
 
         # Segmentation
         try:
+            activity = nwb_obj.processing['CalciumActivity']
             # Transpose data from TXYZ to TZXY
-            obj.segmentation = da.from_array(nwb_obj.processing['CalciumActivity']['CalciumSeriesSegmentation'].data).transpose((0, 3, 1, 2))
+            dat = da.squeeze(activity['CalciumSeriesSegmentation'].data)
+            chunks = (1, ) + dat.shape[1:]
+            obj.segmentation = da.from_array(dat, chunks=chunks).transpose((0, 3, 1, 2))
         except (KeyError, AttributeError) as e:
-            obj.logger.warning(f"Could not load segmentation from NWB file: {e}")
+            obj.logger.info(f"Could not load segmentation from NWB file: {e}")
 
         try:
+            activity = nwb_obj.processing['CalciumActivity']
             # Transpose data from TXYZ to TZXY
-            obj.raw_segmentation = da.from_array(nwb_obj.processing['CalciumActivity']['CalciumSeriesSegmentationUntracked'].data).transpose((0, 3, 1, 2))
+            dat = da.squeeze(activity['CalciumSeriesSegmentationUntracked'].data)
+            chunks = (1, ) + dat.shape[1:]
+            obj.raw_segmentation = da.from_array(dat, chunks=chunks).transpose((0, 3, 1, 2))
         except (KeyError, AttributeError) as e:
             # Set to be equal to the segmentation, if it exists
             if obj.segmentation is not None:
                 obj.raw_segmentation = obj.segmentation
+                obj.logger.info(f"Could not load raw segmentation from NWB file ({e}); using tracked segmentation instead")
+            else:
+                obj.logger.info(f"Could not load raw segmentation from NWB file: {e}")
 
+        # Other metadata
         p = PhysicalUnitConversion()
         if 'CalciumImageSeries' in nwb_obj.acquisition:
             p.volumes_per_second = nwb_obj.acquisition['CalciumImageSeries'].rate
             grid_spacing = nwb_obj.acquisition['CalciumImageSeries'].imaging_volume.grid_spacing
-            assert grid_spacing[0] == grid_spacing[1], "Grid should be isotropic in xy"
-            p.zimmer_fluroscence_um_per_pixel_xy = grid_spacing[0]
-            p.zimmer_um_per_pixel_z = grid_spacing[2]
+            if len(grid_spacing) == 3 and not grid_spacing[0] == grid_spacing[1]:
+                logging.error(f"Grid should be isotropic in xy; found {grid_spacing}. Ignoring position 1, so errors in visualization may occur")
+            xy_spacing = grid_spacing[0]
+            p.zimmer_fluroscence_um_per_pixel_xy = xy_spacing
+            p.zimmer_um_per_pixel_z = grid_spacing[-1]
             obj.physical_unit_conversion = p
 
         # Save the raw object
@@ -1164,7 +1218,7 @@ class ProjectData:
             print(f"Dropped {df.shape[1] - df_drop.shape[1]} neurons with threshold {min_nonnan}/{df.shape[0]}")
 
         if df_drop.shape[1] == 0:
-            msg = f"All neurons were dropped with a threshold of {min_nonnan} ({df.shape[1]} neurons were found initially); check project.num_frames. "\
+            msg = f"All neurons were dropped with a threshold of {min_nonnan}; check project.num_frames."\
                   f"If a video has very large gaps, num_frames should be set lower. For now, returning all"
             if raise_error_on_empty:
                 raise NoNeuronsError(msg)
@@ -1802,7 +1856,7 @@ class ProjectData:
         """
         # Manual annotations take precedence by default
         if not self.project_config.has_valid_self_path:
-            self.logger.warning("No project config found; cannot load manual annotations")
+            self.logger.debug("No project config found; cannot load manual annotations")
             return None
         excel_fname = self.get_default_manual_annotation_fname()
         try:
@@ -2088,7 +2142,7 @@ class ProjectData:
         """
         try:
             all_vol = [self.segmentation_metadata.get_all_volumes(i) for i in range(self.num_frames)]
-        except AttributeError as e:
+        except (AttributeError, FileNotFoundError) as e:
             self.logger.warning(f"Error with reading segmentation, may be due to python version: {e}")
             return None
         all_num_objs = np.array(list(map(len, all_vol)))
@@ -2276,9 +2330,6 @@ class ProjectData:
         print(worm)
         print()
 
-    def has_traces(self):
-        return (self.red_traces is not None) and (self.green_traces is not None)
-
     @property
     def use_physical_time(self) -> bool:
         """Whether to reindex returned traces to physical time"""
@@ -2341,6 +2392,27 @@ class ProjectData:
         """
         x = self.x_for_plots
         return [x[0], x[-1]]
+    
+    # Functions for the current status of a project (and which steps have been completed)
+    def check_preprocessed_data(self):
+        return (self.red_data is not None) and (self.green_data is not None)
+    
+    def check_segmentation(self):
+        return (self.raw_segmentation is not None) and (self.check_segmentation_metadata())
+    
+    def check_segmentation_metadata(self):
+        has_metadata = True
+        try:
+            _ = self.segmentation_metadata.num_frames
+        except FileNotFoundError:
+            has_metadata = False
+        return has_metadata
+    
+    def check_tracking(self):
+        return self.final_tracks is not None
+    
+    def check_traces(self):
+        return (self.red_traces is not None) and (self.green_traces is not None) and (self.segmentation is not None)
 
     def __repr__(self):
         return f"=======================================\n\
@@ -2359,10 +2431,10 @@ raw_segmentation:         {self.raw_segmentation is not None}\n\
 colored_segmentation:     {self.segmentation is not None}\n\
 ============Tracking===================\n\
 tracklets:                {self.has_tracklets()}\n\
-final_tracks:             {self.final_tracks is not None}\n\
+final_tracks:             {self.check_tracking()}\n\
 manual_tracking:          {self.df_manual_tracking is not None}\n\
 ============Traces=====================\n\
-traces:                   {self.has_traces()}\n\n"
+traces:                   {self.check_traces()}\n\n"
 
 
 def template_matches_to_dataframe(project_data: ProjectData,
@@ -2390,7 +2462,7 @@ def template_matches_to_dataframe(project_data: ProjectData,
         pts = project_data.get_centroids_as_numpy(i_frame)
         # For each match, save location
         for m in these_matches:
-            this_unscaled_pt = pts[m[1]]
+            this_unscaled_pt = pts[int(m[1])]
             this_template_idx = m[0]
 
             # These columns must match the order of 'coords' above
@@ -2399,14 +2471,14 @@ def template_matches_to_dataframe(project_data: ProjectData,
             else:
                 neuron_arrays[this_template_idx][i_frame, :3] = this_unscaled_pt
                 neuron_arrays[this_template_idx][i_frame, 3] = m[2]  # Match confidence
-                neuron_arrays[this_template_idx][i_frame, 4] = m[1]  # Match index
+                neuron_arrays[this_template_idx][i_frame, 4] = int(m[1])  # Match index
 
     # Convert to pandas multiindexing formatting
     new_dict = {}
     for i_template, data in neuron_arrays.items():
         for i_col, coord_name in enumerate(coords):
             # NOTE: these neuron names are final for all subsequent steps
-            k = (int2name_neuron(i_template + 1), coord_name)
+            k = (int2name_neuron(int(i_template + 1)), coord_name)
             new_dict[k] = data[:, i_col]
 
     df = pd.DataFrame(new_dict)
@@ -2551,7 +2623,7 @@ def load_all_projects_from_list(list_of_project_folders: List[Union[str, Path]],
         for file in Path(_folder).iterdir():
             if "project_config.yaml" in file.name and not file.name.startswith('.'):
                 if not only_load_paths:
-                    return ProjectData.load_final_project_data_from_config(file, **kwargs)
+                    return ProjectData.load_final_project_data(file, **kwargs)
                 else:
                     return file
         return None

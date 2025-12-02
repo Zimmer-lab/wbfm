@@ -505,4 +505,4 @@ dependencies:
     - tinydb-serialization==2.1.0
     - wandb==0.13.5
     - werkzeug==2.2.2
-prefix:/lisc/scratch/neurobiology/zimmer/.conda/envs/wbfm
+prefix:/lisc/data/scratch/neurobiology/zimmer/.conda/envs/wbfm

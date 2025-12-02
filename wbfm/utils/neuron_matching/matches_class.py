@@ -141,17 +141,17 @@ class MatchesWithConfidence:
         return len(self.get_mapping_0_to_1(conf_threshold))
 
     @property
-    def matches_with_conf(self):
+    def array_matches_with_conf(self) -> np.ndarray:
         return np.array(np.stack([self.indices0, self.indices1, self.confidence], axis=1))
 
     @property
-    def matches_without_conf(self):
+    def array_matches_without_conf(self) -> np.ndarray:
         return np.array(np.stack([self.indices0, self.indices1], axis=1))
 
     @staticmethod
     def matches_from_array(matches_with_conf, confidence=None, minimum_confidence=0.0, invalid_value=-1):
         """
-        Initialize object from a nx2 array that lists the matches
+        Initialize object from a nx2 or nx3 array that lists the matches. Confidence can be passed as an additional vector; otherwise nx3 shape is assumed with the 3rd column as the confidence
 
         Parameters
         ----------
@@ -455,8 +455,8 @@ def get_mismatches(gt_matches: MatchesWithConfidence, model_matches: MatchesWith
 
     dict_of_model_matches = model_matches.get_mapping_0_to_1(unique=True)
     dict_of_gt_matches = gt_matches.get_mapping_0_to_1(unique=True)
-    list_of_model_matches: List[list] = model_matches.matches_without_conf.tolist()
-    list_of_gt_matches: List[list] = gt_matches.matches_without_conf.tolist()
+    list_of_model_matches: List[list] = model_matches.array_matches_without_conf.tolist()
+    list_of_gt_matches: List[list] = gt_matches.array_matches_without_conf.tolist()
     inverse_dict_of_model_matches = model_matches.get_mapping_1_to_0()
 
     model_matches_no_gt = []
@@ -491,8 +491,8 @@ def get_mismatches(gt_matches: MatchesWithConfidence, model_matches: MatchesWith
 
 
 def accuracy_of_matches_from_classes(gt_matches: MatchesWithConfidence, model_matches: MatchesWithConfidence):
-    gt_m = gt_matches.matches_without_conf
-    model_m = model_matches.matches_without_conf
+    gt_m = gt_matches.array_matches_without_conf
+    model_m = model_matches.array_matches_without_conf
 
     return accuracy_of_matches(gt_m, model_m)
 

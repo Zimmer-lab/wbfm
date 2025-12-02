@@ -60,7 +60,9 @@ def _unpack_config_reindexing(traces_cfg, raw_seg_masks, project_cfg):
     # Check if the raw_seg_masks are zarr or dask
     try:
         # If it is a zarr or numpy array, then we can just open it like this
-        new_masks = zarr.open_like(raw_seg_masks, path=str(out_fname))
+        chunks = (1, ) + raw_seg_masks.shape[1:]
+        new_masks = zarr.open_like(raw_seg_masks, chunks=chunks, path=str(out_fname))
+        assert new_masks.chunks[0] == 1, "Chunking must be (1, ..., ...) for safe parallel writes"
     except (AttributeError, TypeError):
         # Otherwise we need to copy the metadata manually
         project_cfg.logger.info(f"Raw segmentation masks are not zarr, but {type(raw_seg_masks)}; creating new zarr array")

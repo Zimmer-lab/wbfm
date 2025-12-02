@@ -25,7 +25,7 @@ import plotly.express as px
 
 
 # Use a project with external stimulus as an additional behavior annotation
-fname = "/lisc/scratch/neurobiology/zimmer/brenner/wbfm_projects/analyze/immobilized_wt/2023-09-19_11-42_worm1-2023-09-19/project_config.yaml"
+fname = "/lisc/data/scratch/neurobiology/zimmer/brenner/wbfm_projects/analyze/immobilized_wt/2023-09-19_11-42_worm1-2023-09-19/project_config.yaml"
 project_data_gcamp = ProjectData.load_final_project_data_from_config(fname)
 
 

@@ -50,7 +50,7 @@ else
 fi
 
 # Set the path to the folder with the projects
-project_parent_folder="/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects"
+project_parent_folder="/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects"
 
 # Loop over all project parent folders (actually projects are subfolders within the parent folder)
 for project_parent in "$project_parent_folder"/*; do

@@ -416,12 +416,10 @@ class NeuronNameEditor(QWidget):
         for row in range(self.model.rowCount()):
             for col in range(self.model.columnCount()):
                 if col > 0:
-                    # self.model.item(row, col).setEditable(True)
                     self.model.item(row, col).setFlags(
                         self.model.item(row, col).flags() | Qt.ItemIsEditable
                     )
                 else:
-                    # self.model.item(row, col).setEditable(False)
                     self.model.item(row, col).setFlags(
                         self.model.item(row, col).flags() | ~Qt.ItemIsEditable
                     )

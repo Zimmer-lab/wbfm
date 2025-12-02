@@ -8,7 +8,6 @@ import cv2
 import numpy as np
 import pandas as pd
 from wbfm.utils.visualization.utils_napari import napari_tracks_from_match_list
-from napari.utils.transforms import Affine
 from wbfm.utils.segmentation.util.utils_metadata import DetectedNeurons
 from wbfm.utils.external.utils_cv2 import cast_matches_as_array
 from wbfm.utils.neuron_matching.class_reference_frame import ReferenceFrame
@@ -59,6 +58,7 @@ class FramePairOptions:
     z_to_xy_ratio: float = None  # Deprecated; will be removed after Ulises projects
     apply_tanh_to_confidence: bool = True
 
+    # These are mutually exclusive
     use_superglue: bool = True
 
     # Physical unit conversion; required for leifer network
@@ -91,12 +91,17 @@ class FramePairOptions:
         if training_config is None:
             training_config = cfg.get_training_config()
         pairwise_matches_params = training_config.config['pairwise_matching_params'].copy()
-        pairwise_matches_params = FramePairOptions(**pairwise_matches_params)
+        frame_pair_options = FramePairOptions(**pairwise_matches_params)
+
+        # Check that the network used to create the embeddings is consistent
+        if training_config.config['tracker_params'].get('use_barlow_network', False) and frame_pair_options.use_superglue:
+            frame_pair_options.use_superglue = False
+            logging.warning("use_superglue was set to True, but is inconsistent with the feature space of the Frames (use_barlow_network=True); setting use_superglue=False")
 
         physical_unit_conversion = PhysicalUnitConversion.load_from_config(cfg)
-        pairwise_matches_params.physical_unit_conversion = physical_unit_conversion
+        frame_pair_options.physical_unit_conversion = physical_unit_conversion
 
-        return pairwise_matches_params
+        return frame_pair_options
 
 
 @dataclass
@@ -451,7 +456,7 @@ class FramePair:
         Returns the 3d Affine transformed version of the volume0, which can be passed
         Also returns the intermediate products (rotation) and the raw
         """
-
+        from napari.utils.transforms import Affine
         h = self.calc_or_get_alignment_between_matched_neurons(recalculate_alignment=recalculate_alignment)
         napari_affine = Affine(affine_matrix=np.vstack([h, [0, 0, 0, 1]]))
 
@@ -528,6 +533,7 @@ class FramePair:
             print(f"Neuron {m0} not matched using {method_name} method")
 
     def match_using_feature_embedding(self):
+        logging.warning("DEPRECATION WARNING: Using old opencv based feature matching code. Should use FeatureSpaceTemplateMatcher instead")
         # Default method; always call this
         obj = self.options
         opt = dict(matches_to_keep=obj.embedding_matches_to_keep,
@@ -539,7 +545,7 @@ class FramePair:
         """
         Requires the frame objects to have been correctly initialized, i.e. their neurons need a feature embedding
 
-        Uses direct brute force matching to match the neurons given these embeddings, then postprocesses using GMS to
+        Uses direct brute force matching to match the neurons given these embeddings, then optionally postprocesses using GMS to
         make sure they reflect a locally consistent motion field
         """
         frame0, frame1 = self.frame0, self.frame1
@@ -698,6 +704,41 @@ class FramePair:
 
     def __repr__(self):
         return f"FramePair with {len(self.final_matches)}/{self.num_possible_matches} matches \n"
+
+
+def calc_FramePair_from_FeatureSpaceTemplates(template_base, template_target,
+                                              frame_pair_options: FramePairOptions = None) -> FramePair:
+    """
+    Calculates a FramePair from two FeatureSpaceTemplateMatcher objects. Note that this uses the matcher from the template_base object
+
+    See also calc_FramePair_from_Frames
+
+    Parameters
+    ----------
+    template0
+    template1
+
+    Returns
+    -------
+    FramePair
+    """
+    if frame_pair_options is None:
+        frame_pair_options = FramePairOptions()
+    frame_pair = FramePair(frame0=template_base.template_frame, frame1=template_target.template_frame, options=frame_pair_options)
+    if not frame_pair.check_both_frames_valid():
+        # In particular, no neurons detected in at least one frame
+        return frame_pair
+
+    # Get the matched frames from the templates
+    matches_class = template_base.match_target_frame(template_target.template_frame)
+
+    # Create a FramePair from the matched frames
+    frame_pair.feature_matches = matches_class.array_matches_with_conf.tolist()
+
+    # Add additional candidates; the class checks if they are used
+    frame_pair.match_using_all_methods()
+
+    return frame_pair
 
 
 def calc_FramePair_from_Frames(frame0: ReferenceFrame, frame1: ReferenceFrame, frame_pair_options: FramePairOptions,

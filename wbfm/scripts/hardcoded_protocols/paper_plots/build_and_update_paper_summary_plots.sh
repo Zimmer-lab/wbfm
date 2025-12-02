@@ -3,7 +3,7 @@
 # For both gcamp and immobilized projects, first build and save the new visualizations, then copy them to the folder
 
 # Commands
-CODE_FOLDER="/lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
+CODE_FOLDER="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
 BUILD_VIS_COMMAND=$CODE_FOLDER/"scripts/hardcoded_protocols/build_visualizations_for_paper_folders.sh"
 COPY_VIS_COMMAND=$CODE_FOLDER/"scripts/hardcoded_protocols/copy_paper_summary_plots.sh"
 

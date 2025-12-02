@@ -39,7 +39,7 @@ do
 done
 
 # Unpack the flag into an actual command
-CMD_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/scripts"
+CMD_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/scripts"
 
 declare -A CMD_DICT
 CMD_DICT["0b"]="0b-preprocess_working_copy_of_data.py"
@@ -49,7 +49,7 @@ CMD_DICT["1-alt"]="alternate/1+rebuild_segmentation_metadata.py"
 CMD_DICT["2a"]="2a-build_frame_objects.py"
 CMD_DICT["2b"]="2b-match_adjacent_volumes.py"
 CMD_DICT["2c"]="2c-postprocess_matches_to_tracklets.py"
-CMD_DICT["3a"]="3a-track_using_superglue.py"
+CMD_DICT["3a"]="3a-track_time_independent.py"
 CMD_DICT["3b"]="3b-match_tracklets_and_tracks_using_neuron_initialization.py"
 CMD_DICT["4"]="4-make_final_traces.py"
 CMD_DICT["4-alt"]="alternate/4c-extract_full_traces.py"
@@ -66,6 +66,7 @@ CMD_DICT["delete_dryrun"]="postprocessing/delete_analysis_files.py"
 CMD_DICT["match_ids"]="postprocessing/4+match_two_projects.py"
 CMD_DICT["segment_neuropal"]="postprocessing/0+segment_neuropal_in_project.py"
 CMD_DICT["export_paper_traces"]="postprocessing/4+export_paper_traces.py"
+CMD_DICT["export_nwb"]="postprocessing/4+export_as_nwb.py"
 
 CMD="${CMD_DIR}/${CMD_DICT[$step_reference]}"
 FULL_CMD="$CMD with project_path=$project_path"

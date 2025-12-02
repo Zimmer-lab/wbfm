@@ -126,38 +126,49 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.changeNeuronDropdown.currentIndexChanged.connect(self._select_neuron_using_dropdown)
         self.vbox1.addWidget(self.changeNeuronDropdown)
 
-        self.changeChannelDropdown = QtWidgets.QComboBox()
-        self.changeChannelDropdown.addItems(['green', 'red', 'ratio', 'linear_model', 'df_over_f_20', 'dr_over_r_20'])
-        self.changeChannelDropdown.setCurrentText('ratio')
-        self.changeChannelDropdown.currentIndexChanged.connect(self.update_trace_subplot)
-        self.vbox1.addWidget(self.changeChannelDropdown)
-
-        # Change traces vs tracklet mode
+        # Change traces vs tracklet mode (we need the class even if we don't have the button)
         self.changeTraceTrackletDropdown = QtWidgets.QComboBox()
         self.changeTraceTrackletDropdown.addItems(['traces', 'tracklets'])
         self.changeTraceTrackletDropdown.currentIndexChanged.connect(self.change_trace_tracklet_mode)
-        self.vbox1.addWidget(self.changeTraceTrackletDropdown)
+        if self.load_tracklets:
+            # Do not even add the dropdown if disallowed
+            self.vbox1.addWidget(self.changeTraceTrackletDropdown)
 
         if self.load_tracklets:
             self.changeInteractivityCheckbox = QtWidgets.QCheckBox("Turn on interactivity? "
                                                                    "NOTE: only Raw_segmentation layer is interactive")
+            self.changeInteractivityCheckbox.stateChanged.connect(self.update_interactivity)
+            self.vbox1.addWidget(self.changeInteractivityCheckbox)
         else:
             self.changeInteractivityCheckbox = QtWidgets.QCheckBox("Tracklet interactivity is NOT enabled")
             self.changeInteractivityCheckbox.setEnabled(False)
-        self.changeInteractivityCheckbox.stateChanged.connect(self.update_interactivity)
-        self.vbox1.addWidget(self.changeInteractivityCheckbox)
 
         # More complex groupBoxes:
         self._setup_trace_filtering_buttons()
-        self._setup_tracklet_correction_buttons()
-        # self._setup_gt_correction_shortcut_buttons()
-        self._setup_segmentation_correction_buttons()
+        self._setup_layer_creation_buttons()
+        if self.load_tracklets:
+            self._setup_tracklet_correction_buttons()
+            # self._setup_gt_correction_shortcut_buttons()
+            self._setup_segmentation_correction_buttons()
+
+        # Move full saving button out into it's own section
+        self.groupBox7SaveData = QtWidgets.QGroupBox("Saving Data", self.verticalLayoutWidget)
+        self.formlayout7 = QtWidgets.QFormLayout(self.groupBox7SaveData)
+        self.mainSaveButton = QtWidgets.QPushButton("Save all to disk")
+        self.mainSaveButton.pressed.connect(self.save_everything_to_disk)
+        msg = "IDs"
+        if self.load_tracklets:
+            msg = f"Masks, Tracklets, and {msg}"
+        self.formlayout7.addRow(msg, self.mainSaveButton)
 
         self.verticalLayout.addWidget(self.groupBox1NeuronSelection)
         self.verticalLayout.addWidget(self.groupBox2TraceCalculation)
-        self.verticalLayout.addWidget(self.groupBox3TrackletCorrection)
-        # self.verticalLayout.addWidget(self.groupBox5)
-        self.verticalLayout.addWidget(self.groupBox6SegmentationCorrection)
+        if self.load_tracklets:
+            self.verticalLayout.addWidget(self.groupBox3TrackletCorrection)
+            # self.verticalLayout.addWidget(self.groupBox5)
+            self.verticalLayout.addWidget(self.groupBox6SegmentationCorrection)
+        self.verticalLayout.addWidget(self.groupBox5LayerCreation)
+        self.verticalLayout.addWidget(self.groupBox7SaveData)
 
         try:
             self.initialize_track_layers()
@@ -167,7 +178,8 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.initialize_shortcuts()
         self.connect_napari_callbacks()
         self.initialize_trace_or_tracklet_subplot()
-        self.update_interactivity()
+        if self.load_tracklets:
+            self.update_interactivity()
 
         self.viewer.window._qt_window.closeEvent = partial(
             on_close,
@@ -212,10 +224,17 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.groupBox2TraceCalculation = QtWidgets.QGroupBox("Trace calculation options", self.verticalLayoutWidget)
         self.formlayout3 = QtWidgets.QFormLayout(self.groupBox2TraceCalculation)
 
-        self.changeSubplotMarkerDropdown = QtWidgets.QComboBox()
-        self.changeSubplotMarkerDropdown.addItems(['line', 'dots'])
-        self.changeSubplotMarkerDropdown.currentIndexChanged.connect(self.update_trace_or_tracklet_subplot)
-        self.formlayout3.addRow("Tracklet subplot marker:", self.changeSubplotMarkerDropdown)
+        self.changeChannelDropdown = QtWidgets.QComboBox()
+        self.changeChannelDropdown.addItems(['green', 'red', 'ratio', 'linear_model', 'df_over_f_20', 'dr_over_r_20'])
+        self.changeChannelDropdown.setCurrentText('ratio')
+        self.changeChannelDropdown.currentIndexChanged.connect(self.update_trace_subplot)
+        self.formlayout3.addRow("Trace calculation mode:", self.changeChannelDropdown)
+
+        if self.load_tracklets:
+            self.changeSubplotMarkerDropdown = QtWidgets.QComboBox()
+            self.changeSubplotMarkerDropdown.addItems(['line', 'dots'])
+            self.changeSubplotMarkerDropdown.currentIndexChanged.connect(self.update_trace_or_tracklet_subplot)
+            self.formlayout3.addRow("Tracklet subplot marker:", self.changeSubplotMarkerDropdown)
 
         self.changeTraceCalculationDropdown = QtWidgets.QComboBox()
         self.changeTraceCalculationDropdown.addItems(self.traces_mode_calculation_options)
@@ -292,9 +311,14 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.changeReferenceTrace.currentIndexChanged.connect(self.update_reference_trace)
         self.formlayout3.addRow("Reference trace:", self.changeReferenceTrace)
 
+    def _setup_layer_creation_buttons(self):
+        self.groupBox5LayerCreation = QtWidgets.QGroupBox("New layer creation", self.verticalLayoutWidget)
+        self.formlayout8 = QtWidgets.QFormLayout(self.groupBox5LayerCreation)
+
         self.addReferenceHeatmap = QtWidgets.QPushButton("Add Layer")
         self.addReferenceHeatmap.pressed.connect(self.add_layer_colored_by_correlation_to_current_neuron)
-        self.formlayout3.addRow("Correlation to current trace:", self.addReferenceHeatmap)
+        self.formlayout8.addRow("Correlation to current trace:", self.addReferenceHeatmap)
+
 
     def _setup_general_shortcut_buttons(self):
         self.groupBox3b = QtWidgets.QGroupBox("General shortcuts", self.verticalLayoutWidget)
@@ -444,10 +468,6 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.splitSegmentationSaveButton1 = QtWidgets.QPushButton("Save to RAM")
         self.splitSegmentationSaveButton1.pressed.connect(self.modify_segmentation_using_manual_correction)
         self.formlayout6.addRow("Save candidate mask: ", self.splitSegmentationSaveButton1)
-
-        self.mainSaveButton = QtWidgets.QPushButton("SAVE ALL TO DISK")
-        self.mainSaveButton.pressed.connect(self.save_everything_to_disk)
-        self.formlayout6.addRow("*Masks, Tracklets, and IDs*", self.mainSaveButton)
 
         self.saveSegmentationStatusLabel = QtWidgets.QLabel("No segmentation loaded")
         self.formlayout6.addRow("STATUS: ", self.saveSegmentationStatusLabel)
@@ -752,7 +772,7 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.zoom_using_current_neuron_or_tracklet()
 
         layer_to_add_callback = self.raw_seg_layer
-        if layer_to_add_callback is not None:
+        if layer_to_add_callback is not None and self.load_tracklets:
             added_segmentation_callbacks = [
                 self.update_segmentation_status_label,
                 self.toggle_highlight_selected_neuron
@@ -1325,13 +1345,11 @@ class NapariTraceExplorer(QtWidgets.QWidget):
 
     def init_universal_subplot(self):
         # Note: this causes a hang when the main window is closed, even though I'm trying to set the parent
-        # self.mpl_widget = PlotQWidget(self.viewer.window._qt_window.centralWidget())
         self.mpl_widget = PlotQWidget()
         self.static_ax = self.mpl_widget.canvas.fig.subplots()
         self.reference_ax = self.static_ax.twinx()
         self.main_subplot_xlim = [0, self.dat.num_frames]
-        # self.mpl_widget = FigureCanvas(Figure(figsize=(5, 3)))
-        # self.static_ax = self.mpl_widget.figure.subplots()
+        
         # Connect clicking to a time change
         # https://matplotlib.org/stable/users/event_handling.html
         on_click = lambda event: self.on_subplot_click(event)
@@ -2100,7 +2118,7 @@ def napari_trace_explorer_from_config(project_path: str, app=None,
                                                        to_load_interactivity=load_tracklets,
                                                        to_load_segmentation_metadata=True,
                                                        to_load_frames=load_tracklets,  # This is used for ground truth comparison, which requires tracklets
-                                                       initialization_kwargs=initialization_kwargs)
+                                                       initialization_kwargs=initialization_kwargs, allow_hybrid_loading=True)
     if DEBUG:
         logging.debug(project_data)
     # If I don't set this to false, need to debug custom dataframe here
@@ -2155,10 +2173,21 @@ def napari_behavior_explorer_from_config(project_path, fluorescence_fps=True, DE
     project_data = ProjectData.load_final_project_data_from_config(project_path)
 
     # Load specific data
-    df_kymo = project_data.worm_posture_class.curvature(fluorescence_fps=fluorescence_fps)
+    try:
+        df_kymo = project_data.worm_posture_class.curvature(fluorescence_fps=fluorescence_fps)
+    except NoBehaviorAnnotationsError as e:
+        print("No behavior annotations were found; showing only the video")
+        df_kymo = None
+        
     video_fname = project_data.worm_posture_class.behavior_video_btf_fname(raw=True)
-    store = tifffile.imread(video_fname, aszarr=True)
-    video_zarr = zarr.open(store, mode='r')
+    try:
+        # store = tifffile.imread(video_fname, aszarr=True)
+        # video_zarr = zarr.open(store, mode='r')
+        video_zarr = project_data.worm_posture_class.raw_behavior_video
+    except ValueError:
+        print("Failed to open video as tiff; trying zarr format")
+        print(video_fname)
+        return
     # Subset video to be the same fps as the fluorescence
     if fluorescence_fps:
         video_zarr = video_zarr[::project_data.physical_unit_conversion.frames_per_volume, :, :]
@@ -2179,9 +2208,10 @@ def napari_behavior_explorer_from_config(project_path, fluorescence_fps=True, DE
     mpl_widget = PlotQWidget()
     static_ax = mpl_widget.canvas.fig.subplots()
     # Get vmin and vmax dynamically
-    vmin = np.nanquantile(df_kymo.values, 0.01)
-    vmax = np.nanquantile(df_kymo.values, 0.99)
-    static_ax.imshow(df_kymo.T, aspect=aspect, vmin=vmin, vmax=vmax, cmap='RdBu')
+    if df_kymo is not None:
+        vmin = np.nanquantile(df_kymo.values, 0.01)
+        vmax = np.nanquantile(df_kymo.values, 0.99)
+        static_ax.imshow(df_kymo.T, aspect=aspect, vmin=vmin, vmax=vmax, cmap='RdBu')
     viewer.window.add_dock_widget(mpl_widget, area='bottom')
 
     # Callback: click on the kymograph to change the viewer time

@@ -7,7 +7,7 @@ from pathlib import Path
 from ruamel.yaml import YAML
 
 
-def edit_config(config_fname: typing.Union[str, pathlib.Path], edits: dict, DEBUG: bool = False) -> dict:
+def edit_config(config_fname: typing.Union[str, pathlib.Path], edits: dict, allow_new_creation=True, DEBUG: bool = False) -> dict:
     """Generic overwriting, based on DLC. Will create new file if one isn't found"""
 
     if DEBUG:
@@ -15,8 +15,11 @@ def edit_config(config_fname: typing.Union[str, pathlib.Path], edits: dict, DEBU
     if Path(config_fname).exists():
         cfg = load_config(config_fname)
     else:
-        cfg = {}
-        print(f"Config file not found, creating new one")
+        if allow_new_creation:
+            cfg = {}
+            print(f"Config file not found, creating new one")
+        else:
+            raise FileNotFoundError(config_fname)
 
     if DEBUG:
         print(f"Initial config: {cfg}")
@@ -43,3 +46,15 @@ def load_config(config_fname: typing.Union[str, pathlib.Path]) -> dict:
         cfg = YAML().load(f)
 
     return cfg
+
+
+def recursive_dict_update(base_dict, update_dict):
+    """
+    Recursively update dict `base_dict` with dict `update_dict`.
+    """
+    for key, value in update_dict.items():
+        if isinstance(value, dict) and isinstance(base_dict.get(key), dict):
+            recursive_dict_update(base_dict[key], value)
+        else:
+            base_dict[key] = value
+    return base_dict

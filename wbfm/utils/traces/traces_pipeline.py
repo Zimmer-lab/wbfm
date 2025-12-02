@@ -2,6 +2,7 @@ import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable
+from wbfm.utils.external.utils_neuron_names import name2int_neuron_and_tracklet
 
 import numpy as np
 import pandas as pd
@@ -51,12 +52,36 @@ def _save_traces_as_hdf_and_update_configs(final_neuron_names: list,
     traces_cfg.update_self_on_disk()
 
 
-def match_segmentation_and_tracks(_get_zxy_from_pandas: Callable,
-                                  all_matches: defaultdict,
-                                  frame_list: list,
-                                  max_dist: float,
-                                  project_data: ProjectData,
-                                  DEBUG: bool = False) -> None:
+def match_segmentation_and_tracks_using_indices(final_tracks, frame_list, all_matches):
+    """
+    See also match_segmentation_and_tracks_using_centroids
+    """
+
+    all_neurons = final_tracks.columns.get_level_values(0).unique()
+    all_neuron_ids = np.array([name2int_neuron_and_tracklet(n) for n in all_neurons], dtype=int)
+    for i_volume in tqdm(frame_list, desc="Matching segmentation and tracks using segmentation indices"):
+        # Get the array of matches for this time point, dropping nan values, in the format: [Final idx, segmentation idx, confidence]
+        # Check if the time point exists in the final_tracks dataframe
+        if i_volume not in final_tracks.index:
+            continue
+        this_seg_idx = final_tracks.loc[i_volume, (slice(None), 'raw_segmentation_id')].values
+        if len(this_seg_idx) == 0:
+            # No indices for this volume, skip
+            continue
+        valid_idx = np.where(~np.isnan(this_seg_idx))[0]
+        this_seg_idx = this_seg_idx[valid_idx].astype(int)
+        this_final_idx = all_neuron_ids[valid_idx]
+        this_conf = np.ones_like(this_final_idx, dtype=float)  # Confidence is 1.0 for all matches
+
+        all_matches[i_volume] = np.array([this_final_idx, this_seg_idx, this_conf]).T
+
+
+def match_segmentation_and_tracks_using_centroids(_get_zxy_from_pandas: Callable,
+                                                  all_matches: defaultdict,
+                                                  frame_list: list,
+                                                  max_dist: float,
+                                                  project_data: ProjectData,
+                                                  DEBUG: bool = False) -> None:
     """
 
     Parameters
@@ -71,7 +96,7 @@ def match_segmentation_and_tracks(_get_zxy_from_pandas: Callable,
     -------
     None
     """
-    for i_volume in tqdm(frame_list):
+    for i_volume in tqdm(frame_list, desc="Matching segmentation and tracks using centroids"):
         # Get tracking point cloud
         # NOTE: This dataframe starts at 0, not start_volume
         try:

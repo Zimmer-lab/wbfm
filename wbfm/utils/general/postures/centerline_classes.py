@@ -4,7 +4,7 @@ import logging
 import math
 import os
 from pathlib import Path
-from typing import Union, Optional, List, Tuple, Dict
+from typing import Type, Union, Optional, List, Tuple, Dict
 import dask.array as da
 import numpy as np
 import pandas as pd
@@ -190,7 +190,14 @@ class WormFullVideoPosture:
 
     @property
     def num_high_res_frames(self):
-        return len(self._raw_stage_position)
+        try:
+            return len(self._raw_stage_position)
+        except NoBehaviorAnnotationsError as e:
+            if self.has_full_kymograph and self._raw_centerlineX is not None:
+                return len(self._raw_centerlineX)
+            else:
+                raise e
+                
 
     def _pad_if_not_long_enough(self, df):
         # Need to properly continue the index
@@ -242,7 +249,8 @@ class WormFullVideoPosture:
     def template_vector(self, fluorescence_fps=False, **kwargs) -> pd.Series:
         """Defines the expected length for the behavioral vectors, with all nan"""
         df = pd.Series(index=range(self.num_high_res_frames))
-        df = self._validate_and_downsample(df, fluorescence_fps, force_downsampling=fluorescence_fps,
+        force_downsampling = kwargs.pop('force_downsampling', fluorescence_fps)
+        df = self._validate_and_downsample(df, fluorescence_fps, force_downsampling=force_downsampling,
                                            **kwargs)
         return df
 
@@ -1025,13 +1033,16 @@ class WormFullVideoPosture:
             beh_vec = beh_vec.apply(BehaviorCodes.convert_to_simple_states)
         return beh_vec
 
-    def all_found_behaviors(self, convert_to_strings=False, **kwargs):
-        beh = self.beh_annotation(**kwargs)
-        beh_unique = beh.unique()
-        if convert_to_strings:
-            beh_unique = [behavior.individual_names for behavior in beh_unique]
-            # Flatten the nested list, and only keep unique values
-            beh_unique = list({item for sublist in beh_unique for item in sublist})
+    def all_found_behaviors(self, convert_to_strings=False, **kwargs) -> list:
+        try:
+            beh = self.beh_annotation(**kwargs)
+            beh_unique = beh.unique()
+            if convert_to_strings:
+                beh_unique = [behavior.individual_names for behavior in beh_unique]
+                # Flatten the nested list, and only keep unique values
+                beh_unique = list({item for sublist in beh_unique for item in sublist})
+        except (NoBehaviorAnnotationsError, TypeError):
+            beh_unique = []
         return beh_unique
 
     @lru_cache(maxsize=64)
@@ -1446,6 +1457,7 @@ class WormFullVideoPosture:
                                        behavior_name=None,
                                        use_manual_annotation=None,
                                        use_hilbert_phase=False,
+                                       hilbert_phase_body_segment=15,
                                        **kwargs):
         """
         Calculates a list of indices that can be used to calculate triggered averages of 'state' ONSET
@@ -1471,6 +1483,7 @@ class WormFullVideoPosture:
         behavior_name - Name of behavior to calculate and use; overrides 'state'
         use_manual_annotation - Whether to load manually annotated behaviors or use automatic annotations
         use_hilbert_phase - Whether to use the hilbert phase of the worm as the behavioral annotation
+        hilbert_phase_body_segment - Which body segment to use for the hilbert phase (ignored if not using hilbert phase; defaults to 15)
         kwargs - passed to TriggeredAverageIndices
 
         Returns
@@ -1494,7 +1507,7 @@ class WormFullVideoPosture:
             if use_hilbert_phase:
                 df_behavioral_annotation = self.hilbert_phase(fluorescence_fps=True, reset_index=True)
                 # Choose one body segment
-                behavioral_annotation = df_behavioral_annotation.loc[:, 15]
+                behavioral_annotation = df_behavioral_annotation.loc[:, hilbert_phase_body_segment]
                 behavioral_annotation = behavioral_annotation - behavioral_annotation.mean()
                 kwargs['behavioral_annotation_is_continuous'] = True
             elif behavior_name is None:
@@ -1990,7 +2003,7 @@ class WormFullVideoPosture:
             else:
                 bh = self.beh_annotation(**beh_annotation_opts)
                 shade_using_behavior(bh, **kwargs)
-        except (NoBehaviorAnnotationsError, AttributeError):
+        except (NoBehaviorAnnotationsError, AttributeError, TypeError):
             pass
 
     @property
@@ -2236,11 +2249,14 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
     """
 
     # Initial checks are all in project local folders
-    is_likely_manually_annotated = False
     behavior_cfg = cfg.get_behavior_config()
+    is_likely_manually_annotated = behavior_cfg.config.get('manual_beh_annotation_already_converted_to_fluorescence_fps', False)
+    
     try:
         behavior_fname = behavior_cfg.config.get('manual_behavior_annotation', None)
         abs_behavior_fname = behavior_cfg.resolve_relative_path(behavior_fname)
+        if verbose >= 1:
+            print(f"Checking for manual behavior annotation in config file: {abs_behavior_fname}")
         if behavior_fname is not None:
             if Path(abs_behavior_fname).exists():
                 # Unclear if it is manually annotated or not
@@ -2266,6 +2282,8 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
                     if verbose >= 1:
                         print(f"Found relative path behavior annotation in config file: {abs_behavior_fname}")
     except FileNotFoundError:
+        if verbose >= 1:
+            print(f"No behavior annotation found in config file: {behavior_cfg}")
         # Old style project
         behavior_fname = None
 

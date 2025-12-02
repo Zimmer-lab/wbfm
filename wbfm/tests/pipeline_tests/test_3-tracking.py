@@ -16,7 +16,7 @@ def _load_tracks() -> Tuple[object, ModularProjectConfig]:
 
 
 def test_pipeline_step_a():
-    mod = importlib.import_module("wbfm.scripts.3a-track_using_superglue", package="wbfm")
+    mod = importlib.import_module("wbfm.scripts.3a-track_time_independent", package="wbfm")
     config_updates = {'project_path': project_path, 'DEBUG': False}
     mod.ex.run(config_updates=config_updates)
 

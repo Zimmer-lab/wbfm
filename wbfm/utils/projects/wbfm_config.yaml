@@ -8,14 +8,14 @@
 segmentation_paths:
     # Path to the pretrained model for the segmentation network
     # See documentation for StarDist3D in the StarDist package for more information on loading and training
-    model_parent_folder: /lisc/scratch/neurobiology/zimmer/wbfm/TrainedStardist
+    model_parent_folder: /lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedStardist
     model_name: students_and_lukas_3d_zarr
 
 # Tracking networks
 tracking_paths:
     # Path to the pretrained model for the tracking network
     # See documentation for SuperGlue in the Superglue package for more information on loading and training
-    model_parent_folder: /lisc/scratch/neurobiology/zimmer/fieseler/github_repos/dlc_for_wbfm/wbfm/nn_checkpoints/
+    model_parent_folder: /lisc/data/scratch/neurobiology/zimmer/fieseler/github_repos/dlc_for_wbfm/wbfm/nn_checkpoints/
     global_tracking_model_name: superglue_neurons_5_datasets_07_08_uint16.ckpt
     tracklet_model_name: superglue_neurons_5_datasets_adjacent_07_11_uint16.ckpt
 
@@ -23,17 +23,17 @@ tracking_paths:
 # Behavior pipeline networks and PCA model (not needed if only analyzing traces)
 behavior_paths:
     # Unets
-    main_unet_model: /lisc/scratch/neurobiology/zimmer/centerline_pipeline/neural_networks/unet_worm.hdf5
-    coiled_shape_unet_model: /lisc/scratch/neurobiology/zimmer/centerline_pipeline/neural_networks/unet_worm_coil.hdf5
+    main_unet_model: /lisc/data/scratch/neurobiology/zimmer/centerline_pipeline/neural_networks/unet_worm.hdf5
+    coiled_shape_unet_model: /lisc/data/scratch/neurobiology/zimmer/centerline_pipeline/neural_networks/unet_worm_coil.hdf5
     # DLC network; by default this is overwritten by the snakemake_config.yaml file
-    head_tail_dlc_project: /lisc/scratch/neurobiology/zimmer/zimmer_DLC/DLC_projects/DLCwbfm_headtailphar-Eva-2024-11-20/config.yaml
+    head_tail_dlc_project: /lisc/data/scratch/neurobiology/zimmer/zimmer_DLC/DLC_projects/DLCwbfm_headtailphar-Eva-2024-11-20/config.yaml
     # DLC conda environment
-    dlc_conda_env_name: /lisc/scratch/neurobiology/zimmer/.conda/envs/deeplabcut_imutils
-    dlc_conda_env_name_only_dlc: deeplabcut-2.3.10
+    dlc_conda_env_name: /lisc/data/scratch/neurobiology/zimmer/.conda/envs/deeplabcut_imutils
+    dlc_conda_env_name_only_dlc: deeplabcut-2.3.11
     # SAM2 related paths
-    sam2_model: /lisc/scratch/neurobiology/zimmer/schaar/code/github/segment-anything-2
-    sam2_conda_env_name: /lisc/scratch/neurobiology/zimmer/.conda/envs/SAM2_shared
+    sam2_model: /lisc/data/scratch/neurobiology/zimmer/schaar/code/github/segment-anything-2
+    sam2_conda_env_name: /lisc/data/scratch/neurobiology/zimmer/.conda/envs/SAM2_shared
     # NOT ACTUALLY USED (in the past, just to create some filenames)
     head_tail_dlc_name: DLC_resnet50_DLCwbfm_headtailpharNov20shuffle2_450000  # Note: folder name + initial resnet name (prefix) + number of iterations (suffix)
     # PCA model used for curvature analysis (should be changed for different shapes of worms)
-    pca_model: /lisc/scratch/neurobiology/zimmer/wbfm/code/centerline_behavior_annotation/centerline_behavior_annotation/curvature/models/1738_20230403_eigenworm_PCA_bodypart_30_to_80.pkl
+    pca_model: /lisc/data/scratch/neurobiology/zimmer/wbfm/code/centerline_behavior_annotation/centerline_behavior_annotation/curvature/models/1738_20230403_eigenworm_PCA_bodypart_30_to_80.pkl

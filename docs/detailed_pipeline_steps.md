@@ -75,7 +75,7 @@ You can directly run the python scripts, or, most likely, run them using sbatch 
 Once the project is created, each step can be run via sbatch using this command in the scripts/cluster folder:
 
 ```commandline
-sbatch single_step_dispatcher.sbatch -s 1 -t/lisc/scratch/neurobiology/zimmer/Charles/dlc_stacks/worm10-gui_test/project_config.yaml
+sbatch single_step_dispatcher.sbatch -s 1 -t/lisc/data/scratch/neurobiology/zimmer/Charles/dlc_stacks/worm10-gui_test/project_config.yaml
 ```
 
 where '-s' is a shortcut for the step to run (0b, 1, 2a, 2b, 2c, 3a, 3b, 4) and '-t' is a path to the project config file.
@@ -158,7 +158,7 @@ Preparation:
 
 Command:
 ```bash
-python scripts/3a-track_using_superglue.py with project_path=PATH-TO-YOUR-PROJECT
+python scripts/3a-track_time_independent.py with project_path=PATH-TO-YOUR-PROJECT
 ```
 
 Speed: 1-3 hours

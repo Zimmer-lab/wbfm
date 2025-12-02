@@ -8,7 +8,7 @@ from tqdm.auto import tqdm
 
 from wbfm.utils.general.utils_networkx import calc_bipartite_matches_using_networkx, build_digraph_from_matches, \
     unpack_node_name, is_one_neuron_per_frame
-from wbfm.utils.neuron_matching.utils_matching import calc_bipartite_from_positions
+from wbfm.utils.neuron_matching.utils_matching import calc_bipartite_from_positions, calc_bipartite_from_ids
 from scipy.sparse import coo_matrix
 from wbfm.utils.general.high_performance_pandas import get_names_from_df
 
@@ -207,7 +207,7 @@ def matches_to_sparse_matrix(matches_with_conf, shape=None):
 def rename_columns_using_matching(df_base, df_to_rename, column='raw_neuron_ind_in_list',
                                   try_to_fix_inf=False):
     """
-    Aligns the names of df0 with the names of df1 based on bipartite matching on column
+    Aligns the names of df_to_rename with the names of df_base based on bipartite matching on values of 'column' variable
     Drops columns without a match
 
     Note: can't really handle nan or inf values in either matrix unless try_to_fix_inf=True
@@ -236,7 +236,10 @@ def rename_columns_using_matching(df_base, df_to_rename, column='raw_neuron_ind_
     df0_ind = df_base.loc(axis=1)[names0, column].to_numpy()
     df1_ind = df_to_rename.loc(axis=1)[names1, column].to_numpy()
 
-    matches, conf, _ = calc_bipartite_from_positions(df1_ind.T, df0_ind.T, try_to_fix_inf=try_to_fix_inf)
+    if column=="raw_neuron_ind_in_list" or column=="raw_segmentation_id":
+        matches, conf, _ = calc_bipartite_from_ids(df1_ind.T, df0_ind.T)
+    else:
+        matches, conf, _ = calc_bipartite_from_positions(df1_ind.T, df0_ind.T, try_to_fix_inf=try_to_fix_inf)
 
     # Start with default
     name_mapping = {n: 'unmatched_neuron' for n in names1}
@@ -270,6 +273,7 @@ def combine_dataframes_using_max_of_column(df0, df1, column='likelihood'):
 
 
 def combine_dataframes_using_mode(all_dfs, column='raw_neuron_ind_in_list', i_base=0):
+    """Assumes that all_dfs[i_base] is the base dataframe, and all others are to be combined into it; only works well with >2 dataframes"""
     names = get_names_from_df(all_dfs[i_base])
     new_df = all_dfs[i_base].copy()
 
@@ -353,3 +357,19 @@ def combine_and_rename_multiple_dataframes(all_raw_dfs, i_base):
     else:
         df_combined = all_dfs[0]
     return df_combined
+
+
+def fit_umap_using_frames(all_frames):
+    print("Pretraining UMAP for global space embedding")
+    from umap import UMAP
+    X_all_neurons = []
+
+    for f in all_frames.values():
+        if f.all_features is not None:
+            X_all_neurons.append(f.all_features)
+
+    X_all_neurons = np.vstack(X_all_neurons)
+    opt_umap = dict(n_components=10, n_neighbors=10, min_dist=0)
+    umap = UMAP(**opt_umap)
+    umap.fit(X_all_neurons)
+    return umap

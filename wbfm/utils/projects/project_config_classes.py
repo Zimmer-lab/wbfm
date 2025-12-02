@@ -46,7 +46,7 @@ class ConfigFileWithProjectContext:
 
     def __post_init__(self):
         if self._self_path is None:
-            logging.warning("self_path is None; some functionality will not work")
+            logging.debug("self_path is None; some functionality will not work")
             self._config = dict()
         else:
             if Path(self._self_path).is_dir():
@@ -138,8 +138,8 @@ class ConfigFileWithProjectContext:
             return str(Path(val).relative_to(project_dir))
         except ValueError:
             try:
-                # As of October 2023, the cluster has /lisc/scratch and/lisc/scratch mapping to the same point
-                # Both should be removed if possible from the path; this will always check the /lisc/scratch version
+                # As of October 2023, the cluster has /lisc/data/scratch and/lisc/data/scratch mapping to the same point
+                # Both should be removed if possible from the path; this will always check the /lisc/data/scratch version
                 project_dir = Path(project_dir).resolve()
                 return str(Path(val).relative_to(project_dir))
             except ValueError:
@@ -284,6 +284,17 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
 
     _preprocessing_class: RawFluorescenceData = None
 
+    def get_project_config_of_remote_project(self, step=None) -> Optional[str]:
+        # Checks if any of the subfolder configs are absolute paths, and if so, returns the corresponding project path
+        remote_project_dir = None
+        for fname, config_path in self.config['subfolder_configs'].items():
+            if step is not None and fname != step:
+                continue
+            if os.path.isabs(config_path):
+                remote_project_dir = os.path.dirname(os.path.dirname(config_path))
+                break
+        return remote_project_dir
+
     def get_segmentation_config(self) -> SubfolderConfigFile:
         fname = Path(self.config['subfolder_configs']['segmentation'])
         return SubfolderConfigFile(**self._check_path_and_load_config(fname))
@@ -294,6 +305,11 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
 
     def get_tracking_config(self) -> SubfolderConfigFile:
         fname = Path(self.config['subfolder_configs']['tracking'])
+        return SubfolderConfigFile(**self._check_path_and_load_config(fname))
+    
+    def get_snakemake_config(self) -> SubfolderConfigFile:
+        """Uniquely, this config file must be local; it is hardcoded here instead of read from subfolder_configs"""
+        fname = Path(os.path.join('snakemake', 'snakemake_config.yaml'))
         return SubfolderConfigFile(**self._check_path_and_load_config(fname))
 
     def get_preprocessing_config(self) -> SubfolderConfigFile:
@@ -367,14 +383,14 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         except FileNotFoundError:
             # Allow a hardcoded default... fragile, but necessary for projects with deleted raw data
             cfg = default_raw_data_config()
-            self._logger.warning(f"Could not find file {fname}; "
-                                 f"Using hardcoded default raw data config: {cfg}")
+            self._logger.debug(f"Could not find file {fname}; "
+                               f"Using hardcoded default raw data config: {cfg}")
             return SubfolderConfigFile(_self_path=None, _config=cfg, project_dir=self.project_dir)
 
     def get_nwb_config(self, make_subfolder=True) -> SubfolderConfigFile:
         fname = self.config['subfolder_configs'].get('nwb', None)
         if fname is None:
-            fname = Path(self.project_dir).joinpath('nwb', 'nwb_config.yaml')
+            fname = Path(self.project_dir).joinpath('nwb', 'nwb_config.yaml')  # Default (local) path; old projects don't have this subfolder_config entry
             if not fname.exists():
                 if make_subfolder:
                     self.initialize_nwb_folder()
@@ -445,6 +461,10 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
             project_dir = Path(resolve_mounted_path_in_current_os(str(subconfig_path.parent.parent)))
         else:
             project_dir = Path(self.absolute_self_path).parent
+
+        if is_absolute_in_any_os(subconfig_path):
+            subconfig_path = Path(resolve_mounted_path_in_current_os(str(subconfig_path)))
+
         with safe_cd(project_dir):
             try:
                 cfg = load_config(subconfig_path)
@@ -611,7 +631,7 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         """
         Find bigtiffs for the grid pattern, for alignment. Expects 5 files, all with the pattern:
         {date}_alignment-3D-{location}_{channel}
-        Example:/lisc/scratch/neurobiology/zimmer/ulises/wbfm/20220913/2022-09-13_11-55_alignment-3D-TopLeft_Ch0
+        Example:/lisc/data/scratch/neurobiology/zimmer/ulises/wbfm/20220913/2022-09-13_11-55_alignment-3D-TopLeft_Ch0
 
         The locations are:
         center, TopLeft, TopRight, BottomRight, BottomLeft
@@ -712,7 +732,7 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         for content in folder_for_all_channels.iterdir():
             if content.is_dir():
                 # Ulises uses UK spelling
-                if 'behaviour' in content.name or 'BH' in content.name:
+                if content.name.endswith('behaviour') or content.name.endswith('BH'):
                     behavior_subfolder = folder_for_all_channels.joinpath(content)
                     flag = True
                     break
@@ -1028,10 +1048,22 @@ def _update_config_value(file_key, cfg_to_update, old_name0, new_name0=None, new
     return cfg_to_update
 
 
+def make_project_name_like(project_path: str, target_directory: str, target_suffix: str = None, 
+                           new_project_name: str = None, verbose=1) -> Path:
+    old_project_dir = Path(project_path).parent
+    if new_project_name is None:
+        new_project_name = old_project_dir.name
+    if target_suffix is not None:
+        new_project_name = f"{new_project_name}{target_suffix}"
+    target_project_name = Path(target_directory).joinpath(new_project_name)
+    return target_project_name, old_project_dir
+
+
 def make_project_like(project_path: str, target_directory: str,
                       steps_to_keep: list = None,
                       target_suffix: str = None,
-                      new_project_name: str = None, verbose=1):
+                      new_project_name: str = None, 
+                      verbose=1):
     """
     Copy all config files from a project, i.e. only the files that would exist in a new project
 
@@ -1041,7 +1073,7 @@ def make_project_like(project_path: str, target_directory: str,
     target_directory - parent folder within which to create the new project
     steps_to_keep - steps, if any, to keep absolute paths connecting to the old project.
         Should be the full name of the step, not just a number (and not including the number). Example:
-        "steps_to_keep=['segmentation']"
+        steps_to_keep="['segmentation']" (note that the surrounding quotes are needed for the cli)
     target_suffix - suffix for filename. Default is none
     new_project_name - optional new name for project. Default is same as old
     verbose
@@ -1052,43 +1084,45 @@ def make_project_like(project_path: str, target_directory: str,
     """
 
     assert project_path.endswith('.yaml'), f"Must pass a valid config file: {project_path}"
+    assert os.path.exists(project_path), f"Must pass a project that exists: {project_path}"
     assert os.path.exists(target_directory), f"Must pass a folder that exists: {target_directory}"
 
-    project_dir = Path(project_path).parent
-    if new_project_name is None:
-        new_project_name = project_dir.name
-    if target_suffix is not None:
-        new_project_name = f"{new_project_name}{target_suffix}"
-    target_project_name = Path(target_directory).joinpath(new_project_name)
+
+    target_project_name, old_project_dir = make_project_name_like(project_path, target_directory,
+                                                              target_suffix=target_suffix,
+                                                              new_project_name=new_project_name,
+                                                              verbose=verbose)
     if os.path.exists(target_project_name):
         raise FileExistsError(f"There is already a project at: {target_project_name}")
     if verbose >= 1:
-        print(f"Copying project {project_dir}")
+        print(f"Copying project in directory {old_project_dir} with new name {target_project_name}")
 
     # Get a list of all files that should be present, relative to the project directory
     src = get_location_of_new_project_defaults()
-    initial_fnames = list(Path(src).rglob('**/*'))
-    if len(initial_fnames) == 0:
-        print("Found no initial files, probably running this from the wrong directory")
+    template_fnames = list(Path(src).rglob('**/*'))
+    if len(template_fnames) == 0:
+        print(f"Found no template files, something went wrong with trying to find project template. Searched here: {src}")
         raise FileNotFoundError
 
     # Convert them to relative
-    initial_fnames = {str(fname.relative_to(src)) for fname in initial_fnames}
+    template_fnames = {str(fname.relative_to(src)) for fname in template_fnames}
     if verbose >= 3:
-        print(f"Found initial files: {initial_fnames}")
+        print(f"Found template files: {template_fnames}")
 
     # Also get the filenames of the target folder
-    target_fnames = list(Path(project_dir).rglob('**/*'))
+    old_project_fnames = list(Path(old_project_dir).rglob('**/*'))
     if verbose >= 3:
-        print(f"Found target files: {target_fnames}")
+        print(f"Found files in the old project (to copy): {old_project_fnames}")
+    if len(old_project_fnames) == 0:
+        logging.warning("Found no files to copy; perhaps the old project is incorrectly formatted")
 
     # Check each initial project fname, and if it is in the initial set, copy it
-    for fname in target_fnames:
+    for fname in old_project_fnames:
         if fname.is_dir():
             continue
-        rel_fname = fname.relative_to(project_dir)
+        rel_fname = fname.relative_to(old_project_dir)
         new_fname = target_project_name.joinpath(rel_fname)
-        if str(rel_fname) in initial_fnames:
+        if str(rel_fname) in template_fnames:
             os.makedirs(new_fname.parent, exist_ok=True)
             shutil.copy(fname, new_fname)
 

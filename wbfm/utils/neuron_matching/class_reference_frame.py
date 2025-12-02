@@ -24,7 +24,7 @@ class ReferenceFrame:
     neuron_locs: list = None
     keypoints: list = None
     keypoint_locs: np.ndarray = None  # Includes the z coordinate
-    all_features: np.ndarray = None
+    all_features: np.ndarray = None   # Vector per neuron
     features_to_neurons: dict = None
 
     # Metadata
@@ -44,7 +44,7 @@ class ReferenceFrame:
     options_2d_encoder: dict = None
 
     _all_features_non_neurons: np.ndarray = None
-    _raw_data: np.ndarray = None
+    _raw_data: np.ndarray = None  # Note that this is actually preprocessed
 
     def get_default_base_2d_encoder(self):
         self.alternate_2d_encoder = self.get_default_base_2d_encoder
@@ -93,7 +93,7 @@ class ReferenceFrame:
             raise NotImplementedError(f"Datatype should be uint8 or uint16, found {raw_dat.dtype} instead")
         return dat
 
-    def detect_or_import_neurons(self, detected_neurons: DetectedNeurons) -> list:
+    def import_neurons_from_metadata(self, detected_neurons: DetectedNeurons) -> list:
         """
 
         Parameters
@@ -105,20 +105,7 @@ class ReferenceFrame:
         neuron_locs - also saved as self.neuron_locs and self.keypoint_locs
 
         """
-
-        if detected_neurons is None:
-            raise DeprecationError("Detection of neurons within this class is deprecated")
-            # from wbfm.utils.neuron_matching.legacy_neuron_detection import detect_neurons_using_ICP
-            # neuron_locs, _, _, _ = detect_neurons_using_ICP(dat,
-            #                                                 num_slices=num_slices,
-            #                                                 alpha=1.0,
-            #                                                 min_detections=3,
-            #                                                 start_slice=start_slice,
-            #                                                 verbose=0)
-            # neuron_locs = np.array([n for n in neuron_locs])
-        else:
-            i = self.frame_ind
-            neuron_locs = detected_neurons.detect_neurons_from_file(i, numpy_not_list=False)
+        neuron_locs = detected_neurons.detect_neurons_from_file(self.frame_ind, numpy_not_list=False)
 
         if len(neuron_locs) == 0:
             raise NoNeuronsError("No neurons detected... check data settings")
@@ -126,7 +113,7 @@ class ReferenceFrame:
         self.neuron_locs = neuron_locs
         return neuron_locs
 
-    def copy_neurons_to_keypoints(self):
+    def copy_neurons_to_keypoints_locs(self):
         """ Explicitly a different method for backwards compatibility"""
         self.keypoint_locs = self.neuron_locs.copy()
 
@@ -253,9 +240,37 @@ class ReferenceFrame:
 
         return kp2n_map
 
-    def encode_all_keypoints_or_neurons(self, base_2d_encoder=None,
+    def encode_neurons_using_3d_network(self, model, gpu, dataset, use_projection_space=True) -> None:
+        """
+        Build a feature vector for each neuron using a 3d CNN. 
+        Note that this function doesn't know the neuron locations, but rather uses pre-built crops from the dataset class
+
+        Designed to be used with a trained BarlowTrack network; see also embed_using_barlow in the BarlowTrack repo
+
+        Note: network_path is needed as an arg for compatibility with the yaml file
+        """
+        import torch
+        batch, ids = dataset[self.frame_ind]
+        batch = batch.to(gpu)
+        all_embeddings = []
+
+        def _embed_single_neuron(name):
+            idx = ids.index(name)
+            crop = torch.unsqueeze(batch[:, idx, ...], 0)
+            embeddings = model.embed(crop) if use_projection_space else model.backbone(crop)
+            all_embeddings.append(embeddings.cpu().detach().numpy())
+
+        with torch.no_grad():
+            for n in ids:
+                _embed_single_neuron(n)
+        
+        # Convert to expected format (numpy array, neurons x features)
+        self.all_features = np.vstack(all_embeddings).squeeze()
+        self.keypoints = list()
+        
+    def encode_neurons_using_2d_network(self, base_2d_encoder=None,
                                         use_keypoint_locs=True,
-                                        transpose_images=True) -> None:
+                                        transpose_images=True, **kwargs) -> None:
         """
         Builds a feature vector for each neuron (zxy location) in a 3d volume
         Default: Uses opencv VGG as a 2d encoder for a number of slices above and below the exact z location
@@ -265,7 +280,7 @@ class ReferenceFrame:
         Performance note: because this loops over keypoints, it only works for a small number, ~100-300
             Designed to be used with detected neurons, not ORB keypoints (which could be >10000)
 
-        Creates feature vectors of length z_depth *
+        Creates feature vectors of length z_depth * 128 (default for VGG)
         """
 
         z_depth = self.z_depth
@@ -285,21 +300,6 @@ class ReferenceFrame:
         all_keypoints = []
         if base_2d_encoder is None:
             base_2d_encoder = self.get_default_base_2d_encoder()
-
-        # enhance: should be much faster to loop per plane instead of per neuron
-        # Loop per plane, getting all keypoints for this plane
-        # for z in range(im_3d.shape[0]):
-        #     # Slice band
-        #     slices_around_keypoint = np.arange(z - z_depth, z + z_depth + 1)
-        #     slices_around_keypoint = np.clip(slices_around_keypoint, 0, len(im_3d_gray) - 1)
-        #
-        #     # Get all keypoints (not just this slice, but < z_depth away)
-        #     these_locs_ind = np.where(np.abs(locs_zxy[:, 0] - z <= z_depth))[0]
-        #     these_kp_2d = []
-        #
-        #     # Embed all keypoints
-        #
-        #     # Save
 
         for i_loc in tqdm(range(num_kps), total=num_kps, leave=False):
             z, x, y = locs_zxy[i_loc, :]
@@ -325,9 +325,9 @@ class ReferenceFrame:
         self.keypoints = all_keypoints
         # self.check_data_desyncing()
 
-    def build_trivial_keypoint_to_neuron_mapping(self):
+    def build_trivial_keypoint_to_neuron_mapping(self, ignore_keypoints=False):
         # This is now just a trivial mapping
-        self.check_data_desyncing()
+        self.check_data_desyncing(ignore_keypoints=ignore_keypoints)
         kp2n_map = {i: i for i in range(len(self.neuron_locs))}
         self.features_to_neurons = kp2n_map
 
@@ -349,24 +349,29 @@ class ReferenceFrame:
         k = get_keypoints_from_3dseg(self.keypoint_locs)
         self.keypoints = k
 
-    def check_data_desyncing(self):
-        if len(self.keypoint_locs) != len(self.keypoints):
-            logging.warning(f"{len(self.keypoint_locs)} != {len(self.keypoints)}")
-            raise DataSynchronizationError('keypoint_locs', 'keypoints', 'rebuild_keypoints')
+    def check_data_desyncing(self, ignore_keypoints=False):
+        if not ignore_keypoints:
+            if len(self.keypoint_locs) != len(self.keypoints):
+                logging.warning(f"{len(self.keypoint_locs)} != {len(self.keypoints)}")
+                raise DataSynchronizationError('keypoint_locs', 'keypoints', 'rebuild_keypoints')
 
-        if len(self.keypoints) != len(self.all_features):
-            logging.warning(f"{len(self.keypoints)} != {len(self.all_features)}")
-            raise DataSynchronizationError('all_features', 'keypoints')
+            if len(self.keypoints) != len(self.all_features):
+                logging.warning(f"{len(self.keypoints)} != {len(self.all_features)}")
+                raise DataSynchronizationError('all_features', 'keypoints')
+        
+        # Always check neuron_locs
+        if len(self.neuron_locs) != len(self.all_features):
+            logging.warning(f"{len(self.neuron_locs)} != {len(self.all_features)}")
+            raise DataSynchronizationError('neuron_locs', 'all_features')
 
     def __str__(self):
         return f"=======================================\n\
 ReferenceFrame:\n\
 Frame index: {self.frame_ind} \n\
-Number of neurons: {len(self.neuron_locs)} \n\
-Number of keypoints: {len(self.keypoint_locs)} \n"
+Number of neurons: {self.num_neurons} \n"
 
     def __repr__(self):
-        return f"ReferenceFrame with {len(self.neuron_locs)} neurons \n"
+        return f"ReferenceFrame with {self.num_neurons} neurons \n"
 
 
 ##
@@ -404,9 +409,9 @@ class RegisteredReferenceFrames:
 
 
 def build_reference_frame_encoding(metadata=None, all_detected_neurons: DetectedNeurons = None,
-                                   encoder_opt=None, verbose=0):
+                                   encoder_opt=None, use_barlow_network=False, verbose=0):
     """
-    New traces that directly builds an embedding for each neuron, instead of detecting keypoints
+    Directly builds an embedding for each neuron, instead of detecting keypoints
 
     See: build_reference_frame
     """
@@ -419,63 +424,20 @@ def build_reference_frame_encoding(metadata=None, all_detected_neurons: Detected
 
     # Build keypoints (in this case, neurons directly)
     try:
-        frame.detect_or_import_neurons(all_detected_neurons)
+        # Sets neuron_locs
+        frame.import_neurons_from_metadata(all_detected_neurons)
     except NoNeuronsError:
         return frame
-    frame.copy_neurons_to_keypoints()
+    # Sets keypoint_locs
+    frame.copy_neurons_to_keypoints_locs()
 
     # Calculate encodings
-    frame.encode_all_keypoints_or_neurons(**encoder_opt)
+    if use_barlow_network:
+        frame.encode_neurons_using_3d_network(**encoder_opt)
+    else:
+        frame.encode_neurons_using_2d_network(**encoder_opt)
 
     # Set up mapping between neurons and keypoints
-    frame.build_trivial_keypoint_to_neuron_mapping()
+    frame.build_trivial_keypoint_to_neuron_mapping(ignore_keypoints=use_barlow_network)
 
     return frame
-
-
-# def OLD_build_reference_frame(dat: np.ndarray,
-#                           num_slices: int,
-#                           neuron_feature_radius: float,
-#                           preprocessing_settings: PreprocessingSettings = None,
-#                           start_slice: int = 2,
-#                           metadata: dict = None,
-#                           detected_neurons: DetectedNeurons = None,
-#                           verbose: int = 0) -> ReferenceFrame:
-#     """Main convenience constructor for ReferenceFrame class"""
-#     if metadata is None:
-#         metadata = {}
-#
-#     # Initialize class
-#     frame = ReferenceFrame(**metadata, preprocessing_settings=None)
-#
-#     # Build neurons and keypoints
-#     frame.detect_or_import_neurons(detected_neurons)
-#
-#     feature_opt = {'num_features_per_plane': 1000, 'start_plane': 5}
-#     frame.detect_keypoints_and_build_features(dat, **feature_opt)
-#
-#     # Set up mapping between neurons and keypoints
-#     frame.build_trivial_keypoint_to_neuron_mapping(neuron_feature_radius)
-#
-#     # Get neurons and features, and a map between them
-#     # neuron_locs = _detect_or_import_neurons(dat, external_detections, metadata, num_slices, start_slice)
-#     # if len(neuron_locs) == 0:
-#     #     print("No neurons detected... check data settings")
-#     #     raise ValueError
-#     # kps, kp_3d_locs, features = build_features_1volume(dat, **feature_opt)
-#     #
-#     # # The map requires some open3d subfunctions; may not work on a cluster
-#     # num_f, pc_f, _ = build_feature_tree(kp_3d_locs, which_slice=None)
-#     # _, _, tree_neurons = build_neuron_tree(neuron_locs, to_mirror=False)
-#     # f2n_map = build_f2n_map(kp_3d_locs,
-#     #                         num_f,
-#     #                         pc_f,
-#     #                         neuron_feature_radius,
-#     #                         tree_neurons,
-#     #                         verbose=verbose - 1)
-#     #
-#     # # Finally, my summary class
-#     # f = ReferenceFrame(neuron_locs, kps, kp_3d_locs, features, f2n_map,
-#     #                    **metadata,
-#     #                    preprocessing_settings=preprocessing_settings)
-#     return frame

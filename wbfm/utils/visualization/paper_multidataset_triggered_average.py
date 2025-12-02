@@ -120,7 +120,9 @@ class PaperColoredTracePlotter:
                 if k + suffix not in color_mapping:
                     color_mapping[k + suffix] = color_mapping[k]
         if neuron_name not in color_mapping:
-            raise ValueError(f"Neuron name {neuron_name} not found in color mapping")
+            logging.warning(f"Neuron name {neuron_name} not found in color mapping; using default color")
+            # Use a default color (black)
+            color_mapping[neuron_name] = 'black'
         return color_mapping[neuron_name]
 
 
@@ -151,6 +153,8 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
     calculate_turns: bool = True
     calculate_self_collision: bool = False
 
+    verbose: int = 0
+
     def __post_init__(self):
         # Analyze the project data to get the clusterers and intermediates
         trace_base_opt = self.get_trace_opt(min_nonnan=self.min_nonnan)
@@ -158,9 +162,10 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
         if self.trace_opt is not None:
             trace_base_opt.update(self.trace_opt)
 
-        if self.trigger_opt is None:
-            self.trigger_opt = dict(min_duration=4, gap_size_to_remove=4,
-                                    max_num_points_after_event=40, fixed_num_points_after_event=None)
+        trigger_base_opt = dict(min_duration=4, gap_size_to_remove=4, max_num_points_after_event=40, fixed_num_points_after_event=None)
+        if self.trigger_opt is not None:
+            trigger_base_opt.update(self.trigger_opt)
+        self.trigger_opt = trigger_base_opt
 
         # Set each project to use physical time
         for proj in self.all_projects.values():
@@ -175,29 +180,32 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             try:
                 # Note: these won't work for immobilized data
 
-                # Fast (residual)
+                if self.verbose > 0:
+                    print("Calculating residual hilbert-triggered averages")
                 trigger_opt = dict(use_hilbert_phase=True, state=None)
                 trigger_opt.update(self.trigger_opt)
                 trace_opt = dict(residual_mode='pca')
                 trace_opt.update(trace_base_opt)
                 out = clustered_triggered_averages_from_dict_of_projects(self.all_projects, trigger_opt=trigger_opt,
-                                                                         trace_opt=trace_opt)
+                                                                         trace_opt=trace_opt, verbose=self.verbose)
                 self.dataset_clusterer_dict['residual'] = out[0]
                 self.intermediates_dict['residual'] = out[1]
 
-                # Residual rectified forward
+                if self.verbose > 0:
+                    print("Calculating residual hilbert-triggered averages (rectified for FWD)")
                 trigger_opt['only_allow_events_during_state'] = BehaviorCodes.FWD
                 cluster_opt = {}
                 out = clustered_triggered_averages_from_dict_of_projects(self.all_projects, cluster_opt=cluster_opt,
-                                                                         trigger_opt=trigger_opt, trace_opt=trace_opt)
+                                                                         trigger_opt=trigger_opt, trace_opt=trace_opt, verbose=self.verbose)
                 self.dataset_clusterer_dict['residual_rectified_fwd'] = out[0]
                 self.intermediates_dict['residual_rectified_fwd'] = out[1]
 
-                # Residual rectified reverse
+                if self.verbose > 0:
+                    print("Calculating residual hilbert-triggered averages (rectified for REV)")
                 trigger_opt['only_allow_events_during_state'] = BehaviorCodes.REV
                 cluster_opt = {}
                 out = clustered_triggered_averages_from_dict_of_projects(self.all_projects, cluster_opt=cluster_opt,
-                                                                         trigger_opt=trigger_opt, trace_opt=trace_opt)
+                                                                         trigger_opt=trigger_opt, trace_opt=trace_opt, verbose=self.verbose)
                 self.dataset_clusterer_dict['residual_rectified_rev'] = out[0]
                 self.intermediates_dict['residual_rectified_rev'] = out[1]
 
@@ -207,8 +215,10 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                     trigger_opt.update(self.trigger_opt)
                     trace_opt = dict(residual_mode='pca')
                     trace_opt.update(trace_base_opt)
+                    if self.verbose > 0:
+                        print("Calculating residual collision-triggered averages")
                     out = clustered_triggered_averages_from_dict_of_projects(self.all_projects, trigger_opt=trigger_opt,
-                                                                             trace_opt=trace_opt)
+                                                                             trace_opt=trace_opt, verbose=self.verbose)
                     self.dataset_clusterer_dict['residual_collision'] = out[0]
                     self.intermediates_dict['residual_collision'] = out[1]
 
@@ -222,16 +232,20 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             trigger_opt.update(self.trigger_opt)
             trace_opt = dict(residual_mode='pca_global')
             trace_opt.update(trace_base_opt)
+            if self.verbose > 0:
+                print("Calculating global REV-triggered averages")
             out = clustered_triggered_averages_from_dict_of_projects(self.all_projects, trigger_opt=trigger_opt,
-                                                                     trace_opt=trace_opt)
+                                                                     trace_opt=trace_opt, verbose=self.verbose)
             self.dataset_clusterer_dict['global_rev'] = out[0]
             self.intermediates_dict['global_rev'] = out[1]
 
             # Slow forward triggered (global)
             trigger_opt = dict(use_hilbert_phase=False, state=BehaviorCodes.FWD)
             trigger_opt.update(self.trigger_opt)
+            if self.verbose > 0:
+                print("Calculating global FWD-triggered averages")
             out = clustered_triggered_averages_from_dict_of_projects(self.all_projects, trigger_opt=trigger_opt,
-                                                                     trace_opt=trace_opt)
+                                                                     trace_opt=trace_opt, verbose=self.verbose)
             self.dataset_clusterer_dict['global_fwd'] = out[0]
             self.intermediates_dict['global_fwd'] = out[1]
 
@@ -246,8 +260,10 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             try:
                 trigger_opt = dict(use_hilbert_phase=False, state=state)
                 trigger_opt.update(self.trigger_opt)
+                if self.verbose > 0:
+                    print(f"Calculating raw trace {trigger_type}-triggered averages")
                 out = clustered_triggered_averages_from_dict_of_projects(self.all_projects, trigger_opt=trigger_opt,
-                                                                         trace_opt=trace_opt)
+                                                                         trace_opt=trace_opt, verbose=self.verbose)
                 self.dataset_clusterer_dict[trigger_type] = out[0]
                 self.intermediates_dict[trigger_type] = out[1]
             except (IndexError, KeyError, NoBehaviorAnnotationsError):
@@ -257,6 +273,8 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
         if self.calculate_stimulus:
             trigger_opt = dict(use_hilbert_phase=False, state=BehaviorCodes.STIMULUS)
             trigger_opt.update(self.trigger_opt)
+            if self.verbose > 0:
+                print(f"Calculating raw trace stimulus-triggered averages")
             out = clustered_triggered_averages_from_dict_of_projects(self.all_projects, trigger_opt=trigger_opt,
                                                                      trace_opt=trace_opt)
             self.dataset_clusterer_dict['stimulus'] = out[0]
@@ -265,10 +283,18 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
         if self.calculate_self_collision:
             trigger_opt = dict(use_hilbert_phase=False, state=BehaviorCodes.SELF_COLLISION)
             trigger_opt.update(self.trigger_opt)
+            if self.verbose > 0:
+                print(f"Calculating raw trace self_collision-triggered averages")
             out = clustered_triggered_averages_from_dict_of_projects(self.all_projects, trigger_opt=trigger_opt,
                                                                      trace_opt=trace_opt)
             self.dataset_clusterer_dict['self_collision'] = out[0]
             self.intermediates_dict['self_collision'] = out[1]
+
+    def valid_trigger_types(self):
+        """
+        Returns a list of valid trigger types.
+        """
+        return list(self.dataset_clusterer_dict.keys())
 
     def get_clusterer_from_trigger_type(self, trigger_type):
         trigger_mapping = self.dataset_clusterer_dict
@@ -542,6 +568,48 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                                              width_factor_addition=0, height_factor_addition=0,
                                              height_factor=None, width_factor=None,
                                              to_show=True, fig_opt=None, DEBUG=False):
+        """
+        Plot the triggered average for a single neuron.
+
+        Parameters
+        ----------
+        neuron_name - Name of the neuron to plot; see get_valid_neuron_names for the list of valid names
+        trigger_type - Type of the trigger to plot (See valid_trigger_types for the list of types)
+        output_folder - Folder to save the figure to (if None, then do not save)
+        fig - Figure to plot on (if None, then create a new figure)
+        ax - Axes to plot on (if None, then create a new axes)
+        title - Title of the plot (if None, then use the default title for the trigger type)
+        include_neuron_in_title - If True, then include the neuron name in the title
+        xlim - x-axis limits (if None, then do not set limits)
+        ylim - y-axis limits (if None, then do not set limits)
+        min_lines - Minimum number of lines to plot (if less than this, then do not plot any values for those time points)
+        round_y_ticks - If True, then round the y-ticks to the nearest integer
+        show_title - If True, then show the title
+        show_x_ticks - If True, then show the x-ticks
+        show_y_ticks - If True, then show the y-ticks
+        show_y_label - If True, then show the y-label
+        show_y_label_only_export - If True, then only show the y-label when exporting the figure
+        show_x_label - If True, then show the x-label
+        color - Color of the trace (if None, then use the default color for the trigger type)
+        is_mutant - If True, then use the mutant color (pink)
+        z_score - If True, then z-score the traces before plotting
+        fig_kwargs - Additional keyword arguments for the figure (if None, then use the default figure options)
+        annotation_kwargs - Additional keyword arguments for the annotations (if None, then use the default annotation options)
+        legend - If True, then show the legend
+        i_figure - Figure index (used for default figure size options when saving the figure)
+        apply_changes_even_if_no_trace - If True, then apply the changes even if there is no trace for the neuron
+        show_individual_lines - If True, then show the individual lines for each event (default False)
+        return_individual_traces - If True, then return the individual traces for each event
+        use_plotly - If True, then use Plotly for plotting (default False)
+        df_idx_range - If not None, then use this to limit the range of the dataframe
+        width_factor_addition - Additional width factor to add to the figure size
+        height_factor_addition - Additional height factor to add to the figure size
+        height_factor - Height factor for the figure size (if None, then use the default height factor)
+        width_factor - Width factor for the figure size (if None, then use the default width factor)
+        to_show - If True, then show the figure (default True)
+        fig_opt - Additional figure options (if None, then use the default figure options)
+        DEBUG - If True, then print debug information
+        """
         if isinstance(trigger_type, list):
             # Plot stacked
             # raise NotImplementedError("Not sure why this isn't working (just hspace)")
@@ -562,7 +630,7 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                                          use_plotly, y_label=None, tight_layout=False)
             if to_show:
                 plt.show()
-            return
+            return fig, axes
 
         if fig_kwargs is None:
             fig_kwargs = {}
@@ -765,6 +833,26 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             print(f"Neuron names: {neuron_names}")
         df_subset = df.loc[:, neuron_names]
         return df_subset
+
+    def get_valid_neuron_names(self, trigger_type, remove_nonided_neurons=True):
+        """
+        Returns a list of valid neuron names for the given trigger type, 
+        Neuron names are the columns of the dataframe returned by get_df_triggered_from_trigger_type.
+
+        Parameters
+        ----------
+        trigger_type
+
+        Returns
+        -------
+
+        """
+        df = self.get_df_triggered_from_trigger_type(trigger_type)
+        
+        if remove_nonided_neurons:
+            return [n.split('_')[-1] for n in df.columns if 'neuron' not in n]
+        else:
+            return [n.split('_')[-1] for n in df.columns]
 
     def plot_triggered_average_multiple_neurons(self, neuron_list, trigger_type, color_list=None,
                                                 output_folder=None, **kwargs):

@@ -21,7 +21,7 @@ do
 done
 
 # Clean and run the integration test, i.e. shortened datasets
-PARENT_DATA_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/test_data"
+PARENT_DATA_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/test_data"
 if [ -z "$USE_CLUSTER" ]; then
   echo "Running integration test without cluster"
   PARENT_PROJECT_DIR="/home/charles/Current_work/test_projects"
@@ -29,8 +29,8 @@ if [ -z "$USE_CLUSTER" ]; then
   RUNME_ARGS="-c"
 else
   echo "Running integration test on the cluster"
-  PARENT_PROJECT_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/test_projects"
-  CODE_DIR="/lisc/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
+  PARENT_PROJECT_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/test_projects"
+  CODE_DIR="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm"
   RUNME_ARGS=""
 fi
 
@@ -72,7 +72,7 @@ done
 echo "Projects should have been created... starting to run the integration test"
 
 # Modify snakemake slurm options to have very short jobs, then actually run
-SLURM_UPDATE_COMMAND=$CODE_DIR/"scripts/postprocessing/copy_config_file_to_multiple_projects.sh"
+SLURM_UPDATE_COMMAND=$CODE_DIR/"scripts/folder_analysis/copy_config_file_to_multiple_projects.sh"
 NEW_CONFIG=$CODE_DIR/"alternative_project_defaults/short_video/cluster_config.yaml"
 
 # Command to actually run
@@ -106,12 +106,18 @@ fi
 
 # NWB, which is also barlow but needs a special snakemake file as well
 PROJECT_PATH=$PARENT_PROJECT_DIR/"nwb"
-NEW_NWB_CONFIG=$CODE_DIR/"alternative_project_defaults/start_from_nwb_segmentation/pipeline.smk"
+# NEW_NWB_CONFIG=$CODE_DIR/"alternative_project_defaults/start_from_nwb_segmentation/pipeline.smk"
 
 PROJECT_PATH=$PARENT_PROJECT_DIR/"nwb"
 bash $SLURM_UPDATE_COMMAND -t "$PROJECT_PATH" -c "$NEW_CONFIG"
 bash $SLURM_UPDATE_COMMAND -t "$PROJECT_PATH" -c "$NEW_BARLOW_CONFIG"
-bash $SLURM_UPDATE_COMMAND -t "$PROJECT_PATH" -c "$NEW_NWB_CONFIG"
+# bash $SLURM_UPDATE_COMMAND -t "$PROJECT_PATH" -c "$NEW_NWB_CONFIG"
 
 bash $COMMAND -t "$PROJECT_PATH" -s traces $RUNME_ARGS
 
+# Immobilized with barlow-generated tracklets
+# PROJECT_PATH=$PARENT_PROJECT_DIR/"immobilized_barlow_tracklets"
+# BARLOW_TRACKLET_CONFIG=$CODE_DIR/"alternative_project_defaults/barlow_tracklets/training_data_config.yaml"
+# bash $SLURM_UPDATE_COMMAND -t "$PROJECT_PATH" -c "$NEW_CONFIG"
+# bash $SLURM_UPDATE_COMMAND -t "$PROJECT_PATH" -c "$BARLOW_TRACKLET_CONFIG"
+# bash $COMMAND -t "$PROJECT_PATH" -s traces $RUNME_ARGS

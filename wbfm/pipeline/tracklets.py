@@ -2,51 +2,16 @@ import logging
 import os
 
 from wbfm.utils.neuron_matching.class_frame_pair import FramePairOptions
-from wbfm.utils.neuron_matching.feature_pipeline import build_tracklets_full_video, \
-    calculate_frame_objects_full_video
+from wbfm.utils.neuron_matching.feature_pipeline import calculate_frame_objects_full_video
 from wbfm.utils.projects.finished_project_data import ProjectData
 from wbfm.utils.projects.project_config_classes import ModularProjectConfig, SubfolderConfigFile
 from wbfm.utils.projects.utils_consolidation import consolidate_tracklets, save_consolidated_tracklets
 from wbfm.utils.projects.utils_project import safe_cd
 from wbfm.utils.general.high_performance_pandas import get_names_from_df
 from wbfm.utils.tracklets.tracklet_pipeline import _unpack_config_frame2frame_matches, _save_matches_and_frames, \
-    build_frame_pairs_using_superglue, _unpack_config_for_tracklets, postprocess_matches_to_tracklets, \
+    build_frame_pairs_using_superglue, unpack_config_for_tracklets, postprocess_matches_to_tracklets, \
     filter_tracklets_using_volume, save_all_tracklets
 from wbfm.utils.tracklets.training_data_from_tracklets import convert_training_dataframe_to_scalar_format
-
-
-def build_frames_and_adjacent_matches_using_config(project_config: ModularProjectConfig,
-                                                   training_config: SubfolderConfigFile,
-                                                   use_superglue: bool,
-                                                   DEBUG: bool = False) -> None:
-    """
-    Produce training data via partial tracking using 3d feature-based method
-
-    This function is designed to be used with an external .yaml config file
-
-    See new_project_defaults/2-training_data/training_data_config.yaml
-    See also track_neurons_full_video()
-    """
-
-    project_config.logger.info(f"Producing tracklets")
-
-    project_data = ProjectData.load_final_project_data_from_config(project_config)
-    raw_fname = training_config.resolve_relative_path(os.path.join('raw', 'clust_df_dat.pickle'),
-                                                      prepend_subfolder=True)
-
-    # Intermediate products: pairwise matches between frames
-    video_fname, tracker_params, frame_pair_options, track_on_green_channel = _unpack_config_frame2frame_matches(
-        project_data, training_config, DEBUG)
-    if track_on_green_channel:
-        video_data = project_data.green_data
-    else:
-        video_data = project_data.red_data
-
-    all_frame_pairs, all_frame_dict = build_tracklets_full_video(video_data, video_fname, **tracker_params,
-                                                                 use_superglue=use_superglue,
-                                                                 frame_pair_options=frame_pair_options)
-    with safe_cd(project_config.project_dir):
-        _save_matches_and_frames(all_frame_dict, all_frame_pairs, training_config)
 
 
 def build_frame_pairs_using_superglue_using_config(project_cfg: ModularProjectConfig, DEBUG=False):
@@ -108,7 +73,7 @@ def build_frame_objects_using_config(project_config: ModularProjectConfig,
         if len(frame_range) == 0:
             return
     all_new_frames = calculate_frame_objects_full_video(video_data, video_fname=video_fname, frame_range=frame_range,
-                                                        **tracker_params)
+                                                        project_data=project_data, **tracker_params)
     # Optionally include frames that were calculated before (can be empty)
     if not only_calculate_desynced:
         all_frame_dict = all_new_frames
@@ -140,7 +105,7 @@ def postprocess_matches_to_tracklets_using_config(project_config: ModularProject
     """
     # Load data
     all_frame_dict, all_frame_pairs, z_threshold, min_confidence, segmentation_metadata, postprocessing_params = \
-        _unpack_config_for_tracklets(training_config, segmentation_config)
+        unpack_config_for_tracklets(training_config, segmentation_config)
 
     # Sanity check
     project_data = ProjectData.load_final_project_data_from_config(project_config)

@@ -4,14 +4,14 @@
 # https://lisc.univie.ac.at/wiki/content/working_environment/services/computational_resources
 
 __default__:
-    partition: basic,gpu
     time: 0-1:00:00
     nodes: 1
     cpus_per_task: 16
     mem: 128G
     output: log_snakemake_step-%j.out
     mail_type: FAIL,TIME_LIMIT
-    gres: # Should be empty
+    gres: null # Should be null
+    constraint: "hdd|ssd" # Dummy values, because it can't be empty
 
 # Note: may need to push over to himem if the cluster is busy
 preprocessing:
@@ -23,31 +23,33 @@ segmentation:
     cpus_per_task: 40
 
 match_frame_pairs:
-    gpus_per_node: 1
     mem: 128G
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 build_frame_objects:
     cpus_per_task: 20
+    mem: 128G
+    gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 postprocess_matches_to_tracklets:
     cpus_per_task: 1
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 combine_tracking_and_tracklets:
     cpus_per_task: 20
 
 tracking:
-    partition: basic,gpu
-    gpus_per_node: 1
     cpus_per_task: 16
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 barlow_tracking:
-    partition: basic,gpu
-    gpus_per_node: 1
     cpus_per_task: 16
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 
 # Behavior
@@ -61,6 +63,7 @@ tiff2avi:
 dlc_analyze_videos:
     cpus_per_task: 24
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 create_centerline:
     mem: 8G
@@ -73,14 +76,17 @@ normalize_img:
 worm_unet:
     cpus_per_task: 24
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 sam2_segment:
     cpus_per_task: 24
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 coil_unet:
     cpus_per_task: 24
     gres: gpu:1
+    constraint: "l40s|a30|t4|v100|l4"
 
 binarize:
     cpus_per_task: 8

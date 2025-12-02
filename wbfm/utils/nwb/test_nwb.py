@@ -134,6 +134,7 @@ class TestNWB:
                 if 'CalciumSeriesSegmentationUntracked' in activity.data_interfaces:
                     try:
                         calc_seg = activity['CalciumSeriesSegmentationUntracked'].data
+                        print(f"Size of untracked segmentation: {calc_seg.shape}")
                         has_segmentation_untracked = True
                     except:
                         pass

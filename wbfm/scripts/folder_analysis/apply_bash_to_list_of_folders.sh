@@ -8,11 +8,11 @@
 
 # List of folders
 folders=(
-    "/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-10_spacer_7b_2per_agar"
-    "/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-05_spacer_7b_2per_agar"
-    "/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-23_spacer_7b_2per_agar"
-    "/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-30_spacer_7b_2per_agar"
-    "/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-27_spacer_7b_2per_agar"
+    "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-10_spacer_7b_2per_agar"
+    "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-05_spacer_7b_2per_agar"
+    "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-23_spacer_7b_2per_agar"
+    "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-30_spacer_7b_2per_agar"
+    "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-27_spacer_7b_2per_agar"
 )
 
 # Get command from args

@@ -1,0 +1,97 @@
+# Default parameters for creating a new project
+# Do not edit!
+
+self_path: 3-tracking/tracking_config.yaml # For programmatic updates
+
+###################
+# Main output
+###################
+final_3d_tracks_df: null
+
+# Where to look for other files if the above is not found
+precedence_tracks:
+- automatic
+- imputed
+- fdnc
+
+###################
+# Parameters (global tracking)
+###################
+
+# Note that this is no longer using leifer things, but is named this way for backwards compatibility
+leifer_params:
+  match_confidence_threshold: 0.2
+  output_df_fname: 3-tracking/postprocessing/leifer_tracks.h5
+  use_zimmer_template: true
+  use_multiple_templates: true
+  core_options:
+    topn: 3
+  num_random_templates: 10
+
+###################
+# Parameters (matching tracking and tracklets)
+###################
+
+final_3d_tracks:
+  max_dist_to_segmentation: 1.0
+  template_time_point: 10
+  auto_split_conflicts: true
+
+final_3d_postprocessing:
+  max_dist: 5.0
+  min_overlap_dlc_and_tracklet: 5
+  outlier_threshold: 1.0
+  min_confidence: 0.1
+  tracklet_splitting_iterations: 5
+  keep_only_tracklets_in_final_tracks: true
+  allowed_tracklet_endpoint_wiggle: 3
+  only_use_previous_matches: false
+  use_previous_matches: true
+  output_df_fname: 3-tracking/postprocessing/combined_3d_tracks.h5
+
+tracklet_splitting_postprocessing:
+  min_confidence: 0.7
+
+precedence_global2tracklet:
+  - manual
+  - automatic
+global2tracklet_matches_fname: 3-tracking/global2tracklet.pickle
+
+precedence_df_tracklets:
+  - manual
+  - wiggle
+  - automatic
+wiggle_split_tracklets_df_fname: 3-tracking/postprocessing/wiggle_split_tracklets.h5
+
+###################
+# Files related to manual annotation
+###################
+manual_correction_global2tracklet_fname: 3-tracking/manual_annotation/global2tracklet_manual.pickle
+manual_correction_tracklets_df_fname: 3-tracking/manual_annotation/manually_split_tracklets.pickle
+manual_correction_3d_tracks_df_fname: 3-tracking/manual_annotation/combined_3d_tracks.h5 # Will be updated AFTER manual correction, not during
+
+###################
+# Experimental postprocessing
+###################
+missing_data_postprocessing:
+  likelihood_threshold: 0.5
+  n_nearest_features: 50
+
+missing_data_imputed_df: 3-tracking/postprocessing/imputed_3d_tracks.h5
+
+###################
+# Alternative Barlow tracker and clustering
+###################
+# If these values are fractions, then they are multiplied by the number of volumes in the dataset
+opt_db:
+  min_cluster_size: 0.5
+  min_samples: 0.02
+
+opt_umap:
+  n_components: 10
+  n_neighbors: 10
+  min_dist: 0.0
+
+barlow_tracker:
+  tracking_mode: global
+  

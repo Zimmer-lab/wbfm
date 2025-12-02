@@ -10,15 +10,15 @@
 use_barlow_tracker: True  # Experimental, possibly much better tracker
 
 # Uncomment the relevant one
-# Generally within /lisc/scratch/neurobiology/zimmer/wbfm/TrainedBarlow
+# Generally within /lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedBarlow
 # Baseline model:
-barlow_model_path: /lisc/scratch/neurobiology/zimmer/wbfm/TrainedBarlow/barlow_ZIM2165_Gcamp7b_worm1-2022_11_28_from_search/trial_13/resnet50.pth
+barlow_model_path: /lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedBarlow/barlow_ZIM2165_Gcamp7b_worm1-2022_11_28_from_search/trial_13/resnet50.pth
 # Fungus model:
-#barlow_model_path: /lisc/scratch/neurobiology/zimmer/wbfm/TrainedBarlow//lisc/scratch/neurobiology/zimmer/wbfm/TrainedBarlow/hyperparameter_search_fungus/resnet50.pth
+#barlow_model_path: /lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedBarlow//lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedBarlow/hyperparameter_search_fungus/resnet50.pth
 # Neuropal model:
-#barlow_model_path: /lisc/scratch/neurobiology/zimmer/wbfm/TrainedBarlow//lisc/scratch/neurobiology/zimmer/wbfm/TrainedBarlow/hyperparameter_search_neuropal/resnet50.pth
+#barlow_model_path: /lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedBarlow//lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedBarlow/hyperparameter_search_neuropal/resnet50.pth
 # 1% agar model:
-#barlow_model_path: /lisc/scratch/neurobiology/zimmer/wbfm/TrainedBarlow//lisc/scratch/neurobiology/zimmer/wbfm/TrainedBarlow/hyperparameter_search_1percent/resnet50.pth
+#barlow_model_path: /lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedBarlow//lisc/data/scratch/neurobiology/zimmer/wbfm/TrainedBarlow/hyperparameter_search_1percent/resnet50.pth
 
 
 #
@@ -75,16 +75,16 @@ fft_averaging_window: 83
 
 # Path to neural network for dlc tracking
 # Comment out to use the system default (see wbfm_config.yaml)
-head_tail_dlc_project: /lisc/scratch/neurobiology/zimmer/zimmer_DLC/DLC_projects/DLCwbfm_headtailphar-Eva-2024-11-20/config.yaml
+head_tail_dlc_project: /lisc/data/scratch/neurobiology/zimmer/zimmer_DLC/DLC_projects/DLCwbfm_headtailphar-Eva-2024-11-20/config.yaml
 
 # rule process_centerline for equi distance
 # preprocess spline
 relative_spacing: 1.0  # 1% of the skeleton's total length to determine the spacing between sampled points
 num_sampled_points: 10000  # Number of points to sample during spline fitting, higher values result in finer resolution
-smoothing: 0.1  # Smoothing parameter for the spline fitting, controls how much the spline is smoothed (higher = more smoothing)
+smoothing: 0.0  # Smoothing parameter for the spline fitting, controls how much the spline is smoothed (higher = more smoothing)
 time_sigma: 2.0  # Sigma for Gaussian smoothing along the time (frame) axis, higher values smooth more across frames
 spatial_sigma: 1.0  # Sigma for Gaussian smoothing along the spatial axis, higher values smooth more across points in each frame
 max_columns: 0  # Dynamic mode: when set to 0, the skeleton is truncated where NaN content increases by more than 50%
 
 # PCA model used for curvature analysis (should be changed for different shapes of worms)
-pca_model: /lisc/scratch/neurobiology/zimmer/wbfm/code/centerline_behavior_annotation/centerline_behavior_annotation/curvature/models/1738_20230403_eigenworm_PCA_bodypart_30_to_80.pkl
+pca_model: /lisc/data/scratch/neurobiology/zimmer/wbfm/code/centerline_behavior_annotation/centerline_behavior_annotation/curvature/models/1738_20230403_eigenworm_PCA_bodypart_30_to_80.pkl

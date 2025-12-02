@@ -1,4 +1,4 @@
-
+from wbfm.utils.external.custom_errors import IncorrectNameFormatError
 
 def int2name_neuron(i_neuron: int, ignore_error=False) -> str:
     if 0 < i_neuron < 1000:
@@ -28,7 +28,14 @@ def int2name_tracklet(i_tracklet: int) -> str:
 
 
 def name2int_neuron_and_tracklet(name_neuron: str) -> int:
-    return int(name_neuron.split('_')[1])
+    parts = name_neuron.split('_')
+    if len(parts) == 2:
+        # For zimmer lab, it should be like 'neuron_001'
+        return int(parts[1])
+    elif len(parts) == 1:
+        return int(parts[0])
+    else:
+        raise IncorrectNameFormatError(name_neuron)
 
 
 def int2name_deprecated(i_neuron: int) -> str:

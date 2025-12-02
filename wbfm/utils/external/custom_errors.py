@@ -147,3 +147,8 @@ class NoNeuropalError(Exception):
     def __init__(self, message=""):
         self.message = "No neuropal data found in project: " + message
         super().__init__(self.message)
+
+class IncorrectNameFormatError(Exception):
+    def __init__(self, message=""):
+        self.message = "Incorrectly formatted neuron name: " + message
+        super().__init__(self.message)

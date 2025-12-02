@@ -29,7 +29,7 @@ def cfg(project_path, DEBUG):
     # Manually load yaml files
     cfg = ModularProjectConfig(project_path)
     cfg.setup_logger('step_after_manual_annotation.log')
-    check_all_needed_data_for_step(cfg, 4, training_data_required=False)
+    # check_all_needed_data_for_step(cfg, 4, training_data_required=False)
 
     if not DEBUG:
         using_monkeypatch()

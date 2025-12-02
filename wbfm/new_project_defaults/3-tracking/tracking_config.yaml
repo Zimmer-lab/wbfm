@@ -78,3 +78,20 @@ missing_data_postprocessing:
   n_nearest_features: 50
 
 missing_data_imputed_df: 3-tracking/postprocessing/imputed_3d_tracks.h5
+
+###################
+# Alternative Barlow tracker and clustering
+###################
+# If these values are fractions, then they are multiplied by the number of volumes in the dataset
+opt_db:
+  min_cluster_size: 0.5
+  min_samples: 0.02
+
+opt_umap:
+  n_components: 10
+  n_neighbors: 10
+  min_dist: 0.0
+
+barlow_tracker:
+  tracking_mode: label_propagation
+  

@@ -12,6 +12,7 @@ from sacred import SETTINGS
 # main function
 from sacred.observers import TinyDbObserver
 from wbfm.utils.external.monkeypatch_json import using_monkeypatch
+from wbfm.utils.visualization.plot_traces import make_default_summary_plots_using_config
 
 from wbfm.pipeline.traces import extract_traces_using_config
 from wbfm.utils.projects.finished_project_data import ProjectData
@@ -52,15 +53,19 @@ def main(_config, _run):
     os.environ["BLOSC_NTHREADS"] = "1"
 
     DEBUG = _config['DEBUG']
-    trace_cfg = _config['traces_cfg']
     project_cfg = _config['cfg']
 
     with safe_cd(_config['project_dir']):
         # Reads masks from disk, and writes traces
-        extract_traces_using_config(project_cfg, trace_cfg, name_mode='neuron', DEBUG=DEBUG)
+        project_data = ProjectData.load_final_project_data(project_cfg, allow_hybrid_loading=True)
+        extract_traces_using_config(project_data, name_mode='neuron', DEBUG=DEBUG)
 
         # By default make some visualizations
         # Note: reloads the project data
         logging.info("Making default grid plots")
-        proj_dat = ProjectData.load_final_project_data_from_config(project_cfg)
-        make_grid_plot_from_project(proj_dat, channel_mode='all', calculation_mode='integration')
+        project_data = ProjectData.load_final_project_data(project_cfg, allow_hybrid_loading=True)
+        make_grid_plot_from_project(project_data, channel_mode='all', calculation_mode='integration')
+
+        # By default make some visualizations
+        project_data = ProjectData.load_final_project_data(project_cfg, allow_hybrid_loading=True)
+        make_default_summary_plots_using_config(project_data)
