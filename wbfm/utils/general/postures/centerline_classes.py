@@ -2052,6 +2052,23 @@ class WormFullVideoPosture:
         tracking_failure_idx = np.where(kymo.isnull())[0]
         return tracking_failure_idx
 
+    def get_starts_and_ends_of_reversals(self, fluorescence_fps=True, **kwargs):
+        """
+        Wrapper for get_starts_and_ends_of_behavior for reversals
+
+        Parameters
+        ----------
+        fluorescence_fps
+        kwargs
+
+        Returns
+        -------
+
+        """
+        state = BehaviorCodes.REV
+        rev_starts, rev_ends = self.get_starts_and_ends_of_behavior(state, fluorescence_fps=fluorescence_fps, **kwargs)
+        return rev_starts, rev_ends
+
     def get_peaks_post_reversal(self, y: pd.Series, num_points_after_reversal=50,
                                 allow_reversal_before_peak=False,
                                 use_idx_of_absolute_max=False):
@@ -2069,8 +2086,7 @@ class WormFullVideoPosture:
         peaks, peak_times, all_rev_ends
 
         """
-        state = BehaviorCodes.REV
-        rev_starts, rev_ends = self.get_starts_and_ends_of_behavior(state)
+        rev_starts, rev_ends = self.get_starts_and_ends_of_reversals()
 
         peaks = []
         peak_times = []
