@@ -285,40 +285,43 @@ class NapariLayerInitializer:
                                  scale=(z_np/xy_pixels, 1.0, 1.0))
             layers_actually_added.append('Neuropal')
 
-        if 'Neuropal segmentation' in which_layers and project_data.neuropal_manager.segmentation is not None:
-            layer_name = 'Neuropal segmentation'
-            z_np = project_data.physical_unit_conversion.zimmer_um_per_pixel_z_neuropal
-            viewer.add_labels(project_data.neuropal_manager.segmentation, name=layer_name, visible=False,
-                              scale=(z_np/xy_pixels, 1.0, 1.0), opacity=1.0)
-            _layer = viewer.layers[layer_name]
-            _layer.blending = 'translucent_no_depth'
-            _layer.rendering = 'translucent'
-            # Use the rgb colors from the mean intensity of the neuropal data
-            df = project_data.neuropal_manager.segmentation_metadata.get_all_neuron_metadata_for_single_time(0,
-                                                                                                     as_dataframe=True,
-                                                                                                     use_mean_intensity=True)
-            # Napari expects a dict with the label as key and an rgba tuple as value
-            # The dataframe is multi-indexed, so we need to convert it to a dictionary
-            # channel = 1 is white, which we ignore
-            rgb_columns = ['mean_intensity_0', 'mean_intensity_2', 'mean_intensity_3']
-            rename_column = ['raw_segmentation_id']
-            collapse_df = df.loc[:, df.columns.get_level_values(1).isin(rgb_columns)]
-            rename_values = df.loc[:, (slice(None), rename_column)].iloc[0].droplevel(1)
-            # Collapse selected columns into lists
-            collapsed = collapse_df.groupby(level=0, axis=1).agg(lambda x: list(x.values.tolist()))
-            collapsed.columns = [rename_values[neuron] for neuron in collapsed.columns]
-            # These are in raw pixel values, so we need to normalize them to 0 to 1
-            prop_dict = {k: np.squeeze(v) for k, v in collapsed.to_dict(orient='list').items()}
-            df_prop = pd.DataFrame(prop_dict)
-            df_prop = df_prop.subtract(df_prop.min(axis=1), axis=0)
-            # Also normalize to be 0 to 1, relative to all objects
-            df_prop = df_prop.divide(df_prop.max(axis=1), axis=0)
-            # Also normalize based on the total intensity across colors per object, to make the colormap work
-            df_prop = df_prop.divide(df_prop.sum(axis=0), axis=1)
-            prop_dict = {k: np.array(tuple(v) + (1.0, )) for k, v in df_prop.to_dict(orient='list').items()}
-            _layer.color = prop_dict
-            _layer.color_mode = 'direct'
-            layers_actually_added.append('Neuropal segmentation')
+        if 'Neuropal segmentation' in which_layers:
+            if not project_data.neuropal_manager.has_complete_neuropal:
+                project_data.logger.warning("Neuropal segmentation layer requested but not available, skipping")
+            else:
+                layer_name = 'Neuropal segmentation'
+                z_np = project_data.physical_unit_conversion.zimmer_um_per_pixel_z_neuropal
+                viewer.add_labels(project_data.neuropal_manager.segmentation, name=layer_name, visible=False,
+                                scale=(z_np/xy_pixels, 1.0, 1.0), opacity=1.0)
+                _layer = viewer.layers[layer_name]
+                _layer.blending = 'translucent_no_depth'
+                _layer.rendering = 'translucent'
+                # Use the rgb colors from the mean intensity of the neuropal data
+                df = project_data.neuropal_manager.segmentation_metadata.get_all_neuron_metadata_for_single_time(0,
+                                                                                                                as_dataframe=True,
+                                                                                                                use_mean_intensity=True)
+                # Napari expects a dict with the label as key and an rgba tuple as value
+                # The dataframe is multi-indexed, so we need to convert it to a dictionary
+                # channel = 1 is white, which we ignore
+                rgb_columns = ['mean_intensity_0', 'mean_intensity_2', 'mean_intensity_3']
+                rename_column = ['raw_segmentation_id']
+                collapse_df = df.loc[:, df.columns.get_level_values(1).isin(rgb_columns)]
+                rename_values = df.loc[:, (slice(None), rename_column)].iloc[0].droplevel(1)
+                # Collapse selected columns into lists
+                collapsed = collapse_df.groupby(level=0, axis=1).agg(lambda x: list(x.values.tolist()))
+                collapsed.columns = [rename_values[neuron] for neuron in collapsed.columns]
+                # These are in raw pixel values, so we need to normalize them to 0 to 1
+                prop_dict = {k: np.squeeze(v) for k, v in collapsed.to_dict(orient='list').items()}
+                df_prop = pd.DataFrame(prop_dict)
+                df_prop = df_prop.subtract(df_prop.min(axis=1), axis=0)
+                # Also normalize to be 0 to 1, relative to all objects
+                df_prop = df_prop.divide(df_prop.max(axis=1), axis=0)
+                # Also normalize based on the total intensity across colors per object, to make the colormap work
+                df_prop = df_prop.divide(df_prop.sum(axis=0), axis=1)
+                prop_dict = {k: np.array(tuple(v) + (1.0, )) for k, v in df_prop.to_dict(orient='list').items()}
+                _layer.color = prop_dict
+                _layer.color_mode = 'direct'
+                layers_actually_added.append('Neuropal segmentation')
 
         if 'Neuropal Ids' in which_layers and project_data.neuropal_manager.segmentation is not None:
             z_np = project_data.physical_unit_conversion.zimmer_um_per_pixel_z_neuropal
