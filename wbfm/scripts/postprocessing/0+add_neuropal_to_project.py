@@ -9,12 +9,10 @@ import sacred
 
 from sacred import Experiment
 from sacred import SETTINGS
-from sacred.observers import TinyDbObserver
 from wbfm.utils.external.monkeypatch_json import using_monkeypatch
 
 from wbfm.utils.projects.project_config_classes import ModularProjectConfig
-from wbfm.utils.projects.utils_project import safe_cd
-from wbfm.utils.projects.utils_neuropal import add_neuropal_to_project
+from wbfm.utils.projects.utils_neuropal import add_neuropal_to_project, segment_neuropal_from_project
 import cgitb
 cgitb.enable(format='text')
 
@@ -23,7 +21,7 @@ SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 # Initialize sacred experiment
 
 ex = Experiment(save_git_info=False)
-ex.add_config(project_path=None, raw_neuropal_path=None, copy_data=True, DEBUG=False)
+ex.add_config(project_path=None, raw_neuropal_path=None, copy_data=True, also_segment=True, subsample_in_z=True, DEBUG=False)
 
 
 @ex.config
@@ -47,3 +45,7 @@ def main(_config, _run):
 
     add_neuropal_to_project(project_path, raw_neuropal_path, copy_data=copy_data)
 
+    if _config['also_segment']:
+        subsample_in_z = _config['subsample_in_z']
+        segment_neuropal_from_project(project_path, subsample_in_z)
+        
