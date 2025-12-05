@@ -2334,7 +2334,8 @@ def plot_stacked_neurons(project, neurons_to_plot: list, show_full=False, x_rang
         y = _get_y_from_colname(col)
         if y is None:
             return False
-        trace = go.Scatter(y=y, x=y.index, showlegend=DEBUG, name=_get_rowname_from_colname(col), 
+        basename = _get_rowname_from_colname(col)
+        trace = go.Scatter(y=y, x=y.index, showlegend=DEBUG, name=basename, 
                            line=dict(color=cmap[i_traces%len(cmap)], width=2))
         trace_opt = dict(row=i_row, col=1, secondary_y=False)
         if DEBUG:
@@ -2355,7 +2356,6 @@ def plot_stacked_neurons(project, neurons_to_plot: list, show_full=False, x_rang
             i_trace += 1
         # Build row name from either list or string directly
         row_names.append(_get_rowname_from_colname(col))
-    print(row_names)
     fig = make_subplots(rows=i_row+1, cols=1, shared_xaxes=True, shared_yaxes=False,
                         # row_heights=row_heights, column_widths=column_widths,
                         horizontal_spacing=0.04, vertical_spacing=0.0)
@@ -2369,7 +2369,7 @@ def plot_stacked_neurons(project, neurons_to_plot: list, show_full=False, x_rang
     if not show_full:
         fig.update_xaxes(range=[0, 300])
     fig.update_xaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True, matches='x')
-    fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True)
+    # fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True)
 
     fig.update_xaxes(dict(showticklabels=True, title='Time (seconds)'), row=i_row+1, col=1, overwrite=True, )
     # Remove black lines for all but bottom subplot
@@ -2379,7 +2379,8 @@ def plot_stacked_neurons(project, neurons_to_plot: list, show_full=False, x_rang
         #     fig.update_xaxes(showline=False, row=i+1, overwrite=True)
         #     if DEBUG:
         #         print(f'Removed x axis line for row {i+1}')
-        fig.update_yaxes(title=row_names[i], row=i+1, overwrite=True)
+        title = title = f"{row_names[i]}<br>(ΔR/R<sub>50</sub>)"
+        fig.update_yaxes(title_text=title, row=i+1, overwrite=True)
 
     if DEBUG:
         # Add title to legend
