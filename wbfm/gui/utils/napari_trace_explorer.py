@@ -201,7 +201,7 @@ class NapariTraceExplorer(QtWidgets.QWidget):
             self.manualNeuronNameEditor.show()
 
         # Optional: add neuropal layer interactivity
-        if self.dat.neuropal_manager.has_complete_neuropal:
+        if self.dat.neuropal_manager.segmentation_succeeded:
             self.manualNeuropalNeuronNameEditor = self.dat.build_neuron_editor_gui(neuropal_subproject=True)
             if self.manualNeuropalNeuronNameEditor is not None:
                 update_func = lambda *args: self.update_neuron_id_strings_in_layer(*args, neuropal=True)
