@@ -288,6 +288,8 @@ class NapariLayerInitializer:
         if 'Neuropal segmentation' in which_layers:
             if not project_data.neuropal_manager.has_complete_neuropal:
                 project_data.logger.warning("Neuropal segmentation layer requested but not available, skipping")
+            elif not project_data.neuropal_manager.segmentation_succeeded:
+                project_data.logger.warning("Neuropal segmentation layer requested and segmentation files exist, but no neurons were actually found in the segmentation metadata, skipping")
             else:
                 layer_name = 'Neuropal segmentation'
                 z_np = project_data.physical_unit_conversion.zimmer_um_per_pixel_z_neuropal
@@ -305,6 +307,7 @@ class NapariLayerInitializer:
                 # channel = 1 is white, which we ignore
                 rgb_columns = ['mean_intensity_0', 'mean_intensity_2', 'mean_intensity_3']
                 rename_column = ['raw_segmentation_id']
+                print(df)
                 collapse_df = df.loc[:, df.columns.get_level_values(1).isin(rgb_columns)]
                 rename_values = df.loc[:, (slice(None), rename_column)].iloc[0].droplevel(1)
                 # Collapse selected columns into lists
