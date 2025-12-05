@@ -327,28 +327,33 @@ class NapariLayerInitializer:
                 layers_actually_added.append('Neuropal segmentation')
 
         if 'Neuropal Ids' in which_layers and project_data.neuropal_manager.segmentation is not None:
-            z_np = project_data.physical_unit_conversion.zimmer_um_per_pixel_z_neuropal
+            if not project_data.neuropal_manager.has_complete_neuropal:
+                project_data.logger.warning("Neuropal segmentation layer requested but not available, skipping")
+            elif not project_data.neuropal_manager.segmentation_succeeded:
+                project_data.logger.warning("Neuropal segmentation layer requested and segmentation files exist, but no neurons were actually found in the segmentation metadata, skipping")
+            else:
+                z_np = project_data.physical_unit_conversion.zimmer_um_per_pixel_z_neuropal
 
-            df = project_data.neuropal_manager.segmentation_metadata.get_all_neuron_metadata_for_single_time(0,
-                                                                                                             as_dataframe=True)
-            try:
-                np_neuron_name_dict = project_data.neuron_name_to_manual_id_mapping(confidence_threshold=0,
-                                                                                    remove_unnamed_neurons=True,
-                                                                                    remove_duplicates=False,
-                                                                                    neuropal_subproject=True)
-                options = napari_labels_from_traces_dataframe(df, z_to_xy_ratio=z_np/xy_pixels,
-                                                              neuron_name_dict=np_neuron_name_dict,
-                                                              automatic_label_by_default=False,
-                                                              include_time=False,
-                                                              label_using_column_name=True)
-                options['visible'] = force_all_visible
-                options['name'] = 'Neuropal IDs'
-                # options['text']['color'] = 'red'
-                viewer.add_points(**options)
-                layers_actually_added.append(options['name'])
-            except KeyError:
-                # Some nwb files may not have xyz information
-                project_data.logger.warning("Could not add neuron IDs; no xyz information available")
+                df = project_data.neuropal_manager.segmentation_metadata.get_all_neuron_metadata_for_single_time(0,
+                                                                                                                as_dataframe=True)
+                try:
+                    np_neuron_name_dict = project_data.neuron_name_to_manual_id_mapping(confidence_threshold=0,
+                                                                                        remove_unnamed_neurons=True,
+                                                                                        remove_duplicates=False,
+                                                                                        neuropal_subproject=True)
+                    options = napari_labels_from_traces_dataframe(df, z_to_xy_ratio=z_np/xy_pixels,
+                                                                neuron_name_dict=np_neuron_name_dict,
+                                                                automatic_label_by_default=False,
+                                                                include_time=False,
+                                                                label_using_column_name=True)
+                    options['visible'] = force_all_visible
+                    options['name'] = 'Neuropal IDs'
+                    # options['text']['color'] = 'red'
+                    viewer.add_points(**options)
+                    layers_actually_added.append(options['name'])
+                except KeyError:
+                    # Some nwb files may not have xyz information
+                    project_data.logger.warning("Could not add neuron IDs; no xyz information available")
 
         # Special layers from the heatmapper class
         for layer_tuple in which_layers:
