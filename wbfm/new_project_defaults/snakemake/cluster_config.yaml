@@ -34,27 +34,27 @@ match_frame_pairs:
     time: 0-12:00:00
     mem: 128G
     gres: shard:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 build_frame_objects:
     time: 0-12:00:00
     cpus_per_task: 20
     mem: 128G
     gres: shard:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 alt_build_frame_objects:
     time: 0-12:00:00
     cpus_per_task: 20
     mem: 128G
     gres: shard:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 postprocess_matches_to_tracklets:
     cpus_per_task: 1
     time: 0-2:00:00
     gres: shard:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 combine_tracking_and_tracklets:
     time: 0-18:00:00
@@ -63,7 +63,7 @@ combine_tracking_and_tracklets:
 tracking:
     cpus_per_task: 16
     gres: shard:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 barlow_tracking:
     cpus_per_task: 32
@@ -71,12 +71,12 @@ barlow_tracking:
 barlow_embedding:
     cpus_per_task: 16
     gres: shard:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 alt_barlow_embedding: 
     cpus_per_task: 16
     gres: shard:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 # Behavior
 subtract_background:
@@ -92,7 +92,7 @@ dlc_analyze_videos:
     time: 0-08:00:00
     cpus_per_task: 24
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 create_centerline:
     time: 0-12:00:00
@@ -108,19 +108,19 @@ worm_unet:
     time: 0-08:00:00
     cpus_per_task: 24
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 sam2_segment:
     time: 0-12:00:00  # Might be faster than this, needs testing
     cpus_per_task: 24
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 coil_unet:
     time: 0-08:00:00
     cpus_per_task: 24
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 binarize:
     time: 0-06:00:00
