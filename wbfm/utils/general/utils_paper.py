@@ -66,8 +66,8 @@ def plotly_paper_color_discrete_map():
 
     cmap_dict = {'gcamp': base_cmap[0], 'wbfm': base_cmap[0],
                  'Active in Freely Moving only': base_cmap[0], 'Manifold in Freely Moving only': base_cmap[0],
-                 'Freely Moving (GCaMP)': base_cmap[0], 'Freely Moving': base_cmap[0], 'Wild Type': base_cmap[0],
-                 'No Light': base_cmap[1],
+                 'Freely Moving (GCaMP)': base_cmap[0], 'Freely Moving': base_cmap[0], 'Wild Type': base_cmap[0], '488': base_cmap[0], 488: base_cmap[0],
+                 'No Light': base_cmap[1], '505': base_cmap[1], 505: base_cmap[1],
                  # Skip orange... don't like it!
                  'immob': base_cmap[2], 'Active in Immob': base_cmap[2], 'Manifold in Immob': base_cmap[2],
                  'Intrinsic (shared with immobilized)': base_cmap[2],
@@ -1278,7 +1278,12 @@ def compute_xpos_map(df, behavior_col='behavior', sub_behavior_col=None,
     return xpos_map, xtick_positions, xtick_labels, behavior_positions, total_width
 
 
-def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per_pixel: float = 100, brightness_threshold: float = 0):
+def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per_pixel: float = 100, brightness_threshold: float = 0, minimum_period_length: int = 10):
+    """
+    Detects periods where the laser is OFF based on total green fluorescence intensity.
+
+    Note that this will also detect tracking failures if the entire worm is missing; hopefully those are short enough to be filtered with minimum_period_length.
+    """
     total_green = df_green.loc[:, (slice(None), 'intensity_image')].T.sum() - background_per_pixel*df_green.loc[:, (slice(None), 'area')].T.sum()
     # Get the time points with laser on/off switches, based on negative (near-zero) values after background subtraction
     is_laser_off = total_green < brightness_threshold
@@ -1298,6 +1303,8 @@ def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per
     # Handle case where laser is ON until the end
     if in_laser_on:
         laser_on_periods.append((start_idx, len(is_laser_off)))
+    # Remove short periods
+    laser_on_periods = [(start, end) for start, end in laser_on_periods if (end - start) >= minimum_period_length]
     return laser_on_periods
 
 
