@@ -1108,7 +1108,8 @@ def make_summary_interactive_heatmap_with_pca(project_cfg, to_save=True, to_show
                         horizontal_spacing=0.04, vertical_spacing=0.05,
                         subplot_titles=subplot_titles,
                         specs=[[{}, {}, {}, {}],
-                               [{}, {"rowspan": 4, "colspan": 3, "type": "scene"}, None, None],
+                            #    [{}, {"rowspan": 4, "colspan": 3, "type": "scene"}, None, None],
+                               [{}, {"rowspan": 4, "colspan": 3}, None, None],
                                [{}, None, None, None],
                                [{}, None, None, None],
                                [{}, None, None, None],
@@ -1131,7 +1132,7 @@ def make_summary_interactive_heatmap_with_pca(project_cfg, to_save=True, to_show
     ### Second column
     for trace, trace_opt in zip(weights_list, weights_opt_list):
         fig.add_trace(trace, **trace_opt)
-    fig.add_traces(phase_plot_list, **phase_plot_list_opt)
+    fig.add_traces(phase_plot_list, rows=phase_plot_list_opt['row']-1, cols=phase_plot_list_opt['col'])
     fig.add_trace(var_explained_line, **var_explained_line_opt)
 
     ### Final updates

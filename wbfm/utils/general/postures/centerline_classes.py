@@ -1141,7 +1141,7 @@ class WormFullVideoPosture:
 
         return velocity
 
-    @lru_cache(maxsize=256)
+    # @lru_cache(maxsize=256)
     def worm_speed(self, fluorescence_fps=False, subsample_before_derivative=True, signed=False,
                    strong_smoothing=False, use_stage_position=True, remove_outliers=True, body_segment=50,
                    clip_unrealistic_values=True, strong_smoothing_before_derivative=False,
