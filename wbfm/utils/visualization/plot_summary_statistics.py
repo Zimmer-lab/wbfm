@@ -84,7 +84,7 @@ def calc_speed_dataframe(all_projects):
                    'worm_speed_average_all_segments', 'signed_speed_angular']
 
     all_speeds = defaultdict(dict)
-    for name, p in tqdm(all_projects.items()):
+    for name, p in tqdm(all_projects.items(), leave=False):
         try:
             for speed_type in speed_types:
                 all_speeds[speed_type][name] = calc_speed_vector(p, speed_type)
