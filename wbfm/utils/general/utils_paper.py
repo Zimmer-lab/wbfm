@@ -1300,13 +1300,18 @@ def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per
     return laser_on_periods
 
 
-def plot_trajectory(project_data, to_save=True):
+def plot_trajectory(project_data, beh_annotation_kwargs=None, to_save=True):
 
     xy = project_data.worm_posture_class.calc_behavior_from_alias('worm_center_position').copy()
     xy = xy - xy.iloc[0, :]
 
-    beh = project_data.worm_posture_class.beh_annotation(fluorescence_fps=True, simplify_states=True,
-                                                            include_head_cast=False, include_collision=False, include_pause=True)
+    if beh_annotation_kwargs is None:
+        beh_annotation_kwargs = {}
+    beh_annotation_defaults = dict(fluorescence_fps=True, simplify_states=True,
+                                   include_head_cast=False, include_collision=False, include_pause=True)
+    beh_annotation_defaults.update(beh_annotation_kwargs)
+
+    beh = project_data.worm_posture_class.beh_annotation(**beh_annotation_defaults)
 
     df_xy = xy
     df_xy['Behavior'] = beh.values
