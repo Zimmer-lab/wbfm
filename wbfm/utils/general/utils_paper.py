@@ -67,6 +67,7 @@ def plotly_paper_color_discrete_map():
     cmap_dict = {'gcamp': base_cmap[0], 'wbfm': base_cmap[0],
                  'Active in Freely Moving only': base_cmap[0], 'Manifold in Freely Moving only': base_cmap[0],
                  'Freely Moving (GCaMP)': base_cmap[0], 'Freely Moving': base_cmap[0], 'Wild Type': base_cmap[0],
+                 'No Light': base_cmap[1],
                  # Skip orange... don't like it!
                  'immob': base_cmap[2], 'Active in Immob': base_cmap[2], 'Manifold in Immob': base_cmap[2],
                  'Intrinsic (shared with immobilized)': base_cmap[2],
@@ -1357,3 +1358,34 @@ def plot_trajectory(project_data, beh_annotation_kwargs=None, to_save=True):
         fname = os.path.join("behavior", fname)
         fig.write_image(fname, scale=3)
         fig.write_image(fname.replace(".png", ".svg"))
+
+# Functions for behavior supp figures
+def calc_net_displacement(p):
+    # Units: mm
+    i_seg = 50
+
+    df = p.worm_posture_class.centerline_absolute_coordinates()
+    xy0 = df.loc[0, :][i_seg]
+    xy1 = df.iloc[-1, :][i_seg]
+    
+    return np.linalg.norm(xy0 - xy1)
+    
+def calc_cumulative_displacement(p):
+    # Units: mm
+    i_seg = 50
+
+    df = p.worm_posture_class.centerline_absolute_coordinates()[i_seg]
+    dist = np.sqrt((df['X'] - df['X'].shift())**2 + (df['Y'] - df['Y'].shift())**2)
+    line_integral = np.nansum(dist)
+    
+    return line_integral
+
+def calc_displacement_dataframes(all_projects):
+    
+    all_displacements = defaultdict(dict)
+    for name, p in tqdm(all_projects.items()):
+        all_displacements['net'][name] = calc_net_displacement(p)
+        all_displacements['cumulative'][name] = calc_cumulative_displacement(p)
+    df_displacement_gcamp = pd.DataFrame(all_displacements)
+    
+    return df_displacement_gcamp

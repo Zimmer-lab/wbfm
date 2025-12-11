@@ -79,9 +79,9 @@ def calc_speed_vector(p, speed_type):
 
 
 def calc_speed_dataframe(all_projects):
+    # Note that the signed_speed_angular only has a well-defined sign across datasets if the ventral side is annotated
     speed_types = ['abs_stage_speed', 'middle_body_speed', 'signed_middle_body_speed',
-                   'worm_speed_average_all_segments']
-    # Note that the signed_speed_angular does not have a well-defined sign across datasets
+                   'worm_speed_average_all_segments', 'signed_speed_angular']
 
     all_speeds = defaultdict(dict)
     for name, p in tqdm(all_projects.items()):
@@ -145,3 +145,53 @@ def calc_onset_frequency_dataframe(all_projects, states=None):
     df_durations = melt_nested_dict(all_frequencies, all_same_lengths=False)
 
     return df_durations
+
+
+def calc_turn_amplitude_dataframe(all_projects):
+    final_ventral_dict = {}
+    final_dorsal_dict = {}
+
+    for name, p in tqdm(all_projects.items()):
+
+        worm = p.worm_posture_class
+        y_curvature = worm.calc_behavior_from_alias('head_signed_curvature')
+
+        ventral_peaks, ventral_peak_times, _ = worm.get_peaks_post_reversal(y_curvature, num_points_after_reversal=20)
+        dorsal_peaks, dorsal_peak_times, all_rev_ends = worm.get_peaks_post_reversal(-y_curvature, num_points_after_reversal=20)
+
+        # Keep the positive peak if it is a ventral turn at that time, or negative peak if it is dorsal
+        # ... actually I don't think Ulises' annotations are that frame-accurate, so I will take whichever peak is closer to the end of the reversal, i.e. the first body bend
+        ventral_to_keep = []
+        dorsal_to_keep = []
+        for vp, vt, dp, dt, end in zip(ventral_peaks, ventral_peak_times, dorsal_peaks, dorsal_peak_times, all_rev_ends):
+            # Alternate: take the one with the higher amplitude
+            # if np.abs(vp) > np.abs(dp):
+            #     ventral_to_keep.append(vp)
+            # else:
+            #     dorsal_to_keep.append(dp)
+            
+            # Skip if the event is exactly at the end
+    #         vt_at_edge = vt == end
+    #         vt_early = vt < dt
+    #         dt_at_edge = dt == end
+            
+            if vt < dt and vt > end:
+                ventral_to_keep.append(vp)
+            elif dt > end:
+                dorsal_to_keep.append(-dp)
+            else:
+                pass
+        final_ventral_dict[name] = ventral_to_keep
+        final_dorsal_dict[name] = dorsal_to_keep
+
+        # For now, ignore the dataset they came from
+    df_ventral = pd.DataFrame(np.concatenate(list(final_ventral_dict.values())))
+    df_ventral['Turn Direction'] = 'Ventral'
+    df_dorsal = pd.DataFrame(np.concatenate(list(final_dorsal_dict.values())))
+    df_dorsal['Turn Direction'] = 'Dorsal'
+
+    df_turns = pd.concat([df_ventral, df_dorsal])
+    df_turns.columns = ['Amplitude', 'Turn Direction']
+    df_turns['Amplitude'] *= 1000  # Change to 1/mm
+
+    return df_turns

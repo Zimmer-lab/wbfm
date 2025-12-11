@@ -794,7 +794,7 @@ class WormFullVideoPosture:
         elif behavior_alias == 'head_unsigned_curvature':
             self.check_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=5, end_segment=30, **kwargs)
-        elif behavior_alias == 'head_curvature':
+        elif behavior_alias == 'head_curvature' or behavior_alias == 'head_signed_curvature':
             self.check_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(do_abs=False,
                                                      start_segment=5, end_segment=30, **kwargs)
@@ -1437,8 +1437,10 @@ class WormFullVideoPosture:
 
     @property
     def has_full_kymograph(self):
-        fnames = [self.filename_y, self.filename_x, self.filename_curvature]
-        return all([f is not None for f in fnames]) and all([os.path.exists(f) for f in fnames])
+        fnames = [self.filename_y, self.filename_x]
+        has_centerline_positions = all([f is not None for f in fnames]) and all([os.path.exists(f) for f in fnames])
+        has_kymograph = self._raw_curvature is not None
+        return has_centerline_positions and has_kymograph
 
     def check_has_full_kymograph(self):
         if not self.has_full_kymograph:
