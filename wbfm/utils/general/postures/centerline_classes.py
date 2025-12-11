@@ -55,6 +55,7 @@ class WormFullVideoPosture:
     """
 
     filename_curvature: str = None
+    filename_curvature_backup: str = None
     filename_x: str = None
     filename_y: str = None
     filename_beh_annotation: str = None
@@ -300,9 +301,18 @@ class WormFullVideoPosture:
     def _raw_curvature(self):
         """Returns curvature in 1 / um units"""
         df = read_if_exists(self.filename_curvature, reader=pd.read_csv, header=None)
-        # Remove the first column, which is the frame number
         if df is None:
-            raise NoBehaviorAnnotationsError("(curvature)")
+            # Try to read the true raw curvature as backup, and regenerate the paper-used smoothed file
+            df = read_if_exists(self.filename_curvature_backup, reader=pd.read_csv, header=None)
+            if df is None:
+                raise NoBehaviorAnnotationsError("(curvature)")
+            else:
+                # Regnerate processing steps
+                logging.warning(f"No smoothed curvature file found; recreating from raw curvature")
+                raw_data_config_fname = self.project_config.get_raw_data_config().absolute_self_path
+                df = _regenerate_smoothed_curvature_file(df, raw_data_config_fname)
+
+        # Remove the first column, which is the frame number
         df = df.iloc[:, 1:]
         # Convert to physical units; currently in 1/pixel
         # Target: 1/um
@@ -1838,9 +1848,6 @@ class WormFullVideoPosture:
             project_data.logger.warning("No project config found; returning empty posture class")
             return WormFullVideoPosture()
 
-        # Some functions need the raw data config file
-        raw_data_config_fname = project_config.get_raw_data_config().absolute_self_path
-
         # Use the project data class to check for tracking failures
         invalid_idx = project_data.estimate_tracking_failures_from_project()
 
@@ -1869,7 +1876,7 @@ class WormFullVideoPosture:
 
         # Try to read files from the behavior subfolder
         if raw_behavior_subfolder is not None:
-            all_files = WormFullVideoPosture._check_ulises_pipeline_files_in_subfolder(raw_behavior_subfolder, raw_data_config_fname=raw_data_config_fname)
+            all_files = WormFullVideoPosture._check_ulises_pipeline_files_in_subfolder(raw_behavior_subfolder)
         else:
             all_files = dict()
 
@@ -1879,7 +1886,7 @@ class WormFullVideoPosture:
             try:
                 if project_config.has_valid_self_path:
                     behavior_subfolder = Path(project_config.get_behavior_config().absolute_subfolder)
-                    all_files = WormFullVideoPosture._check_ulises_pipeline_files_in_subfolder(behavior_subfolder, raw_data_config_fname=raw_data_config_fname)
+                    all_files = WormFullVideoPosture._check_ulises_pipeline_files_in_subfolder(behavior_subfolder)
                 else:
                     behavior_subfolder = raw_behavior_subfolder
             except FileNotFoundError:
@@ -1958,12 +1965,11 @@ class WormFullVideoPosture:
 
 
     @staticmethod
-    def _check_ulises_pipeline_files_in_subfolder(behavior_subfolder, raw_data_config_fname=None):
+    def _check_ulises_pipeline_files_in_subfolder(behavior_subfolder):
         # Get the centerline-specific files
         all_files = dict(filename_curvature=None, filename_x=None, filename_y=None, filename_beh_annotation=None,
                          filename_hilbert_amplitude=None, filename_hilbert_phase=None,
                          filename_hilbert_frequency=None, filename_hilbert_carrier=None)
-        raw_curvature = None
         curvature_filename = "skeleton_spline_K_signed_avg.csv"
 
         for file in Path(behavior_subfolder).iterdir():
@@ -1973,7 +1979,7 @@ class WormFullVideoPosture:
             if file.name.endswith(curvature_filename):
                 all_files['filename_curvature'] = str(file)
             elif file.name.endswith('skeleton_spline_K.csv'):
-                raw_curvature = str(file)
+                all_files['filename_curvature_backup'] = str(file)
             elif file.name.endswith('skeleton_spline_X_coords_avg.csv') or \
                     (file.name.endswith('skeleton_spline_X_coords.csv') and all_files['filename_x'] is None):
                 all_files['filename_x'] = str(file)
@@ -1996,11 +2002,6 @@ class WormFullVideoPosture:
                 all_files['filename_head_cast'] = str(file)
             elif file.name.endswith('beh_annotation.csv'):
                 all_files['filename_beh_annotation'] = str(file)
-        
-        if all_files['filename_curvature'] is None and raw_curvature is not None:
-            logging.warning(f"No curvature file found in {behavior_subfolder}; recreating from raw curvature")
-            _, out_fname = _regenerate_smoothed_curvature_file(raw_curvature, behavior_subfolder, raw_data_config_fname, curvature_filename)
-            all_files['filename_curvature'] = out_fname
 
         return all_files
 
@@ -2254,7 +2255,7 @@ table_position:             {self.filename_table_position is not None}\n\
 ============Centerline=====================\n\
 x:                          {self.filename_x is not None}\n\
 y:                          {self.filename_y is not None}\n\
-curvature:                  {self.filename_curvature is not None}\n\
+curvature:                  {self._raw_curvature is not None}\n\
 ============Behavior Annotations===========\n\
 beh_annotation:             {self.has_beh_annotation}\n\
 stimulus_annotation:        {self.has_stimulus_annotation}\n\
@@ -2825,29 +2826,24 @@ def calculate_dataframe_for_export(worm):
 
     return df
 
-def _regenerate_smoothed_curvature_file(raw_curvature: Union[str, Path],
-                                        behavior_subfolder: Union[str, Path],
-                                        raw_data_config_fname: Union[str, Path],
-                                        curvature_filename: str = 'curvature_smoothed.csv'):
-    df_raw = pd.read_csv(raw_curvature, index_col=None, header=None)
+def _regenerate_smoothed_curvature_file(df_raw: Union[str, Path],
+                                        raw_data_config_fname: Union[str, Path],):
 
     # Step 1: Invert sign of raw curvature based on ventral annotation
     if raw_data_config_fname is None:
         raise FileNotFoundError("Could not find raw data config to get ventral side")
     with open(raw_data_config_fname, 'r') as f:
         worm_config = YAML().load(f)
-    ventral = worm_config.get('ventral_side', None)
+    ventral = worm_config.get('ventral', None)
     if ventral == 'left':
         df_signed = -df_raw
     elif ventral == 'right':
         df_signed = df_raw
     else:
-        raise AttributeError(f"ventral should be either 'left' or 'right', you have: {ventral}")
+        raise AttributeError(f"ventral should be either 'left' or 'right', you have: {ventral} (filename: {raw_data_config_fname})")
 
     # Step 2: Smoothing and saving as the correct filename
     window = 83  # 1 second with the default settings; see snakemake_config.yaml
     df_smooth = df_signed.rolling(window=window, center=True, min_periods=1).mean()
-    out_fname = str(Path(behavior_subfolder) / curvature_filename)
-    df_smooth.to_csv(out_fname, header=False, index=False)
     
-    return df_smooth, out_fname
+    return df_smooth
