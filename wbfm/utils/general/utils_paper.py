@@ -325,6 +325,7 @@ def behavior_name_mapping(shorten=False):
         eigenworm1='Eigenworm 2',
         eigenworm2='Eigenworm 3',
         eigenworm3='Eigenworm 4',
+        TRACKING_FAILURE='Tracking failure',
     )
     if shorten:
         name_mapping = {k: v.replace(' curvature', '') for k, v in name_mapping.items()}
