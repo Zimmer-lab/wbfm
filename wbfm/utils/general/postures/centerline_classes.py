@@ -1058,7 +1058,7 @@ class WormFullVideoPosture:
             beh_unique = []
         return beh_unique
 
-    @lru_cache(maxsize=64)
+    # @lru_cache(maxsize=64)
     def summed_curvature_from_kymograph(self, fluorescence_fps=False, start_segment=30, end_segment=80,
                                         do_abs=True, do_quantile=False, which_quantile=0.9,
                                         only_positive=False, only_negative=False, reset_index=False) -> pd.Series:
