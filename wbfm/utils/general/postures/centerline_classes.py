@@ -131,7 +131,7 @@ class WormFullVideoPosture:
 
     def _validate_and_downsample(self, df: Optional[Union[pd.DataFrame, pd.Series]], fluorescence_fps: bool,
                                  reset_index=False, use_physical_time=None,
-                                 manual_annotation=False, force_downsampling=False) -> Optional[Union[pd.DataFrame, pd.Series]]:
+                                 manual_annotation=False, force_downsampling=False, remove_idx_of_tracking_failures=True) -> Optional[Union[pd.DataFrame, pd.Series]]:
         if df is None:
             return df
         else:
@@ -147,7 +147,9 @@ class WormFullVideoPosture:
                 needs_subsampling = fluorescence_fps and not self.beh_annotation_already_converted_to_fluorescence_fps
             # Get cleaned and downsampled dataframe
             try:
-                df = self.remove_idx_of_tracking_failures(df, fluorescence_fps=fluorescence_fps)
+                if remove_idx_of_tracking_failures:
+                    df = self.remove_idx_of_tracking_failures(df, fluorescence_fps=fluorescence_fps)
+
                 if needs_subsampling:
                     df = self._pad_if_not_long_enough(df)
                     if len(df.shape) == 2:
@@ -2062,7 +2064,7 @@ class WormFullVideoPosture:
         return vec
 
     def estimate_tracking_failures_from_kymo(self, fluorescence_fps):
-        kymo = self.curvature(fluorescence_fps=fluorescence_fps, reset_index=True)
+        kymo = self.curvature(fluorescence_fps=fluorescence_fps, reset_index=True, remove_idx_of_tracking_failures=False)
         tracking_failure_idx = np.where(kymo.isnull())[0]
         return tracking_failure_idx
 
