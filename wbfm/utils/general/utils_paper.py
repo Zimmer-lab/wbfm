@@ -17,7 +17,6 @@ from wbfm.utils.general.utils_hardcoded import get_neuron_base, load_paper_datas
 
 from wbfm.utils.utils_cache import cache_to_disk_class
 from wbfm.utils.external.utils_plotly import pastelize_color, mute_color
-from wbfm.utils.visualization.utils_plot_traces import modify_dataframe_to_allow_gaps_for_plotly
 
 
 def paper_trace_settings():
@@ -1309,6 +1308,7 @@ def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per
 
 
 def plot_trajectory(project_data, beh_annotation_kwargs=None, to_save=True):
+    from wbfm.utils.visualization.utils_plot_traces import modify_dataframe_to_allow_gaps_for_plotly
 
     xy = project_data.worm_posture_class.calc_behavior_from_alias('worm_center_position').copy()
     xy = xy - xy.iloc[0, :]

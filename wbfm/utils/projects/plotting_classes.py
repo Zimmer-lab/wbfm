@@ -29,7 +29,7 @@ from wbfm.utils.visualization.filtering_traces import trace_from_dataframe_facto
     remove_outliers_using_std, fast_slow_decomposition, fill_nan_in_dataframe, \
     filter_trace_using_mode
 from wbfm.utils.external.bleach_correction import bleach_correct_gaussian_moving_average
-from wbfm.utils.visualization.utils_plot_traces import correct_trace_using_linear_model
+from wbfm.utils.visualization.filtering_traces import correct_trace_using_linear_model
 
 
 @dataclass

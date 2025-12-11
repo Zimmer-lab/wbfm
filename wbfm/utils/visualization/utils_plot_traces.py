@@ -8,12 +8,9 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 from scipy.stats import stats
-from sklearn.linear_model import LinearRegression
 
-from wbfm.utils.external.utils_pandas import fill_missing_indices_with_nan, get_contiguous_blocks_from_column
+from wbfm.utils.external.utils_pandas import get_contiguous_blocks_from_column
 from wbfm.utils.general.utils_paper import paper_trace_settings, apply_figure_settings, plotly_paper_color_discrete_map
-from wbfm.utils.external.bleach_correction import detrend_exponential_lmfit
-from wbfm.utils.general.high_performance_pandas import get_names_from_df
 from wbfm.utils.external.utils_plotly import hex2rgba, float2rgba
 import plotly.graph_objects as go
 import plotly.express as px
@@ -59,140 +56,6 @@ def set_big_font(size=22):
     font = {'weight': 'bold',
             'size': size}
     matplotlib.rc('font', **font)
-
-
-def correct_trace_using_linear_model(df_red: pd.DataFrame,
-                                     df_green: Union[pd.DataFrame, np.ndarray, pd.Series]=None,
-                                     neuron_name: Optional[str]=None,
-                                     predictor_names: Optional[list]=None,
-                                     target_name='intensity_image',
-                                     remove_intercept=True,
-                                     model=LinearRegression(),
-                                     bleach_correct=False,
-                                     DEBUG=False):
-    """
-    Predict green from time, volume, and red
-
-    Note: the indices should start from 0
-
-    Can also use special (calculated) predictors. Currently implemented are:
-        t - a simple time vector
-        "{var1}_over_{var2}" - dividing the columns given by var1 and var2
-        "{var1}_squared" - the square of a variable in df_red. t also works
-
-    Parameters
-    ----------
-    df_red
-    df_green
-    neuron_name - Optional. If not passed, assumes the dataframe is not multiindexed
-    predictor_names - list of column names to extract from df_red
-    remove_intercept - whether to remove the intercept of the linear model
-    model
-
-    Returns
-    -------
-
-    """
-    if predictor_names is None:
-        predictor_names = ["t", "intensity_image", "area", "x", "y"]
-    if df_green is None:
-        df_green = df_red
-    if neuron_name is not None:
-        if neuron_name in df_green:
-            df_green = df_green[neuron_name]
-        df_red = df_red[neuron_name]
-    if target_name in df_green:
-        green = df_green[target_name]
-    else:
-        green = df_green
-    if bleach_correct:
-        green = detrend_exponential_lmfit(green, restore_mean_value=True)[0]
-    # Construct processed predictors
-    processed_vars = []
-    simple_predictor_names = []
-    for name in predictor_names:
-        if '_over_' in name:
-            # Division; doesn't work with squared
-            var1, var2 = name.split('_over_')
-            this_var = df_red[var1] / df_red[var2]
-            processed_vars.append(this_var)
-        elif '_times_' in name:
-            # Cross terms; doesn't work with squared
-            var1, var2 = name.split('_times_')
-            this_var = df_red[var1] * df_red[var2]
-            processed_vars.append(this_var)
-        elif name == 'intensity_image' and bleach_correct:
-            red = detrend_exponential_lmfit(df_red[name])[0]
-            processed_vars.append(red)
-        elif name == 't':
-            processed_vars.append(np.arange(len(green)))
-        elif '_squared' in name or '_cubed' in name:
-            # Only power 2 and 3 implemented
-            if '_squared' in name:
-                pow = 2.0
-                sub_name = name.split('_squared')[0]
-            else:
-                pow = 3.0
-                sub_name = name.split('_cubed')[0]
-
-            if sub_name in df_red:
-                var = df_red[sub_name] ** pow
-            elif 't' in sub_name:
-                var = np.arange(len(green)) ** pow
-            else:
-                raise NotImplementedError
-            processed_vars.append(var)
-        else:
-            simple_predictor_names.append(name)
-
-    # Build simple predictors and combine with processed
-    predictor_vars = [df_red[name] for name in simple_predictor_names]
-    predictor_vars.extend(processed_vars)
-
-    # Get valid indices in all variables
-    to_remove_predictors = [np.where(np.isnan(var))[0] for var in predictor_vars]
-    to_remove_y = np.where(np.isnan(green))[0]
-    to_remove_predictors.append(to_remove_y)
-    to_keep = set(range(len(green)))
-
-    to_remove_all = set.union(*[set(r) for r in to_remove_predictors])
-    valid_indices = np.array(list(to_keep - to_remove_all))
-
-    # Fix nan values and fit
-    # if valid_indices.value_counts()[True] <= 4:
-    if len(valid_indices) <= 4:
-        # This is important for test videos that are very short
-        y_result_including_na = green.copy()
-        y_result_including_na[:] = np.nan
-    else:
-
-        # remove nas and z score
-        def _z_score(_x):
-            _x = np.array(_x)[valid_indices]
-            return (_x - np.mean(_x)) / np.std(_x)
-
-        green_trace = green[valid_indices]
-        predictor_matrix = np.array([_z_score(var) for var in predictor_vars])
-        predictor_matrix = np.c_[predictor_matrix.T]
-
-        # create model
-        model.fit(predictor_matrix, green_trace)
-        if not remove_intercept:
-            model.intercept_ = [0.0]
-        green_predicted = model.predict(predictor_matrix)
-        y_result_missing_na = green_trace - green_predicted
-
-        # Align output and input formats
-        # y_df_missing_na = pd.DataFrame(y_result_missing_na, index=np.where(valid_indices)[0])
-        y_df_missing_na = pd.DataFrame(y_result_missing_na, index=valid_indices)
-        y_including_na = fill_missing_indices_with_nan(y_df_missing_na,
-                                                       expected_max_t=len(green))[0]
-        # try:
-        col_name = get_names_from_df(y_including_na)[0]
-        y_result_including_na = pd.Series(list(y_including_na[col_name]))
-        # except KeyError:
-        #     y_result_including_na = y_including_na
-    return y_result_including_na
 
 
 def get_lower_bound_values(x, y, min_vals_per_bin=10, num_bins=100):
