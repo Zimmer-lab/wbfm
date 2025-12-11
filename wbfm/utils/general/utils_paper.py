@@ -12,10 +12,12 @@ import plotly.graph_objects as go
 from tqdm.auto import tqdm
 
 from wbfm.utils.external.utils_matplotlib import export_legend
+from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 from wbfm.utils.general.utils_hardcoded import get_neuron_base, load_paper_datasets, neuron_groups
 
 from wbfm.utils.utils_cache import cache_to_disk_class
 from wbfm.utils.external.utils_plotly import pastelize_color, mute_color
+from wbfm.utils.visualization.utils_plot_traces import modify_dataframe_to_allow_gaps_for_plotly
 
 
 def paper_trace_settings():
@@ -1295,3 +1297,57 @@ def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per
     if in_laser_on:
         laser_on_periods.append((start_idx, len(is_laser_off)))
     return laser_on_periods
+
+
+def plot_trajectory(project_data, to_save=True):
+
+    xy = project_data.worm_posture_class.calc_behavior_from_alias('worm_center_position').copy()
+    xy = xy - xy.iloc[0, :]
+
+    beh = project_data.worm_posture_class.beh_annotation(fluorescence_fps=True, simplify_states=True,
+                                                            include_head_cast=False, include_collision=False, include_pause=True)
+
+    df_xy = xy
+    df_xy['Behavior'] = beh.values
+    # df_xy['Behavior'] = df_xy['Behavior'].map(lambda x: behavior_name_mapping()[x.name])
+    df_xy.head()
+    df_xy['size'] = 1
+    ethogram_cmap = BehaviorCodes.ethogram_cmap(include_turns=True, include_reversal_turns=False)
+    df_out, col_names = modify_dataframe_to_allow_gaps_for_plotly(df_xy, ['X', 'Y'], 'Behavior')
+
+    # Loop to prep each line, then plot
+    state_codes = df_xy['Behavior'].unique()
+    phase_plot_list = []
+    for i, state_code in enumerate(state_codes):
+        if state_code == BehaviorCodes.UNKNOWN:
+            continue
+        phase_plot_list.append(
+                    go.Scatter(x=df_out[col_names[0][i]], y=df_out[col_names[1][i]], mode='lines',
+                                name=behavior_name_mapping()[state_code.full_name], line=dict(color=ethogram_cmap.get(state_code, None), width=4)))
+
+    fig = go.Figure()
+    fig.add_traces(phase_plot_list)
+
+    # fig = px.scatter(df_xy, x='X', y='Y', color='Behavior')
+    fig.update_yaxes(dict(title="Distance (mm)"), scaleanchor= 'x')
+    fig.update_xaxes(dict(title="Distance (mm)"), )#range=[-1, 1])
+
+    fig.add_trace(go.Scatter(x=[0], y=[0], marker=dict(
+                        color='black', symbol='x',
+                        size=10
+                    ), name='start'))
+
+    fig.add_trace(go.Scatter(x=[xy.iloc[-1, 0]], y=[xy.iloc[-1, 1]], marker=dict(
+                        color='black',
+                        size=10), name='end'
+                    ))
+    apply_figure_settings(fig, width_factor=0.5, height_factor=0.25, plotly_not_matplotlib=True)
+
+    fig.update_traces(marker=dict(line=dict(width=0)))
+    fig.show()
+
+    if to_save:        
+        fname = f"trajectory.png"
+        fname = os.path.join("behavior", fname)
+        fig.write_image(fname, scale=3)
+        fig.write_image(fname.replace(".png", ".svg"))

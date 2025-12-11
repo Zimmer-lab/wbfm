@@ -252,6 +252,9 @@ def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=
     elif data_type == '488_505_488_immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/488_505_488'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
+    elif data_type == 'no_light_control_fm':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/not_light_control'
+        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     else:
         raise NotImplementedError(f"Data type {data_type} not recognized for paper datasets")
 
