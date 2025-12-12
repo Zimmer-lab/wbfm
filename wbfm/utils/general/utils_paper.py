@@ -72,6 +72,7 @@ def plotly_paper_color_discrete_map():
                  'Intrinsic (shared with immobilized)': base_cmap[2],
                  'Immobilized (GCaMP)': base_cmap[2], 'Immobilized': base_cmap[2],
                  'gfp': base_cmap[7], 'Reversal State': base_cmap[7],  # Gray
+                 'Inactive': base_cmap[7], 'Active': base_cmap[0],
                  'Freely Moving (GFP)': base_cmap[7],
                  'Freely Moving (GFP, residual)': base_cmap[7],
                  'global': base_cmap[3],

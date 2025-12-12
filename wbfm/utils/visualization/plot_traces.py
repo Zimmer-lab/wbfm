@@ -2080,7 +2080,10 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
             logging.warning('No manual annotations found')
             beh_vec = None
     if beh_vec is None:
-        beh_vec = project_data.worm_posture_class.beh_annotation(**behavior_kwargs, include_pause=True)
+        try:
+            beh_vec = project_data.worm_posture_class.beh_annotation(**behavior_kwargs, include_pause=True)
+        except NoBehaviorAnnotationsError:
+            beh_vec = None
     ethogram_cmap_opt = dict(include_reversal_turns=keep_reversal_turns, include_pause=True)
     if beh_vec is None:
         # If still none, that means there are no annotations (e.g. it is immobilized)

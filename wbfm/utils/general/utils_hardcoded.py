@@ -189,6 +189,7 @@ def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=
         return good_projects
 
     # Build a dictionary of all
+    good_projects = None
     if data_type == 'gcamp':
         folder_and_id_dict = {
             "2022-11-23_spacer_7b_2per_agar": [8, 9, 10, 11, 12],
@@ -212,7 +213,6 @@ def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=
         good_projects = load_all_projects_from_list(list_of_all_projects, only_load_paths=only_load_paths, **kwargs)
     elif data_type == 'gfp':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-10_spacer_7b_2per_agar_GFP'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif data_type == 'immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-03_immob_adj_settings_2'
         require_behavior = False  # No annotation of behavior here
@@ -227,36 +227,33 @@ def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=
         good_projects.update(load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs))
     elif data_type == 'hannah_O2_immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/immobilized_wt'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif data_type == 'itamar_O2_immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immob_wbfm_o2'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif data_type == 'hannah_O2_fm_mutant' or data_type == 'mutant':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/freely_moving_mutant'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif data_type == 'hannah_O2_immob_mutant' or data_type == 'immob_mutant_o2':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/brenner/analyze/immobilized_mutant'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif data_type == 'O2_hiscl' or data_type == 'immob_o2_hiscl':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/muscle_hiscl_o2_stimulation'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif data_type == '505_488_505_fm':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/505_488_505'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif data_type == '488_505_488_fm':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/488_505_488'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif data_type == '505_488_505_immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/505_488_505'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     elif data_type == '488_505_488_immob':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/488_505_488'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
+    elif data_type == '505_488_505_immob_inactive':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/505_488_505'
+    elif data_type == '488_505_488_immob_inactive':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/488_505_488'
     elif data_type == 'no_light_control_fm':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/not_light_control'
-        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
     else:
         raise NotImplementedError(f"Data type {data_type} not recognized for paper datasets")
+
+    if good_projects is None:
+        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
 
     if require_behavior and not only_load_paths:
         print("Filtering out projects without behavior")
