@@ -1278,13 +1278,18 @@ def compute_xpos_map(df, behavior_col='behavior', sub_behavior_col=None,
     return xpos_map, xtick_positions, xtick_labels, behavior_positions, total_width
 
 
-def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per_pixel: float = 100, brightness_threshold: float = 0, minimum_period_length: int = 10):
+def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per_pixel: float = 100, brightness_threshold: float = 0, minimum_period_length: int = 10,
+                                          DEBUG=False):
     """
     Detects periods where the laser is OFF based on total green fluorescence intensity.
 
     Note that this will also detect tracking failures if the entire worm is missing; hopefully those are short enough to be filtered with minimum_period_length.
     """
     total_green = df_green.loc[:, (slice(None), 'intensity_image')].T.sum() - background_per_pixel*df_green.loc[:, (slice(None), 'area')].T.sum()
+    if DEBUG:
+        fig = px.line(total_green, title='Total green fluorescence after background subtraction')
+        fig.add_hline(y=brightness_threshold, line_dash='dash', line_color='red', annotation_text='Brightness threshold', annotation_position='top left')
+        fig.show()
     # Get the time points with laser on/off switches, based on negative (near-zero) values after background subtraction
     is_laser_off = total_green < brightness_threshold
     # Convert to starts and stops of laser ON periods

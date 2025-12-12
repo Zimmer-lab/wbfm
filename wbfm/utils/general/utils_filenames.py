@@ -40,6 +40,7 @@ def resolve_mounted_path_in_current_os(raw_path: str, allow_only_parent_to_exist
 
     Note: This is specific to the Zimmer lab, as of Nov 2023
     """
+    raw_path = str(raw_path)
     if not is_absolute_in_any_os(raw_path):
         return raw_path
 

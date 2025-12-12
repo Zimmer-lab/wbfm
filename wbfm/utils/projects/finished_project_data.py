@@ -1435,7 +1435,7 @@ class ProjectData:
             try:
                 reversal_time_series = self.worm_posture_class.worm_speed(fluorescence_fps=True, reset_index=True,
                                                                           signed=True)
-            except NoBehaviorAnnotationsError:
+            except (NoBehaviorAnnotationsError, ValueError):
                 pass
 
             # Instead of behavior, see if there is an ID'ed AVA neuron
@@ -3204,7 +3204,7 @@ def split_project_data_in_time(project_data: "ProjectData",
                 attr_val = getattr(posture, attr_name, None)
                 if isinstance(attr_val, (list, np.ndarray)):
                     # filter and offset
-                    new_attr_val = [idx - start for idx in attr_val if start <= idx < stop]
+                    new_attr_val = [idx - start for idx in attr_val if start <= idx < stop-1]
                     setattr(new_pd.worm_posture_class, attr_name, new_attr_val)
 
         new_pd.num_frames = stop - start
