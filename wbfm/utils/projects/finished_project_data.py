@@ -3200,7 +3200,7 @@ def split_project_data_in_time(project_data: "ProjectData",
             setattr(new_pd, "worm_posture_class", posture_copy)
 
             # These attributes need to be offset, i.e. they are lists of indices
-            for attr_name in ["invalid_idx"]:
+            for attr_name in ["tracking_failure_idx"]:
                 attr_val = getattr(posture, attr_name, None)
                 if isinstance(attr_val, (list, np.ndarray)):
                     # filter and offset

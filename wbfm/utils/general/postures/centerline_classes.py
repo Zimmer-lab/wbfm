@@ -786,61 +786,61 @@ class WormFullVideoPosture:
                                 strong_smoothing_before_derivative=True)
         # Curvature measurements
         elif behavior_alias == 'summed_curvature':
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=30, **kwargs)
         elif behavior_alias == 'leifer_curvature' or behavior_alias == 'summed_signed_curvature':
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(do_abs=False, **kwargs)
         elif behavior_alias == 'head_unsigned_curvature':
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=5, end_segment=30, **kwargs)
         elif behavior_alias == 'head_curvature' or behavior_alias == 'head_signed_curvature':
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(do_abs=False,
                                                      start_segment=5, end_segment=30, **kwargs)
         elif behavior_alias == 'body_curvature':
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(do_abs=False,
                                                      start_segment=10, end_segment=90, **kwargs)
         elif behavior_alias == 'curvature_vb02':
             # Segment 15 is the hardcoded (approximate) location of the vb02 neuron
             # Note that there can be significant difference between individuals
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.curvature(**kwargs).loc[:, 15]
         elif behavior_alias == 'quantile_curvature':
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=10, end_segment=90,
                                                      do_quantile=True, which_quantile=0.9, **kwargs)
         elif behavior_alias == 'quantile_head_curvature':
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=5, end_segment=30,
                                                      do_quantile=True, which_quantile=0.75, **kwargs)
         elif behavior_alias == 'ventral_quantile_curvature':
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=10, end_segment=90,
                                                      do_abs=False, do_quantile=True, which_quantile=0.9, **kwargs)
         elif behavior_alias == 'dorsal_quantile_curvature':
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=10, end_segment=90,
                                                      do_abs=False, do_quantile=True, which_quantile=0.1, **kwargs)
         elif behavior_alias == 'ventral_only_body_curvature':
             # Same as Ulises curvature annotation
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=10, end_segment=90,
                                                      do_abs=False, only_positive=True, **kwargs)
         elif behavior_alias == 'dorsal_only_body_curvature':
             # Same as Ulises curvature annotation
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=10, end_segment=90,
                                                      do_abs=False, only_negative=True, **kwargs)
         elif behavior_alias == 'ventral_only_head_curvature':
             # Same as Ulises curvature annotation
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=2, end_segment=10,
                                                      do_abs=False, only_positive=True, **kwargs)
         elif behavior_alias == 'dorsal_only_head_curvature':
             # Same as Ulises curvature annotation
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = self.summed_curvature_from_kymograph(start_segment=2, end_segment=10,
                                                      do_abs=False, only_negative=True, **kwargs)
         elif behavior_alias == 'pirouette':
@@ -922,12 +922,12 @@ class WormFullVideoPosture:
             y = self._validate_and_downsample(y, **kwargs)
         elif isinstance(behavior_alias, str) and 'curvature' in behavior_alias:
             # Assume the string is 'curvature' followed by a number, e.g. 'curvature_10'
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             i = int(behavior_alias.split('_')[-1])
             y = self.curvature(**kwargs).loc[:, i]
         elif isinstance(behavior_alias, str) and 'hilbert' in behavior_alias:
             # Assume it is a direct field
-            self.check_has_full_kymograph()
+            self.validate_has_full_kymograph()
             y = getattr(self, behavior_alias)(**kwargs)
         else:
             # Check if there is a BehaviorCodes enum with this name
@@ -1439,10 +1439,14 @@ class WormFullVideoPosture:
     def has_full_kymograph(self):
         fnames = [self.filename_y, self.filename_x]
         has_centerline_positions = all([f is not None for f in fnames]) and all([os.path.exists(f) for f in fnames])
-        has_kymograph = self._raw_curvature is not None
+        try:
+            has_kymograph = self._raw_curvature is not None
+        except NoBehaviorAnnotationsError:
+            has_kymograph = False
         return has_centerline_positions and has_kymograph
 
-    def check_has_full_kymograph(self):
+    def validate_has_full_kymograph(self):
+        """Like has_full_kymograph, but raises an error if not"""
         if not self.has_full_kymograph:
             raise NoBehaviorAnnotationsError(self.project_config.project_dir)
 
@@ -2259,7 +2263,7 @@ table_position:             {self.filename_table_position is not None}\n\
 ============Centerline=====================\n\
 x:                          {self.filename_x is not None}\n\
 y:                          {self.filename_y is not None}\n\
-curvature:                  {self._raw_curvature is not None}\n\
+curvature:                  {self.has_full_kymograph}\n\
 ============Behavior Annotations===========\n\
 beh_annotation:             {self.has_beh_annotation}\n\
 stimulus_annotation:        {self.has_stimulus_annotation}\n\
