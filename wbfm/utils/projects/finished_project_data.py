@@ -3183,6 +3183,7 @@ def split_project_data_in_time(project_data: "ProjectData",
 
         posture = getattr(project_data, "worm_posture_class", None)
         if posture is not None:
+            # These attributes need to be sliced, i.e. they are pandas-like
             posture_ref_T = T if convert_posture_to_high_res else None
             posture_copy = slice_time_like_object(
                 posture,
@@ -3197,6 +3198,14 @@ def split_project_data_in_time(project_data: "ProjectData",
                 off_by_one_tolerance=off_by_one_tolerance
             )
             setattr(new_pd, "worm_posture_class", posture_copy)
+
+            # These attributes need to be offset, i.e. they are lists of indices
+            for attr_name in ["invalid_idx"]:
+                attr_val = getattr(posture, attr_name, None)
+                if isinstance(attr_val, (list, np.ndarray)):
+                    # filter and offset
+                    new_attr_val = [idx - start for idx in attr_val if start <= idx < stop]
+                    setattr(new_pd.worm_posture_class, attr_name, new_attr_val)
 
         new_pd.num_frames = stop - start
         for cache_name in ("_trace_plotter", "data_cacher", "_nwb_io", "_nwb_obj"):
