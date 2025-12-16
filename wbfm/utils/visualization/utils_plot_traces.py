@@ -610,7 +610,9 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
 
 
 def p_value_to_stars(pvalue):
-    if pvalue >= 0.05:
+    if np.isnan(pvalue) or pvalue is None:
+        significance_stars = 'ns'
+    elif pvalue >= 0.05:
         significance_stars = 'ns'
     elif pvalue >= 0.01:
         significance_stars = '*'

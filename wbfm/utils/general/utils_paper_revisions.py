@@ -867,7 +867,7 @@ def calc_statistics_for_pc1_comparison_plots(pc1_weights_all_conditions, keys_to
         try:
             return stats.permutation_test((x.values, ), _t_statistic, permutation_type='samples', ).pvalue
         except ValueError:
-            return np.nan
+            return 0
 
     # func = lambda x: stats.ttest_1samp(x, 0)[1]
     df_groupby = df_both.dropna().groupby(['neuron_name', 'dataset_type'])
@@ -898,18 +898,30 @@ def calc_statistics_for_pc1_comparison_plots(pc1_weights_all_conditions, keys_to
     return df_both, df_pvalue, df_medians_gcamp, df_medians_immob, df_significant_diff
 
 
-def plot_pc1_comparison(df_both, df_significant_diff):
+def plot_pc1_comparison(df_both, df_significant_diff, minimum_number_neurons=2, x_order=None):
+    df_both = df_both.copy()
+
+    if minimum_number_neurons > 1:
+        neuron_counts = df_both.dropna().groupby(['neuron_name', 'Dataset Type']).size().unstack(fill_value=0)
+        neurons_to_keep = neuron_counts[(neuron_counts >= minimum_number_neurons).all(axis=1)].index
+        df_both = df_both[df_both['neuron_name'].isin(neurons_to_keep)]
+        print(f"After filtering for minimum {minimum_number_neurons} neurons per dataset type, {len(neurons_to_keep)} neurons remain.")
+
     # Plot
     x_name = 'neuron_name_html' if 'neuron_name_html' in df_both.columns else 'neuron_name'
+    if x_order is not None:
+        df_both[x_name] = pd.Categorical(df_both[x_name], categories=x_order, ordered=True)
+        df_both = df_both.sort_values(x_name)
+
     fig = px.box(df_both, y='PC1 weight', x=x_name, 
-                color='Dataset Type', 
-                color_discrete_map=plotly_paper_color_discrete_map(),
-                category_orders={'Dataset Type': ['Immobilized (GCaMP)', 'Freely Moving (GCaMP)']})
+                 color='Dataset Type', 
+                 color_discrete_map=plotly_paper_color_discrete_map(),
+                 category_orders={'Dataset Type': ['Immobilized (GCaMP)', 'Freely Moving (GCaMP)']})
 
     # add_p_value_annotation(fig, x_label='all', show_ns=False, show_only_stars=True, permutations=1000,
     #                       height_mode='top_of_data')#, _format=dict(text_height=0.075))
     add_p_value_annotation(fig, x_label='all', show_ns=False, show_only_stars=True, precalculated_p_values=df_significant_diff['p_value_corrected_diff'],
-                        height_mode='top_of_data')
+                           height_mode='top_of_data')
     apply_figure_settings(fig, width_factor=0.83, height_factor=0.3, plotly_not_matplotlib=True)
 
     fig.update_layout(legend=dict(
@@ -919,7 +931,7 @@ def plot_pc1_comparison(df_both, df_significant_diff):
         x=0.6
     ))
 
-    fig.update_yaxes(dict(title="PC1 weight"), zeroline=True, zerolinewidth=1, zerolinecolor="black", )#range=[-0.2, 0.55])
+    fig.update_yaxes(dict(title="PC1 weight"), zeroline=True, zerolinewidth=1, zerolinecolor="black", overwrite=True)#range=[-0.2, 0.55])
     fig.update_xaxes(dict(title="Neuron Name"))
     fig.show()
 
