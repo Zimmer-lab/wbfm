@@ -342,12 +342,12 @@ rule sam2_segment:
         """
         # I started getting an error with the xml_catalog_files_libxml2 variable, so check if it is set
         if [ -z "${{xml_catalog_files_libxml2:-}}" ]; then
-            #echo "Warning: xml_catalog_files_libxml2 is not set, setting it to /lisc/app/conda/miniforge3/etc/xml/catalog"
+            #echo "Warning: xml_catalog_files_libxml2 is not set, setting it to /lisc/opt/app/conda/miniforge3/etc/xml/catalog"
             export xml_catalog_files_libxml2=""
         fi 
         
         # Activate the environment and the correct cuda
-        source /lisc/app/conda/miniforge3/bin/activate {params.sam2_conda_env_name}
+        source /lisc/opt/app/conda/miniforge3/bin/activate {params.sam2_conda_env_name}
         module load CUDA/12.9.1
         
         # Display the temporary directory being used
@@ -484,11 +484,11 @@ rule dlc_analyze_videos:
         """
         # I started getting an error with the xml_catalog_files_libxml2 variable, so check if it is set
         if [ -z "${{xml_catalog_files_libxml2:-}}" ]; then
-            #echo "Warning: xml_catalog_files_libxml2 is not set, setting it to /lisc/app/conda/miniforge3/etc/xml/catalog"
+            #echo "Warning: xml_catalog_files_libxml2 is not set, setting it to /lisc/opt/app/conda/miniforge3/etc/xml/catalog"
             export xml_catalog_files_libxml2=""
         fi 
         
-        source /lisc/app/conda/miniforge3/bin/activate {params.dlc_conda_env}
+        source /lisc/opt/app/conda/miniforge3/bin/activate {params.dlc_conda_env}
         module load CUDA/12.9.1
         # Also rename the output file to the expected name
         # We don't actually know the name without querying deeplabcut, so just rename it
