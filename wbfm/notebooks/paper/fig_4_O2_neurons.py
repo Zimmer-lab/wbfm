@@ -40,7 +40,7 @@ from wbfm.utils.traces.gui_kymograph_correlations import build_all_gui_dfs_multi
 
 
 # Load multiple datasets
-from wbfm.utils.general.utils_hardcoded import load_paper_datasets
+from wbfm.utils.general.hardcoded_paths import load_paper_datasets
 all_projects_O2_fm = load_paper_datasets(['hannah_O2_fm', 'gcamp'])
 all_projects_O2_fm_mutant = load_paper_datasets('hannah_O2_fm_mutant')
 all_projects_O2_immob_mutant = load_paper_datasets('hannah_O2_immob_mutant')
@@ -329,7 +329,6 @@ from wbfm.utils.general.utils_behavior_annotation import approximate_behavioral_
 # In[29]:
 
 
-
 # # neuron_list = ['AQR', 'PQR', 'URXL', 'URXR', 'AUAL', 'AUAR', 'RMDVL', 'RMDVR', 'ANTIcorR', 'ANTIcorL']
 # neuron_list = ['AQR', 'PQR', 'URX', 'AUA', 'RMDV', 'ANTIcor', 'BAG']
 
@@ -399,7 +398,6 @@ from wbfm.utils.general.utils_behavior_annotation import approximate_behavioral_
 
 
 # In[34]:
-
 
 
 # # neuron_list = ['AQR', 'PQR', 'URXL', 'URXR', 'AUAL', 'AUAR', 'RMDVL', 'RMDVR', 'ANTIcorR', 'ANTIcorL']
@@ -889,7 +887,6 @@ triggered_average_gcamp_plotter_fm_mutant = PaperMultiDatasetTriggeredAverage(al
 # In[ ]:
 
 
-
 opt = dict(calculate_residual=False, calculate_global=False, calculate_turns=False,
           trace_opt=dict(use_paper_options=True, channel_mode='dr_over_r_20'))
 
@@ -971,7 +968,6 @@ wbfm_plotter2 = PaperExampleTracePlotter(project_data_gcamp2, xlim=[0, 120], tra
 # ### Example traces (left column); shared regardless of ttests
 
 # In[ ]:
-
 
 
 neuron_list = ['AQR', #'AUAL', 
@@ -1241,6 +1237,7 @@ _combine_and_save(all_figs_box_immob_up, all_figs_trig_immob_up, all_figs_exampl
 _combine_and_save(all_figs_box_immob_down, all_figs_trig_immob_down, all_figs_examples=None, suffix='-downshift', is_immobilized=True, to_show=True)
 
 
+
 # ## Export for alternative modeling
 
 # In[ ]:
@@ -1270,7 +1267,7 @@ all_classes = {'triggered_average_gcamp_plotter': triggered_average_gcamp_plotte
                'triggered_average_gcamp_plotter_immob_hiscl': triggered_average_gcamp_plotter_immob_hiscl,
                'triggered_average_gcamp_plotter_GFP': triggered_average_gcamp_plotter_GFP}
 
-folder_name = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/triggered_average_dataframes'
+folder_name = '/lisc/scratch/neurobiology/zimmer/fieseler/paper/triggered_average_dataframes'
 
 for name, trigger_class in tqdm(all_classes.items()):
     
@@ -1314,8 +1311,8 @@ for name, trigger_class in tqdm(all_classes.items()):
 # In[ ]:
 
 
-from wbfm.utils.general.utils_hardcoded import get_triggered_average_dataframe_fname, get_all_trigger_suffixes, get_triggered_average_modeling_dir
-from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.general.hardcoded_paths import get_triggered_average_dataframe_fname, get_all_trigger_suffixes, get_triggered_average_modeling_dir
+from wbfm.utils.general.hardcoded_paths import neurons_with_confident_ids
 
 
 # In[ ]:
@@ -1346,7 +1343,7 @@ for suffix in tqdm(all_trigger_suffixes):
 # In[ ]:
 
 
-from wbfm.utils.general.utils_hardcoded import excel_event_full_description
+from wbfm.utils.general.hardcoded_paths import excel_event_full_description
 from wbfm.utils.general.utils_paper import add_figure_panel_references_to_df
 all_events_dict = {}
 
@@ -1396,7 +1393,6 @@ df = df[df.Description != 'DROP']
 
 
 # In[ ]:
-
 
 
 fname = 'supplement/ids/events_per_id.xlsx'

@@ -40,7 +40,7 @@ from wbfm.utils.general.utils_filenames import add_name_suffix
 
 
 # Load multiple datasets
-from wbfm.utils.general.utils_hardcoded import load_paper_datasets
+from wbfm.utils.general.hardcoded_paths import load_paper_datasets
 all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 
 
@@ -72,18 +72,19 @@ project_data_immob2 = all_projects_immob['ZIM2165_immob_adj_set_2_worm2-2022-11-
 
 
 # # Same individual: fm and immob
-# fname = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-23_ZIM2165_worm5-2022-12-06/project_config.yaml'
+# fname = '/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-23_ZIM2165_worm5-2022-12-06/project_config.yaml'
 # project_data_fm2immob_fm = ProjectData.load_final_project_data_from_config(fname, verbose=0)
 
-# fname = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-41_ZIM2165_immob_worm5-2022-12-06'
+# fname = '/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-41_ZIM2165_immob_worm5-2022-12-06'
 # project_data_fm2immob_immob = ProjectData.load_final_project_data_from_config(fname, verbose=0)
 
 # # Same individual: fm and immob
-# # fname = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-23_ZIM2165_worm5-2022-12-06/project_config.yaml'
+# # fname = '/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-23_ZIM2165_worm5-2022-12-06/project_config.yaml'
 # # project_data_fm2immob_fm2 = ProjectData.load_final_project_data_from_config(fname, verbose=0)
 
 # fname = '/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_11-07_ZIM2165_immob_worm1-2022-12-06/project_config.yaml'
 # project_data_fm2immob_immob2 = ProjectData.load_final_project_data_from_config(fname, verbose=0)
+
 
 
 # In[8]:
@@ -312,7 +313,6 @@ export_legend_for_paper(reversal_shading=True, fname=fname)
 # In[36]:
 
 
-
 fname = 'intro/reversal_and_collision_legend.png'
 export_legend_for_paper(reversal_shading=True, fname=fname, include_self_collision=True)
 
@@ -417,11 +417,10 @@ fig.savefig(fname.replace(".png", ".svg"), transparent=True)
 from wbfm.utils.visualization.utils_cca import calc_pca_weights_for_all_projects
 from wbfm.utils.external.utils_plotly import plotly_boxplot_colored_boxes
 from wbfm.utils.general.utils_paper import apply_figure_settings
-from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.general.hardcoded_paths import neurons_with_confident_ids
 
 
 # In[191]:
-
 
 
 wbfm_weights = calc_pca_weights_for_all_projects(all_projects_gcamp, use_paper_options=True, combine_left_right=True,
@@ -672,7 +671,7 @@ fig.write_image(fname)
 # In[257]:
 
 
-from wbfm.utils.general.utils_hardcoded import intrinsic_definition
+from wbfm.utils.general.hardcoded_paths import intrinsic_definition
 
 
 # In[258]:
@@ -783,7 +782,7 @@ df_4states['Result_simple'].value_counts()
 # In[262]:
 
 
-from wbfm.utils.general.utils_hardcoded import intrinsic_categories_short_description
+from wbfm.utils.general.hardcoded_paths import intrinsic_categories_short_description
 df_4states['Result_description'] = df_4states['Result'].map(intrinsic_categories_short_description())
 
 # Also add the original booleans that lead to these categories

@@ -64,13 +64,12 @@ project_data_immob = ProjectData.load_final_project_data_from_config(fname)
 
 
 # Load multiple datasets
-from wbfm.utils.general.utils_hardcoded import load_paper_datasets
+from wbfm.utils.general.hardcoded_paths import load_paper_datasets
 all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 all_projects_gfp = load_paper_datasets('gfp')
 
 
 # In[7]:
-
 
 
 all_projects_immob = load_paper_datasets('immob')

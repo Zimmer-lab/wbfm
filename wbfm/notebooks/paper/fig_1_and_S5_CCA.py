@@ -47,7 +47,7 @@ project_data_gcamp = ProjectData.load_final_project_data_from_config(fname)
 # In[4]:
 
 
-from wbfm.utils.general.utils_hardcoded import load_paper_datasets
+from wbfm.utils.general.hardcoded_paths import load_paper_datasets
 all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 
 
@@ -189,7 +189,7 @@ fig = cca_plotter.plot(plot_3d=False, binary_behaviors=False, show_legend=False,
 
 # # Calculate variance explained per dataset
 
-# In[19]:
+# In[7]:
 
 
 from wbfm.utils.visualization.utils_cca import calc_r_squared_for_all_projects
@@ -197,7 +197,7 @@ from wbfm.utils.general.utils_paper import plotly_paper_color_discrete_map
 from wbfm.utils.general.utils_paper import apply_figure_settings
 
 
-# In[20]:
+# In[8]:
 
 
 all_cca_classes, df_r_squared_melt, r_squared_per_row = calc_r_squared_for_all_projects(all_projects_gcamp, r_squared_kwargs=dict(n_components=[1, 2, 3]), 
@@ -205,26 +205,26 @@ all_cca_classes, df_r_squared_melt, r_squared_per_row = calc_r_squared_for_all_p
                                                                melt=True)
 
 
-# In[21]:
+# In[9]:
 
 
-get_ipython().run_line_magic('debug', '')
+# %debug
 
 
-# In[22]:
+# In[10]:
 
 
 df_r_squared_melt.head()
 
 
-# In[23]:
+# In[11]:
 
 
 # df_r_squared_melt = df_r_squared.melt(var_name='Model Type', value_name='Variance explained')
 # df_r_squared_melt
 
 
-# In[24]:
+# In[13]:
 
 
 from wbfm.utils.external.utils_plotly import plotly_plot_mean_and_shading
@@ -239,7 +239,7 @@ fig.update_yaxes(title='Neuronal Variance<br>Explained (cumulative)',
 fig.update_xaxes(title='Number of components')
 fig.update_layout(showlegend=True)
 
-to_save = True
+to_save = False
 if to_save:
     fname = os.path.join(output_folder, 'top_mode_reconstruction_boxplot.png')
     fig.write_image(fname, scale=3)
@@ -262,6 +262,28 @@ fig.show()
 # plt.savefig(fname, transparent=True)
 # fname = Path(fname).with_suffix('.svg')
 # plt.savefig(fname)
+
+
+# ## Test: use direct var explained from pca code
+
+# In[23]:
+
+
+# opt = dict(filter_mode='rolling_mean', interpolate_nan=True, nan_tracking_failure_points=True,
+#                    use_physical_time=True, rename_neurons_using_manual_ids=True, use_paper_options=True)
+
+
+# all_var_explained = {}
+# for name, project in tqdm(all_projects_gcamp.items()):
+#     _, exp_var_ratio = project.calc_pca_modes(2, **opt)
+#     all_var_explained[name] = sum(exp_var_ratio)
+    
+
+
+# In[22]:
+
+
+# px.box(pd.DataFrame(all_var_explained, index=[0]).T)
 
 
 # ## Variance explained per neuron (cumulative plot)
@@ -581,7 +603,6 @@ df_all_dots['PCA-CCA similarity'] = df_all_dots['PCA-CCA similarity'].abs()
 # In[48]:
 
 
-
 fig = px.box(df_all_dots, x='Component', y='PCA-CCA similarity', color='Comparison Method',
             color_discrete_map=plotly_paper_color_discrete_map())
 # fig.update_traces(marker=dict(color=plotly_paper_color_discrete_map()['PCA']))
@@ -779,7 +800,7 @@ df_mode_correlations
 from wbfm.utils.visualization.utils_cca import calc_cca_weights_for_all_projects
 import plotly.express as px
 from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_color_discrete_map
-from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.general.hardcoded_paths import neurons_with_confident_ids
 from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation
 output_folder = 'cca'
 
@@ -850,7 +871,7 @@ df_both1.columns = ['Dataset Name', 'Neuron', 'Weight', 'Behavior Type']
 # In[66]:
 
 
-from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.general.hardcoded_paths import neurons_with_confident_ids
 neurons_to_plot = neurons_with_confident_ids(combine_left_right=True)
 fig = px.box(df_both1[df_both1['Neuron'].isin(neurons_to_plot)], x='Neuron', y='Weight', color='Behavior Type',
              hover_data=['Dataset Name'],
@@ -936,7 +957,7 @@ df_weights_binary2 = df_weights_binary2[[c for c in df_weights_binary2.columns i
 # In[71]:
 
 
-from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.general.hardcoded_paths import neurons_with_confident_ids
 neurons_to_plot = neurons_with_confident_ids(combine_left_right=True)
 
 # Both modes together

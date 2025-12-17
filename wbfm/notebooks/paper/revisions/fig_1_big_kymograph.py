@@ -7,7 +7,7 @@
 
 
 
-# In[1]:
+# In[2]:
 
 
 get_ipython().run_line_magic('load_ext', 'autoreload')
@@ -25,81 +25,74 @@ import os
 import seaborn as sns
 
 
-# In[2]:
+# In[3]:
 
 
 from sklearn.decomposition import PCA
 from wbfm.utils.visualization.plot_traces import make_grid_plot_from_dataframe
 import seaborn as sns
-import surpyval
+# import surpyval
 from wbfm.utils.general.utils_paper import apply_figure_settings
 from wbfm.utils.general.utils_paper import plotly_paper_color_discrete_map
 import plotly.express as px
 
 
-# In[3]:
+# In[4]:
 
 
 # fname = "/scratch/neurobiology/zimmer/Charles/dlc_stacks/2022-11-27_spacer_7b_2per_agar/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
 # Manually corrected version
-fname = "/scratch/neurobiology/zimmer/fieseler/wbfm_projects/manually_annotated/paper_data/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
+# fname = "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/manually_annotated/paper_data/ZIM2165_Gcamp7b_worm1-2022_11_28_updated_format/project_config.yaml"
+fname = "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-27_spacer_7b_2per_agar/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
+
 project_data_gcamp = ProjectData.load_final_project_data_from_config(fname)
-
-
-# In[4]:
-
-
-# Load multiple datasets
-from wbfm.utils.general.hardcoded_paths import load_paper_datasets
-all_projects_gcamp = load_paper_datasets('gcamp')
 
 
 # In[5]:
 
 
-all_projects_gfp = load_paper_datasets('gfp')
+# Load multiple datasets
+from wbfm.utils.general.utils_hardcoded import load_paper_datasets
+all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 
 
 # In[6]:
 
 
-output_folder = "multiproject_behavior_quantifications"
+all_projects_gfp = load_paper_datasets('gfp')
 
-
-# # Example dataset with zoom in
 
 # In[7]:
 
 
-from wbfm.utils.visualization.plot_traces import make_summary_interactive_kymograph_with_behavior
-from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
+output_folder = "multiproject_behavior_quantifications"
 
 
-# In[8]:
+# # Example dataset no zoom-in
+
+# In[10]:
 
 
-from wbfm.utils.visualization.plot_traces import build_all_plot_variables_for_summary_plot
-# Test: look at variables that I'm plotting
-behavior_alias_dict = {'Turns': ['dorsal_turn', 'ventral_turn'],
-                               'Other': ['self_collision', 'head_cast'],
-                               'Rev': ['rev']}
-additional_shaded_states = []
-
-column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, _row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
-        project_data_gcamp, 3, use_behavior_traces=True, behavior_alias_dict=behavior_alias_dict,
-        additional_shaded_states=additional_shaded_states, showlegend=False)
+from wbfm.utils.visualization.plot_traces import make_summary_interactive_heatmap_with_pca, make_summary_heatmap_and_subplots, make_summary_interactive_kymograph_with_behavior
 
 
-# In[9]:
+# In[11]:
 
 
-fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=True,
-                                                      apply_figure_size_settings=True, showlegend=False,
-                                                       row_heights=[0.25, 0.05, 0.2, 0.2, 0.2])
+# First: not zoomed in
+fps = project_data_gcamp.physical_unit_conversion.frames_per_second
+vps = project_data_gcamp.physical_unit_conversion.volumes_per_second
+fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=False,
+                                                      apply_figure_size_settings=True, showlegend=True,
+                                                       row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
+                                                      x_range=[0/vps, 1666/vps])
+
+apply_figure_settings(fig, width_factor=1.0, height_factor=0.2, plotly_not_matplotlib=True)
+# fig.show()
 
 to_save = True
 if to_save:
-    fname = os.path.join("behavior", "kymograph_with_time_series.png")
+    fname = os.path.join("fig1", "long_kymograph.png")
     fig.write_image(fname, scale=5)
     fname = str(Path(fname).with_suffix('.svg'))
     fig.write_image(fname)
@@ -108,46 +101,217 @@ if to_save:
 # In[12]:
 
 
-fps = project_data_gcamp.physical_unit_conversion.frames_per_second
-fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=True,
-                                                      apply_figure_size_settings=True, discrete_behaviors=True,
-                                                       row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
-                                                      x_range=[31000/fps, 35000/fps])
+# USED: different figures for each
+fig1, fig2 = make_summary_heatmap_and_subplots(project_data_gcamp, trace_opt=dict(use_paper_options=True, interpolate_nan=True), 
+                                               to_save=True, to_show=True, include_speed_subplot=False,
+                                               base_height=[0.25, 0.2], base_width=1.0, output_folder="fig1")
 
-to_save = True
-if to_save:
-    fname = os.path.join("behavior", "kymograph_with_discrete_time_series.png")
-    fig.write_image(fname, scale=5)
-    fname = str(Path(fname).with_suffix('.svg'))
-    fig.write_image(fname)
 
+# # Example dataset with zoom in
 
 # In[13]:
 
 
-fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=True,
-                                                      apply_figure_size_settings=True, eigenworm_behaviors=True,
+from wbfm.utils.visualization.plot_traces import make_summary_interactive_kymograph_with_behavior, plot_stacked_neurons
+from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
+
+
+# In[14]:
+
+
+# from wbfm.utils.visualization.plot_traces import build_all_plot_variables_for_summary_plot
+# # Test: look at variables that I'm plotting
+# behavior_alias_dict = {'Turns': ['dorsal_turn', 'ventral_turn'],
+#                                'Other': ['self_collision', 'head_cast'],
+#                                'Rev': ['rev']}
+# additional_shaded_states = []
+
+# column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, _row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+#         project_data_gcamp, 3, use_behavior_traces=True, behavior_alias_dict=behavior_alias_dict,
+#         additional_shaded_states=additional_shaded_states, showlegend=False)
+
+
+# In[15]:
+
+
+# import plotly.graph_objects as go
+# go.Figure(kymograph, **kymograph_opt)
+
+
+# In[97]:
+
+
+x_range = [1300/vps, 1650/vps]
+# x_range = [60, 150]
+
+
+# In[93]:
+
+
+fps = project_data_gcamp.physical_unit_conversion.frames_per_second
+vps = project_data_gcamp.physical_unit_conversion.volumes_per_second
+
+fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=False,
+                                                      apply_figure_size_settings=True, showlegend=True,
                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
-                                                      #x_range=[31000, 35000]
-                                                      )
+                                                      x_range=x_range)
+
+apply_figure_settings(fig, width_factor=0.75, height_factor=0.35, plotly_not_matplotlib=True)
+# fig.show()
 
 to_save = True
 if to_save:
-    fname = os.path.join("behavior", "kymograph_with_eigenworm_time_series.png")
+    fname = os.path.join("fig1", "long_kymograph_zoom.png")
     fig.write_image(fname, scale=5)
     fname = str(Path(fname).with_suffix('.svg'))
     fig.write_image(fname)
 
 
-# In[12]:
+# In[94]:
 
 
-get_ipython().run_line_magic('debug', '')
+fps = project_data_gcamp.physical_unit_conversion.frames_per_second
+vps = project_data_gcamp.physical_unit_conversion.volumes_per_second
+
+fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=False,
+                                                       eigenworm_behaviors=True,
+                                                      apply_figure_size_settings=True, showlegend=True,
+                                                       row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
+                                                      x_range=x_range)
+
+apply_figure_settings(fig, width_factor=0.75, height_factor=0.35, plotly_not_matplotlib=True)
+# fig.show()
+
+to_save = True
+if to_save:
+    fname = os.path.join("fig1", "long_kymograph_eigenworms_zoom.png")
+    fig.write_image(fname, scale=5)
+    fname = str(Path(fname).with_suffix('.svg'))
+    fig.write_image(fname)
+
+
+# In[114]:
+
+
+# neurons_to_plot = ['AVAR', 'AVAL',
+#                    # 'RIMR', 'RIML',
+#                    'AVER', 'AVEL',
+#                'RID', 
+#                'BAGR', 'BAGL',  
+#                # 'RIVR', 'RIVL',
+#                'AVBR', 'AVBL',
+#                    'RIS',
+#                    # 'SIAVR', 'SIAVL',
+#                    'RMER', 'RMEL',
+#                    'RMEV', 'RMED',
+#                    'VB02',
+#                    'DB01'
+# ]
+
+neurons_to_plot = [#['AVAL', 'AVAR'],
+                   'AVAR',
+                   # 'AVE',
+                   # 'RIM',
+                   'AVBR',
+                   # 'RIS',
+                   # 'RMEV',
+                   # ['RMEV', 'RMED'],
+                   # ['VB02', 'DB01'],
+                   'VB02',
+                   # 'DD01',
+                   # ['RMEL', 'RMER'],
+                   # ['RMDD', 'RMDV'],
+                   # ['VB02', 'SMDD'],
+                   # 'VB02',
+                   # 'SMDD',
+                   # ['VB02', 'SMDV'],
+                   # ['SIAD', 'SIAV'],
+                   # ['SMDD', 'SMDV'],
+]
+
+# x_range = [0, 60]
+x_range = [60, 150]
+# x_range = [390, 470]
+fig = plot_stacked_neurons(project_data_gcamp, neurons_to_plot, x_range=x_range, 
+                           to_show=False,
+                          trace_opt=dict(interpolate_nan=True), DEBUG=False)
+
+# apply_figure_settings(fig, width_factor=1.5, height_factor=0.8, plotly_not_matplotlib=True)
+apply_figure_settings(fig, width_factor=0.5, height_factor=0.25, plotly_not_matplotlib=True)
+fig.show()
+
+to_save = True
+if to_save:
+    fname = os.path.join("fig1", "example_neurons.png")
+    fig.write_image(fname, scale=5)
+    fname = str(Path(fname).with_suffix('.svg'))
+    fig.write_image(fname)
+
+
+# In[96]:
+
+
+# project_data_gcamp.neuron_name_to_manual_id_mapping(confidence_threshold=0, remove_unnamed_neurons=True)
+
+
+# In[33]:
+
+
+# fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=True,
+#                                                       apply_figure_size_settings=True, showlegend=False,
+#                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2])
+
+# to_save = False
+# if to_save:
+#     fname = os.path.join("behavior", "kymograph_with_time_series.png")
+#     fig.write_image(fname, scale=5)
+#     fname = str(Path(fname).with_suffix('.svg'))
+#     fig.write_image(fname)
+
+
+# In[22]:
+
+
+# fps = project_data_gcamp.physical_unit_conversion.frames_per_second
+# fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=True,
+#                                                       apply_figure_size_settings=True, discrete_behaviors=True,
+#                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
+#                                                       x_range=[31000/fps, 35000/fps])
+
+# to_save = False
+# if to_save:
+#     fname = os.path.join("behavior", "kymograph_with_discrete_time_series.png")
+#     fig.write_image(fname, scale=5)
+#     fname = str(Path(fname).with_suffix('.svg'))
+#     fig.write_image(fname)
+
+
+# In[23]:
+
+
+# fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=True,
+#                                                       apply_figure_size_settings=True, eigenworm_behaviors=True,
+#                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
+#                                                       #x_range=[31000, 35000]
+#                                                       )
+
+# to_save = False
+# if to_save:
+#     fname = os.path.join("behavior", "kymograph_with_eigenworm_time_series.png")
+#     fig.write_image(fname, scale=5)
+#     fname = str(Path(fname).with_suffix('.svg'))
+#     fig.write_image(fname)
+
+
+# In[27]:
+
+
+# %debug
 
 
 # ## Trajectory
 
-# In[14]:
+# In[25]:
 
 
 from wbfm.utils.visualization.utils_plot_traces import modify_dataframe_to_allow_gaps_for_plotly
@@ -155,7 +319,7 @@ from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 from wbfm.utils.general.utils_paper import behavior_name_mapping
 
 
-# In[15]:
+# In[26]:
 
 
 xy = project_data_gcamp.worm_posture_class.calc_behavior_from_alias('worm_center_position').copy()
@@ -171,7 +335,7 @@ df_xy['Behavior'] = beh.values
 df_xy.head()
 
 
-# In[16]:
+# In[ ]:
 
 
 # import plotly.graph_objects as go
@@ -203,7 +367,7 @@ df_xy.head()
 # fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[17]:
+# In[ ]:
 
 
 import plotly.graph_objects as go
@@ -252,7 +416,7 @@ fig.write_image(fname.replace(".png", ".svg"))
 
 # ## NOT USING: Behavior transition diagram
 
-# In[18]:
+# In[ ]:
 
 
 # dot, df_probabilities, df_raw_number = project_data_gcamp.worm_posture_class.plot_behavior_transition_diagram(output_folder='behavior')
@@ -262,7 +426,7 @@ fig.write_image(fname.replace(".png", ".svg"))
 
 # ## Displacement
 
-# In[19]:
+# In[ ]:
 
 
 from collections import defaultdict
@@ -298,20 +462,20 @@ def calc_displacement_dataframes(all_projects):
     return df_displacement_gcamp
 
 
-# In[20]:
+# In[ ]:
 
 
 df_displacement_gcamp = calc_displacement_dataframes(all_projects_gcamp)
 df_displacement_gfp = calc_displacement_dataframes(all_projects_gfp)
 
 
-# In[21]:
+# In[ ]:
 
 
 df_displacement_gfp.shape
 
 
-# In[22]:
+# In[ ]:
 
 
 df_displacement_gcamp['genotype'] = 'gcamp'
@@ -320,7 +484,7 @@ df_displacement_gfp['genotype'] = 'gfp'
 df_displacement = pd.concat([df_displacement_gcamp, df_displacement_gfp])
 
 
-# In[23]:
+# In[ ]:
 
 
 # fig = px.histogram(df_displacement, x='net', color='genotype', nbins=40)
@@ -331,14 +495,14 @@ df_displacement = pd.concat([df_displacement_gcamp, df_displacement_gfp])
 # fig.show()
 
 
-# In[24]:
+# In[ ]:
 
 
 # fig = px.histogram(df_displacement, x='net', facet_row='genotype', color='genotype', nbins=30)
 # fig.show()
 
 
-# In[25]:
+# In[ ]:
 
 
 # Alternative: boxplot with scatter plot
@@ -357,7 +521,7 @@ fig.write_image(fname)
 fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[26]:
+# In[ ]:
 
 
 # fig = px.histogram(df_displacement, x='cumulative', facet_row='genotype', color='genotype', nbins=30)
@@ -366,14 +530,14 @@ fig.write_image(fname.replace(".png", ".svg"))
 
 # ## Speed, in several different ways
 
-# In[27]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.plot_summary_statistics import calc_speed_dataframe
 from wbfm.utils.general.utils_paper import apply_figure_settings
 
 
-# In[28]:
+# In[ ]:
 
 
 df_speed_gcamp = calc_speed_dataframe(all_projects_gcamp)
@@ -386,7 +550,7 @@ df_speed_gfp = calc_speed_dataframe(all_projects_gfp)
 
 
 
-# In[29]:
+# In[ ]:
 
 
 from wbfm.utils.general.utils_paper import data_type_name_mapping
@@ -424,7 +588,7 @@ for x in speed_types:
     fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[30]:
+# In[ ]:
 
 
 # fname = os.path.join(output_folder, "df_speed.h5")
@@ -433,26 +597,26 @@ for x in speed_types:
 
 # ## Reversal and forward durations
 
-# In[31]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.plot_summary_statistics import calc_durations_dataframe
 
 
-# In[32]:
+# In[ ]:
 
 
 df_duration_gcamp = calc_durations_dataframe(all_projects_gcamp)
 df_duration_gfp = calc_durations_dataframe(all_projects_gfp)
 
 
-# In[33]:
+# In[ ]:
 
 
 # %debug
 
 
-# In[34]:
+# In[ ]:
 
 
 df_duration_gcamp['genotype'] = 'gcamp'
@@ -465,13 +629,13 @@ df_duration['BehaviorCodes.FWD'] /= fps
 df_duration['BehaviorCodes.REV'] /= fps
 
 
-# In[35]:
+# In[ ]:
 
 
 df_duration.columns
 
 
-# In[46]:
+# In[ ]:
 
 
 states = ['BehaviorCodes.FWD', 'BehaviorCodes.REV']
@@ -513,7 +677,7 @@ for x, t in zip(states, titles):
     fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[37]:
+# In[ ]:
 
 
 fig = px.histogram(df_duration.melt(id_vars=['dataset_name', 'genotype']), 
@@ -530,7 +694,7 @@ fig = px.histogram(df_duration.melt(id_vars=['dataset_name', 'genotype']),
 
 
 
-# In[37]:
+# In[ ]:
 
 
 # fname = os.path.join(output_folder, "df_durations.h5")
@@ -539,20 +703,20 @@ fig = px.histogram(df_duration.melt(id_vars=['dataset_name', 'genotype']),
 
 # ## Reversal and forward frequency
 
-# In[38]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.plot_summary_statistics import calc_onset_frequency_dataframe
 
 
-# In[39]:
+# In[ ]:
 
 
 df_frequency_gcamp = calc_onset_frequency_dataframe(all_projects_gcamp)
 df_frequency_gfp = calc_onset_frequency_dataframe(all_projects_gfp)
 
 
-# In[40]:
+# In[ ]:
 
 
 df_frequency_gcamp['genotype'] = 'gcamp'
@@ -564,7 +728,7 @@ df_frequency = pd.concat([df_frequency_gcamp, df_frequency_gfp])
 # df_frequency['BehaviorCodes.REV'] /= fps
 
 
-# In[41]:
+# In[ ]:
 
 
 states = ['BehaviorCodes.FWD', 'BehaviorCodes.REV']
@@ -597,13 +761,13 @@ for x, t in zip(states, titles):
 
 # # Histogram of post-reversal head bend peaks
 
-# In[42]:
+# In[ ]:
 
 
 from wbfm.utils.general.utils_paper import apply_figure_settings
 
 
-# In[43]:
+# In[ ]:
 
 
 # For each project, get the positive and negative post reversal peaks
@@ -646,7 +810,7 @@ for name, p in tqdm(all_projects_gcamp.items()):
     final_dorsal_dict[name] = dorsal_to_keep
 
 
-# In[44]:
+# In[ ]:
 
 
 # For now, ignore the dataset they came from
@@ -660,14 +824,14 @@ df_turns.columns = ['Amplitude', 'Turn Direction']
 df_turns['Amplitude'] *= 1000  # Change to 1/mm
 
 
-# In[45]:
+# In[ ]:
 
 
 beh_list = [BehaviorCodes.VENTRAL_TURN, BehaviorCodes.DORSAL_TURN]
 cmap = [BehaviorCodes.ethogram_cmap()[beh] for beh in beh_list]
 
 
-# In[46]:
+# In[ ]:
 
 
 df_turns['Amplitude'] = df_turns['Amplitude'].abs()
@@ -702,7 +866,7 @@ fig.write_image(fname, scale=3)
 fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[47]:
+# In[ ]:
 
 
 fig = px.pie(df_turns, names="Turn Direction", color_discrete_sequence=cmap)
@@ -717,7 +881,7 @@ fig.write_image(fname, scale=3)
 fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[48]:
+# In[ ]:
 
 
 # fname = os.path.join(output_folder, "df_dorsal_ventral.h5")
@@ -732,14 +896,14 @@ fig.write_image(fname.replace(".png", ".svg"))
 
 # # Histograms of new ventral annotations
 
-# In[49]:
+# In[ ]:
 
 
 from wbfm.utils.external.utils_pandas import get_dataframe_of_transitions
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 
 
-# In[50]:
+# In[ ]:
 
 
 beh_vec = project_data_gcamp.worm_posture_class.beh_annotation(fluorescence_fps=True)
@@ -748,7 +912,7 @@ beh_vec = [b.value for b in beh_vec]
 df_transition = get_dataframe_of_transitions(beh_vec, convert_to_probabilities=True)
 
 
-# In[51]:
+# In[ ]:
 
 
 mapper = lambda val: BehaviorCodes(val).name
@@ -757,7 +921,7 @@ df_transition = df_transition#.rename(columns=mapper).rename(index=mapper)
 df_transition
 
 
-# In[52]:
+# In[ ]:
 
 
 # For each project, get the transition probability dataframe
@@ -772,7 +936,7 @@ for name, p in tqdm(all_projects_gcamp.items()):
 df_all_transitions = sum(all_transitions)
 
 
-# In[53]:
+# In[ ]:
 
 
 mapper = lambda val: BehaviorCodes(val).name
@@ -784,13 +948,13 @@ df.columns.name = None
 df
 
 
-# In[54]:
+# In[ ]:
 
 
 px.bar(df.loc['REV', :])
 
 
-# In[55]:
+# In[ ]:
 
 
 import plotly.graph_objs as go
@@ -844,21 +1008,21 @@ fig.write_image(fname.replace(".png", ".svg"))
 
 # ### Frequency
 
-# In[56]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.plot_summary_statistics import calc_onset_frequency_dataframe
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 
 
-# In[57]:
+# In[ ]:
 
 
 df_frequency_gcamp = calc_onset_frequency_dataframe(all_projects_gcamp, states=[BehaviorCodes.SLOWING])
 df_frequency_gfp = calc_onset_frequency_dataframe(all_projects_gfp, states=[BehaviorCodes.SLOWING])
 
 
-# In[58]:
+# In[ ]:
 
 
 df_frequency_gcamp['genotype'] = 'gcamp'
@@ -867,7 +1031,7 @@ df_frequency_gfp['genotype'] = 'gfp'
 df_frequency = pd.concat([df_frequency_gcamp, df_frequency_gfp])
 
 
-# In[59]:
+# In[ ]:
 
 
 states = ['BehaviorCodes.SLOWING']

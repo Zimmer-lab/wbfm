@@ -39,7 +39,7 @@ from wbfm.utils.traces.gui_kymograph_correlations import build_all_gui_dfs_multi
 # In[3]:
 
 
-from wbfm.utils.general.utils_hardcoded import load_all_data_as_dataframe
+from wbfm.utils.general.hardcoded_paths import load_all_data_as_dataframe
 
 
 # In[4]:
@@ -478,14 +478,12 @@ px.line(y=pxx, x=output[0])
 # In[ ]:
 
 
-
 # opt = dict(rename_neurons_using_manual_ids=True, interpolate_nan=True)
 # df_pxx_wbfm, df_pxx_immob, all_pxx_wbfm, all_pxx_immob = plot_frequencies_for_fm_and_immob_projects(all_projects_gcamp, all_projects_immob, 'VB02', 
 #                                                                                                     output_folder=output_folder,**opt)
 
 
 # In[ ]:
-
 
 
 # opt = dict(rename_neurons_using_manual_ids=True, interpolate_nan=True)

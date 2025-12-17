@@ -83,7 +83,7 @@ if to_save:
 # In[1]:
 
 
-from wbfm.utils.general.utils_hardcoded import load_all_paper_datasets
+from wbfm.utils.general.hardcoded_paths import load_all_paper_datasets
 all_projects = load_all_paper_datasets()
 
 
@@ -113,7 +113,6 @@ for name, project in tqdm(all_projects.items()):
 
 
 # In[33]:
-
 
 
 fig = make_full_summary_interactive_plot(project, to_save=False, to_show=True,

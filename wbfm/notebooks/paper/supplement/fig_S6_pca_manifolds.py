@@ -40,7 +40,7 @@ from wbfm.utils.general.utils_filenames import add_name_suffix
 
 
 # Load multiple datasets
-from wbfm.utils.general.utils_hardcoded import load_paper_datasets
+from wbfm.utils.general.hardcoded_paths import load_paper_datasets
 all_projects_good = load_paper_datasets('gcamp_good')
 
 

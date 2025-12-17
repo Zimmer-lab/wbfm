@@ -24,7 +24,7 @@ import plotly.express as px
 # In[2]:
 
 
-from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
+from wbfm.utils.general.hardcoded_paths import get_hierarchical_modeling_dir
 
 fname = os.path.join(get_hierarchical_modeling_dir(), 'data.h5')
 print(fname)
@@ -39,7 +39,7 @@ Xy_gfp = pd.read_hdf(fname)
 
 
 import arviz as az
-from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.general.hardcoded_paths import neurons_with_confident_ids
 
 def load_all_traces(foldername):
     fnames = neurons_with_confident_ids()
@@ -54,7 +54,7 @@ def load_all_traces(foldername):
                 pass
     return all_traces
 
-parent_folder = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling'
+parent_folder = '/lisc/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling'
 # suffix = '_only_eigenworms'
 # suffix = '_eigenworms34_speed'
 # suffix = ''

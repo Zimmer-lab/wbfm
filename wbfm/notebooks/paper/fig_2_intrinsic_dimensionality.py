@@ -39,14 +39,14 @@ import plotly.express as px
 
 # fname = "/scratch/neurobiology/zimmer/Charles/dlc_stacks/2022-11-27_spacer_7b_2per_agar/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
 # Manually corrected version
-fname = "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/manually_annotated/paper_data/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
+fname = "/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/manually_annotated/paper_data/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
 project_data_gcamp = ProjectData.load_final_project_data_from_config(fname)
 
 
 # In[4]:
 
 
-from wbfm.utils.general.utils_hardcoded import load_paper_datasets
+from wbfm.utils.general.hardcoded_paths import load_paper_datasets
 all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 
 
@@ -68,7 +68,6 @@ from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_c
 
 
 # In[34]:
-
 
 
 methods = [skdim.id.CorrInt, #skdim.id.DANCo, #skdim.id.ESS, 
@@ -236,7 +235,6 @@ from wbfm.utils.visualization.utils_cca import CCAPlotter
 # In[43]:
 
 
-
 methods = [skdim.id.CorrInt, #skdim.id.DANCo, #skdim.id.ESS, 
            skdim.id.FisherS, #skdim.id.KNN, skdim.id.lPCA, 
            skdim.id.MADA, 
@@ -260,7 +258,6 @@ methods = [skdim.id.CorrInt, #skdim.id.DANCo, #skdim.id.ESS,
 
 
 # In[46]:
-
 
 
 cca_dim = {}
@@ -308,7 +305,6 @@ df_cca_dim.index=method_names
 # ### Binary dimensionality
 
 # In[49]:
-
 
 
 cca_dim_binary = {}

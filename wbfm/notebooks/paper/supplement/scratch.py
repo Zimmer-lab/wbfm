@@ -26,7 +26,7 @@ import plotly.express as px
 # In[2]:
 
 
-from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
+from wbfm.utils.general.hardcoded_paths import get_hierarchical_modeling_dir
 
 fname = os.path.join(get_hierarchical_modeling_dir(), 'data.h5')
 print(fname)
