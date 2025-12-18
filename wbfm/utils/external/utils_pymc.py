@@ -302,6 +302,9 @@ def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True
     -------
 
     """
+    if DEBUG:
+        skip_if_exists = False
+
     if neuron_name is None:
         neuron_name = 'VB02'
     print(f"Running all 3 bayesian models for {neuron_name} with do_gfp={do_gfp} and residual_mode={residual_mode}")
@@ -332,6 +335,8 @@ def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True
         output_dir = os.path.join(data_dir, 'output')
     else:
         output_dir = os.path.join(data_dir, 'output_single_dataset')
+    if DEBUG:
+        output_dir = f"{output_dir}_debug"
     Path(output_dir).mkdir(exist_ok=True)
     # Check if it already exists
     if skip_if_exists and os.path.exists(os.path.join(output_dir, f'{neuron_name}_loo.h5')):
