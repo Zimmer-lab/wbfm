@@ -34,7 +34,7 @@ do
         a) args=${OPTARG};;
         h) show_help
            exit 0;;
-        *) raise error "Unknown flag"
+        *) echo "Error: Unknown flag"; exit 1;;
     esac
 done
 

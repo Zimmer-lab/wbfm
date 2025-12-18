@@ -31,7 +31,7 @@ do
         n) is_dry_run=${OPTARG};;
         b) run_in_background=${OPTARG};;
         h) usage;;
-        *) raise error "Unknown flag"
+        *) echo "Error: Unknown flag"; exit 1;;
     esac
 done
 

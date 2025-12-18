@@ -27,7 +27,7 @@ do
         n) is_dry_run=${OPTARG};;
         s) CMD_SUFFIX=${OPTARG};;
         k) KWARGS=${OPTARG};;
-        *) raise error "Unknown flag"
+        *) echo "Error: Unknown flag"; exit 1;;
     esac
 done
 
