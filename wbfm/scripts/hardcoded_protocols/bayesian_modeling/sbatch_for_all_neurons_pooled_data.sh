@@ -8,18 +8,22 @@ function show_help {
   echo "  -g: Use GFP data"
   echo "  -s: Use simple eigenworms (1 and 2 only)"
   echo "  -r: Trace mode; should be one of 'None', 'pca_global', 'pca_global_1'"
+  echo "  -d: debug mode, which only runs a single neuron (few iterations) for testing"
   echo "  -h: Show this help message"
 }
 
 # Get all user flags
 use_gfp="false"
 use_raw_trace="false"
+debug="false"
+simple_eigenworms="false"
 while getopts gsr: flag
 do
     case "${flag}" in
         g) use_gfp="true";;
         s) simple_eigenworms="true";;
         r) residual_mode=${OPTARG};;
+        d) debug="true";;
         h) show_help
            exit 0;;
         *) raise error "Unknown flag"
@@ -165,6 +169,12 @@ fi
 
 if [ "$residual_mode" ]; then
   CMD="$CMD --residual_mode $residual_mode"
+fi
+
+if [ "$debug" == "true" ]; then
+  CMD="$CMD --debug"
+  NUM_TASKS=1
+  NUM_HOURS=1
 fi
 
 # Actually run

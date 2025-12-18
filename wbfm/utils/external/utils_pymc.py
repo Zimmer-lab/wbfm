@@ -288,7 +288,7 @@ def build_drift_term(dims=None, dataset_name_idx=None):
 
 
 def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
-         use_additional_eigenworms=True):
+         use_additional_eigenworms=True, DEBUG=False):
     """
     Runs for hardcoded data location for a single neuron
 
@@ -341,7 +341,8 @@ def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True
     # Fit models
     df_compare, all_traces, all_models = fit_multiple_models(Xy, neuron_name, dataset_name=dataset_name,
                                                              residual_mode=residual_mode,
-                                                             use_additional_eigenworms=use_additional_eigenworms)
+                                                             use_additional_eigenworms=use_additional_eigenworms,
+                                                             DEBUG=DEBUG)
 
     if df_compare is None:
         print(f"Skipping {neuron_name} because there is no valid data")
@@ -567,6 +568,7 @@ if __name__ == '__main__':
     # Boolean
     parser.add_argument('--do_gfp', action='store_true')
     parser.add_argument('--simple_eigenworms', action='store_true')
+    parser.add_argument('--debug', action='store_true')
 
     args = parser.parse_args()
 
@@ -575,4 +577,4 @@ if __name__ == '__main__':
         residual_mode = None
 
     main(neuron_name=args.neuron_name, do_gfp=args.do_gfp, residual_mode=residual_mode,
-         use_additional_eigenworms=not args.simple_eigenworms)
+         use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
