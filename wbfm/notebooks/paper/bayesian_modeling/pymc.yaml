@@ -18,3 +18,4 @@ dependencies:
       - arviz
       - tqdm
       - tifffile==2023.7.10
+      - networkx
