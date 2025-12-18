@@ -197,7 +197,7 @@ export PYTENSOR_FLAGS="base_compiledir=\$TMPDIR/.pytensor"
 
 LOG_FILE="$LOG_DIR/log_\$task_string.txt"
 if [ DEBUG == "true" ]; then
-  LOG_FILE="$LOG_DIR/log_\$task_string\_debug.txt"
+  LOG_FILE="$LOG_DIR/log_debug.txt"
 fi
 python $CMD --neuron_name \$task_string > \$LOG_FILE 2>&1
 
