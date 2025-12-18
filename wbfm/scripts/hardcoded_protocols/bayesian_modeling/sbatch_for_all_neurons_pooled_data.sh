@@ -143,7 +143,7 @@ neuron_list=(
 
 CMD="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/utils/external/utils_pymc.py"
 # Changes if running on gfp
-if [ "$do_gfp" == "true" ]; then
+if [ "$use_gfp" == "true" ]; then
   LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/logs"
 else
   LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling/logs"
@@ -184,7 +184,6 @@ cat << EOF > $SLURM_SCRIPT
 #SBATCH --time=0-0$NUM_HOURS:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=6
-#SBATCH --partition=short,basic
 #SBATCH --license=scratch-highio
 
 # Reproduce the list for the subfile
