@@ -17,7 +17,7 @@ use_gfp="false"
 use_raw_trace="false"
 debug="false"
 simple_eigenworms="false"
-while getopts gsr: flag
+while getopts gsr:d flag
 do
     case "${flag}" in
         g) use_gfp="true";;
