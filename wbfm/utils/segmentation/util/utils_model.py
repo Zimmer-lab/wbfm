@@ -42,9 +42,12 @@ def get_stardist_model(model_name: str = 'students_and_lukas_3d_zarr',
         print(f'Getting Stardist model: {model_name}')
 
     # First check if a full path was given
-    if is_absolute_in_any_os(model_name):
+    if is_absolute_in_any_os(model_name) and os.path.exists(model_name):
         folder = os.path.dirname(model_name)
         model_name = os.path.basename(model_name)
+        is_full_path = True
+    else:
+        is_full_path = False
 
     # all self-trained StarDist models reside in that folder. 'nt' for windows, when working locally
     if folder is None:
@@ -81,12 +84,6 @@ def get_stardist_model(model_name: str = 'students_and_lukas_3d_zarr',
         model = StarDist3D.from_pretrained('3D_demo')
     elif model_name == 'lukas':
         model = StarDist2D(None, name='stardistNiklas', basedir=folder)
-    elif model_name == 'charlie':
-        raise NotImplementedError
-        # model = StarDist2D(None, name='stardistCharlie', basedir=folder)
-    elif model_name == 'charlie_3d':
-        raise NotImplementedError
-        # model = StarDist3D(None, name='Charlie100-3d', basedir=folder)
     elif model_name == 'lukas_3d_zarr':
         model = StarDist3D(None, name='Lukas3d_zarr', basedir=folder)
     elif model_name == 'students_and_lukas_3d_zarr':
@@ -95,9 +92,8 @@ def get_stardist_model(model_name: str = 'students_and_lukas_3d_zarr',
         model = StarDist3D(None, name='Lukas3d_zarr_25percentile', basedir=folder)
     elif model_name == 'lukas_3d_zarr_local':
         model = StarDist3D(None, name='Lukas3d_zarr_local', basedir=folder_local)
-    elif model_name == 'charlie_3d_party':
-        raise NotImplementedError
-        # model = StarDist3D(None, name='Charlie100-3d-party', basedir=folder)
+    elif is_full_path:
+        model = StarDist3D(None, name=model_name, basedir=folder)
     else:
         raise NameError(f'No StarDist model found using {model_name}! Current models are {sd_options}')
 
