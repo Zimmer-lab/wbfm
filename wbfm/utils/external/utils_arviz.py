@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import arviz as az
 from tqdm.auto import tqdm
-
+from joblib import Parallel, delayed
 import xarray as xr
 from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
 
@@ -229,7 +229,7 @@ def sample_posterior_predictive(neuron_name, trace, is_gfp=False):
     return trace
 
 
-def leave_one_trial_out_cv(all_traces, Xy):
+def leave_one_trial_out_cv_all_neurons(all_traces, Xy):
     """
     Performs leave-one-trial-out cross-validation given posterior distributions and the original indexing
 
@@ -240,31 +240,60 @@ def leave_one_trial_out_cv(all_traces, Xy):
 
     loto_results = {}
     for neuron_name, idata in tqdm(all_traces.items()):
-
-        # 1. Get the log-likelihood
-        # Dimensions: (chain, draw, obs_id)
-        log_lik = idata.log_likelihood['y']
-
-        # 2. Define your trial mapping
-        # This should be a 1D array/Series of length obs_id, 
-        # where each entry is the trial ID for that observation.
-        # Example: trial_ids = [0, 0, 0, 1, 1, 2, 2, 2, 2...]
         idx = Xy[neuron_name].dropna().index
         dataset_vector = Xy.loc[idx, 'dataset_name'].reset_index(drop=True)
-        trial_mapping = xr.DataArray(dataset_vector, dims=['y_dim_0'])
-
-        # 3. Perform Grouped Summation
-        # This handles the unequal trial lengths automatically.
-        # It sums the log-probs of all points within a trial.
-        # Resulting dims: (chain, draw, trial_id)
-        log_lik_grouped = log_lik.groupby(trial_mapping).sum(dim='y_dim_0')
-
-        log_lik_grouped.name = "y" 
-        idata_loto = az.InferenceData(
-            posterior=idata.posterior, 
-            log_likelihood=log_lik_grouped.to_dataset()
-        )
-
-        loto_results[neuron_name] = az.loo(idata_loto)
+        loto_results[neuron_name] = leave_one_trial_out_cv(idata, dataset_vector, neuron_name)[1]
 
     return loto_results
+
+
+def leave_one_trial_out_cv_all_neurons_parallel(all_traces, Xy, n_jobs=16):
+    """
+    Performs leave-one-trial-out cross-validation given posterior distributions and the original indexing
+
+    Returns
+    -------
+
+    """
+    with Parallel(n_jobs=4, batch_size=1) as parallel:
+        raw_results = parallel(
+            delayed(leave_one_trial_out_cv)(idata, Xy.loc[Xy[neuron_name].dropna().index, 'dataset_name'].reset_index(drop=True), neuron_name) 
+            for idata, neuron_name in tqdm(all_traces.items(), desc="Leave-one-trial-out CV")
+        )
+
+    # 3. Convert list of tuples to a dictionary
+    loto_dict = dict(raw_results)
+
+
+def leave_one_trial_out_cv(idata, dataset_vector, neuron_name):
+    """
+
+    Returns
+    -------
+
+    """
+
+
+    # 1. Get the log-likelihood
+    # Dimensions: (chain, draw, obs_id)
+    log_lik = idata.log_likelihood['y']
+
+    # 2. Define your trial mapping
+    # This should be a 1D array/Series of length obs_id, 
+    # where each entry is the trial ID for that observation.
+    # Example: trial_ids = [0, 0, 0, 1, 1, 2, 2, 2, 2...]
+    trial_mapping = xr.DataArray(dataset_vector, dims=['y_dim_0'])
+
+    # 3. Perform Grouped Summation
+    # This handles the unequal trial lengths automatically.
+    # It sums the log-probs of all points within a trial.
+    # Resulting dims: (chain, draw, trial_id)
+    log_lik_grouped = log_lik.groupby(trial_mapping).sum(dim='y_dim_0')
+
+    log_lik_grouped.name = "y" 
+    idata_loto = az.InferenceData(
+        posterior=idata.posterior, 
+        log_likelihood=log_lik_grouped.to_dataset()
+    )
+
+    return neuron_name, az.loo(idata_loto)
