@@ -7,6 +7,7 @@ from typing import Tuple, Dict
 import numpy as np
 import pandas as pd
 import pymc as pm
+import xarray as xr
 import arviz as az
 import cloudpickle
 from matplotlib import pyplot as plt
@@ -285,6 +286,100 @@ def build_drift_term(dims=None, dataset_name_idx=None):
     )
 
     return drift_term
+
+
+def leave_one_trial_out_cv_with_model(Xy, all_traces, neuron_name):
+
+    ## Get raw data
+    curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
+    curvature_terms_to_use.extend(['eigenworm2', 'eigenworm3'])
+    residual_mode='pca_global'
+    dataset_name = "all"
+
+    # First pack into a single dataframe to drop nan, then unpack
+    df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
+                                            curvature_terms=curvature_terms_to_use, residual_mode=residual_mode)
+
+    pca_modes = df_model[['x_pca0', 'x_pca1']].values
+    y = df_model['y'].values
+    curvature = df_model[curvature_terms_to_use].values
+
+    ## Rebuild traces, substituting per-trial information with population information
+
+    dataset_name_idx, dataset_name_values = df_model.dataset_name.factorize()
+    coords = {'dataset_name': dataset_name_values}
+    dims = 'dataset_name'
+    dim_opt = dict(dims=dims, dataset_name_idx=dataset_name_idx)
+
+    idata = all_traces[neuron_name]
+
+    # 1. Re-instantiate the exact model structure
+    with pm.Model(coords=coords) as marginal_model:
+        # Use pm.Data to pass in the original inputs
+        # 'y' must be the original 50k length vector
+        # 'pca_modes' and 'curvature' must be the original inputs
+        
+        intercept, sigma = build_baseline_priors()
+        sigmoid_term = build_sigmoid_term_pca(pca_modes, **dim_opt)
+        curvature_term = build_curvature_term(curvature, 
+                                            curvature_terms_to_use=curvature_terms_to_use, 
+                                            **dim_opt)
+
+        mu = pm.Deterministic('mu', intercept + sigmoid_term * curvature_term)
+        
+        # This creates the 'y' log_likelihood group ArviZ needs
+        likelihood = build_final_likelihood(mu, sigma, y)
+
+    # 2. Prepare the "Prior-Swapped" InferenceData
+
+        
+    trial_params = ["zscore_pca0_amplitude", "zscore_pca1_amplitude", "zscore_intercept"]
+    idata_marginal = idata.copy()
+
+    # Remove the existing likelihood so compute_log_likelihood has a clean slate
+    if "log_likelihood" in idata_marginal:
+        del idata_marginal.log_likelihood
+        
+    for param in trial_params:
+        if param in idata_marginal.posterior:
+            # Get shape: (chain, draw, 36)
+            post_shape = idata_marginal.posterior[param].shape
+            # Replace the 'spiky' posterior with standard normal noise (the prior)
+            idata_marginal.posterior[param] = (("chain", "draw", "trial_dim"), 
+                                            np.random.normal(0, 1, size=post_shape))
+    
+    # 3. Compute the Pointwise Log-Likelihood
+    with marginal_model:
+        # This runs the 'mu' math using posterior fixed effects + random prior z-scores
+        pm.compute_log_likelihood(idata_marginal)#, **opt)
+
+    # 1. Get the pointwise log-likelihood from the marginalized idata
+    # Shape is (chain, draw, time_dim)
+    pointwise_ll = idata_marginal.log_likelihood["y"]
+
+    # 2. Add the trial mapping as a coordinate to the xarray object
+    # This 'labels' every one of the 50k points with its trial ID
+    # Example: trial_ids = [0, 0, 0, 1, 1, 2, 2, 2, 2...]
+    idx = Xy[neuron_name].dropna().index
+    dataset_vector = Xy.loc[idx, 'dataset_name'].reset_index(drop=True)
+    trial_mapping = xr.DataArray(dataset_vector, dims=['y_dim_0'])
+
+    pointwise_ll = pointwise_ll.assign_coords(trial_id=("y_dim_0", np.asarray(trial_mapping)))
+
+    # 3. Use xarray's vectorized groupby to sum everything into 36 buckets
+    # This is the 'Leave-One-Trial-Out' summation step
+    trial_ll = pointwise_ll.groupby("trial_id").sum(dim="y_dim_0")
+
+    # 4. Rebuild the InferenceData for ArviZ
+    # The trial_ll now has shape (chain, draw, 36)
+    loto_idata = az.InferenceData(
+        posterior=idata_marginal.posterior,  # Re-attach the posterior samples
+        log_likelihood=xr.Dataset({"y": trial_ll.rename({"trial_id": "trial"})}),
+    )
+
+    loto_result = az.loo(loto_idata, pointwise=True)
+
+    return loto_result
 
 
 def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
