@@ -448,7 +448,8 @@ def leave_one_trial_out_cv_from_posterior(Xy, all_traces, neuron_name):
 
 
 def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
-                         use_additional_eigenworms=True, group_by='dataset_name', n_splits=6, DEBUG=False):
+                         use_additional_eigenworms=True, group_by='dataset_name', n_splits=6, 
+                         model_type='hierarchical_pca', DEBUG=False):
     """
     Perform grouped cross-validation by refitting the model for each fold.
     
@@ -468,7 +469,11 @@ def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca
     use_additional_eigenworms : bool
         Whether to include eigenworms 2 and 3
     group_by : str
-        Column name to use for grouping (default: 'trial_idx')
+        Column name to use for grouping (default: 'dataset_name')
+    n_splits : int
+        Number of CV folds (default: 6)
+    model_type : str
+        Which model to fit: 'null', 'nonhierarchical', or 'hierarchical_pca' (default)
     DEBUG : bool
         If True, runs with fewer samples for testing
     
@@ -520,7 +525,7 @@ def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca
     group_ids = []
     
     for fold_idx, (train_idx, test_idx) in tqdm(enumerate(cv.split(y, groups=groups)), total=n_splits,
-                                                 desc=f"CV for {neuron_name}"):
+                                                 desc=f"CV for {neuron_name} ({model_type})"):
         
         # Split data
         X_pca_train, X_pca_test = X_pca[train_idx], X_pca[test_idx]
@@ -542,11 +547,26 @@ def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca
             y_data = pm.Data('y_data', y_train, mutable=True)
             
             intercept, sigma = build_baseline_priors(**dim_opt_fold)
-            sigmoid_term = build_sigmoid_term_pca(X_pca_data, **dim_opt_fold)
-            curvature_term = build_curvature_term(X_curv_data, 
-                                                 curvature_terms_to_use=curvature_terms_to_use,
-                                                 **dim_opt_fold)
-            mu_train = pm.Deterministic('mu_train', intercept + sigmoid_term * curvature_term)
+            
+            if model_type == 'null':
+                # Just intercept, no other terms
+                mu_train = pm.Deterministic('mu_train', intercept)
+            elif model_type == 'nonhierarchical':
+                # Curvature but no sigmoid
+                curvature_term = build_curvature_term(X_curv_data, 
+                                                     curvature_terms_to_use=curvature_terms_to_use,
+                                                     **dim_opt_fold)
+                mu_train = pm.Deterministic('mu_train', intercept + curvature_term)
+            elif model_type == 'hierarchical_pca':
+                # Sigmoid times curvature (full model)
+                sigmoid_term = build_sigmoid_term_pca(X_pca_data, **dim_opt_fold)
+                curvature_term = build_curvature_term(X_curv_data, 
+                                                     curvature_terms_to_use=curvature_terms_to_use,
+                                                     **dim_opt_fold)
+                mu_train = pm.Deterministic('mu_train', intercept + sigmoid_term * curvature_term)
+            else:
+                raise ValueError(f"Unknown model_type: {model_type}")
+            
             likelihood_train = build_final_likelihood(mu_train, sigma, y_data)
         
         # Sample from training model
@@ -583,45 +603,77 @@ def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca
                 if len(sigma_sample.shape) > 0:  # Per-dataset
                     sigma_sample = sigma_sample[dataset_idx_test_fold]
                 
-                # Extract PCA amplitudes and compute sigmoid term using helper function
-                inflection_point = posterior_samples['inflection_point'].isel(chain=chain_idx, draw=draw_idx).values
-                if 'pca0_amplitude' in posterior_samples:
-                    # Hierarchical per-dataset amplitudes
-                    pca0_amp = posterior_samples['pca0_amplitude'].isel(chain=chain_idx, draw=draw_idx).values[dataset_idx_test_fold]
-                    pca1_amp = posterior_samples['pca1_amplitude'].isel(chain=chain_idx, draw=draw_idx).values[dataset_idx_test_fold]
-                else:
-                    # Scalar amplitudes
-                    pca_amp = posterior_samples['pca_amplitude'].isel(chain=chain_idx, draw=draw_idx).values
-                    pca0_amp = pca_amp[0]
-                    pca1_amp = pca_amp[1]
-                
-                sigmoid_term = compute_sigmoid_term_pca_numpy(X_pca_test, pca0_amp, pca1_amp, inflection_point)
-                
-                # Extract curvature coefficients and compute term using helper function
-                eigenworm1_coef = posterior_samples['eigenworm1_coefficient'].isel(chain=chain_idx, draw=draw_idx).values
-                eigenworm2_coef = posterior_samples['eigenworm2_coefficient'].isel(chain=chain_idx, draw=draw_idx).values
-                
-                if len(eigenworm1_coef.shape) > 0:  # Per-dataset
-                    eigenworm1_coef = eigenworm1_coef[dataset_idx_test_fold]
-                    eigenworm2_coef = eigenworm2_coef[dataset_idx_test_fold]
-                
-                # Collect additional coefficients
-                additional_coefs = {}
-                for i, col_name in enumerate(curvature_terms_to_use[2:]):
-                    if col_name.startswith('eigenworm'):
-                        coef_name = f'eigenworm{int(col_name[-1])+1}_coefficient'
-                    else:
-                        coef_name = f'{col_name}_coefficient'
+                if model_type == 'null':
+                    # No additional terms; just intercept
+                    mu_test = intercept_sample
+                elif model_type == 'nonhierarchical':
+                    # Curvature term but no sigmoid
+                    eigenworm1_coef = posterior_samples['eigenworm1_coefficient'].isel(chain=chain_idx, draw=draw_idx).values
+                    eigenworm2_coef = posterior_samples['eigenworm2_coefficient'].isel(chain=chain_idx, draw=draw_idx).values
                     
-                    if coef_name in posterior_samples:
-                        coef = posterior_samples[coef_name].isel(chain=chain_idx, draw=draw_idx).values
-                        additional_coefs[coef_name] = coef
+                    if len(eigenworm1_coef.shape) > 0:  # Per-dataset
+                        eigenworm1_coef = eigenworm1_coef[dataset_idx_test_fold]
+                        eigenworm2_coef = eigenworm2_coef[dataset_idx_test_fold]
+                    
+                    # Collect additional coefficients
+                    additional_coefs = {}
+                    for i, col_name in enumerate(curvature_terms_to_use[2:]):
+                        if col_name.startswith('eigenworm'):
+                            coef_name = f'eigenworm{int(col_name[-1])+1}_coefficient'
+                        else:
+                            coef_name = f'{col_name}_coefficient'
+                        
+                        if coef_name in posterior_samples:
+                            coef = posterior_samples[coef_name].isel(chain=chain_idx, draw=draw_idx).values
+                            additional_coefs[coef_name] = coef
+                    
+                    curvature_term = compute_curvature_term_numpy(X_curv_test, eigenworm1_coef, eigenworm2_coef, 
+                                                                 additional_coefs, curvature_terms_to_use)
+                    mu_test = intercept_sample + curvature_term
+                elif model_type == 'hierarchical_pca':
+                    # Sigmoid times curvature (full model)
+                    # Extract PCA amplitudes and compute sigmoid term using helper function
+                    inflection_point = posterior_samples['inflection_point'].isel(chain=chain_idx, draw=draw_idx).values
+                    if 'pca0_amplitude' in posterior_samples:
+                        # Hierarchical per-dataset amplitudes
+                        pca0_amp = posterior_samples['pca0_amplitude'].isel(chain=chain_idx, draw=draw_idx).values[dataset_idx_test_fold]
+                        pca1_amp = posterior_samples['pca1_amplitude'].isel(chain=chain_idx, draw=draw_idx).values[dataset_idx_test_fold]
+                    else:
+                        # Scalar amplitudes
+                        pca_amp = posterior_samples['pca_amplitude'].isel(chain=chain_idx, draw=draw_idx).values
+                        pca0_amp = pca_amp[0]
+                        pca1_amp = pca_amp[1]
+                    
+                    sigmoid_term = compute_sigmoid_term_pca_numpy(X_pca_test, pca0_amp, pca1_amp, inflection_point)
+                    
+                    # Extract curvature coefficients and compute term using helper function
+                    eigenworm1_coef = posterior_samples['eigenworm1_coefficient'].isel(chain=chain_idx, draw=draw_idx).values
+                    eigenworm2_coef = posterior_samples['eigenworm2_coefficient'].isel(chain=chain_idx, draw=draw_idx).values
+                    
+                    if len(eigenworm1_coef.shape) > 0:  # Per-dataset
+                        eigenworm1_coef = eigenworm1_coef[dataset_idx_test_fold]
+                        eigenworm2_coef = eigenworm2_coef[dataset_idx_test_fold]
+                    
+                    # Collect additional coefficients
+                    additional_coefs = {}
+                    for i, col_name in enumerate(curvature_terms_to_use[2:]):
+                        if col_name.startswith('eigenworm'):
+                            coef_name = f'eigenworm{int(col_name[-1])+1}_coefficient'
+                        else:
+                            coef_name = f'{col_name}_coefficient'
+                        
+                        if coef_name in posterior_samples:
+                            coef = posterior_samples[coef_name].isel(chain=chain_idx, draw=draw_idx).values
+                            additional_coefs[coef_name] = coef
+                    
+                    curvature_term = compute_curvature_term_numpy(X_curv_test, eigenworm1_coef, eigenworm2_coef, 
+                                                                 additional_coefs, curvature_terms_to_use)
+                    
+                    # Compute mu and log-likelihood
+                    mu_test = intercept_sample + sigmoid_term * curvature_term
+                else:
+                    raise ValueError(f"Unknown model_type: {model_type}")
                 
-                curvature_term = compute_curvature_term_numpy(X_curv_test, eigenworm1_coef, eigenworm2_coef, 
-                                                             additional_coefs, curvature_terms_to_use)
-                
-                # Compute mu and log-likelihood
-                mu_test = intercept_sample + sigmoid_term * curvature_term
                 test_ll = compute_studentt_logp(mu_test, sigma_sample, y_test, nu=100)
                 test_lls.append(test_ll)
         
@@ -845,6 +897,81 @@ def compute_cv_loo(cv_results, normalize=True, pointwise=True):
     idata_for_loo = az.InferenceData(posterior=idata.posterior, log_likelihood=ll)
     loo = az.loo(idata_for_loo, pointwise=pointwise)
     return idata_for_loo, loo
+
+
+def grouped_cv_compare(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
+                       use_additional_eigenworms=True, models_to_compare=None, DEBUG=False):
+    """
+    Perform grouped cross-validation on multiple models and return az.compare-compatible output.
+
+    Parameters
+    ----------
+    Xy : pd.DataFrame
+        Full dataset
+    neuron_name : str
+        Name of the neuron to model
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data
+    use_additional_eigenworms : bool
+        Whether to include eigenworms 2 and 3
+    models_to_compare : list of str, optional
+        Which models to compare. Default: ['null', 'nonhierarchical', 'hierarchical_pca']
+    DEBUG : bool
+        If True, runs with fewer samples for testing
+
+    Returns
+    -------
+    df_cv_compare : pd.DataFrame
+        az.compare()-compatible DataFrame with LOO and model comparison metrics
+    cv_results_dict : dict
+        Dictionary mapping model names to their cv_results
+    """
+    if models_to_compare is None:
+        models_to_compare = ['null', 'nonhierarchical', 'hierarchical_pca']
+
+    # Dictionary to store LOO results for each model
+    loo_results = {}
+    cv_results_dict = {}
+
+    for model_name in models_to_compare:
+        print(f"\n{'='*60}")
+        print(f"Running grouped CV for {model_name} model on {neuron_name}")
+        print(f"{'='*60}")
+
+        # Run grouped CV for this model
+        cv_results = grouped_cv_refitting(
+            Xy, neuron_name,
+            dataset_name=dataset_name,
+            residual_mode=residual_mode,
+            use_additional_eigenworms=use_additional_eigenworms,
+            group_by='dataset_name',
+            n_splits=6,
+            model_type=model_name,
+            DEBUG=DEBUG
+        )
+
+        if cv_results is None:
+            print(f"Skipping {model_name} for {neuron_name} (no CV results)")
+            continue
+
+        cv_results_dict[model_name] = cv_results
+
+        # Compute LOO from CV results
+        idata, loo = compute_cv_loo(cv_results, normalize=True, pointwise=True)
+        loo_results[model_name] = loo
+
+        print(f"LOO for {model_name}: {loo.elpd_loo:.2f}")
+
+    if not loo_results:
+        print(f"No LOO results computed for {neuron_name}")
+        return None, cv_results_dict
+
+    # Use az.compare to produce a standardized comparison DataFrame
+    df_cv_compare = az.compare(loo_results, ic='loo')
+
+    return df_cv_compare, cv_results_dict
 
 
 def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
