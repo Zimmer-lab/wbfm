@@ -323,34 +323,6 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
     return curvature_term
 
 
-def build_drift_term_gp(n, lengthscale=None, dims=None, dataset_name_idx=None):
-    # Drift term (gaussian process)
-    if lengthscale is None:
-        lengthscale = n / 3.0
-    eta = 2.0
-    cov = eta ** 2 * pm.gp.cov.ExpQuad(1, lengthscale)
-    # Add white noise to stabilise
-    cov += pm.gp.cov.WhiteNoise(1e-6)
-    # Actual gp, then make it a function
-    gp = pm.gp.Latent(cov_func=cov)  # VERY slow
-    X = np.linspace(0, n, n)[:, None]  # The inputs to the GP must be arranged as a column vector
-    drift_term = gp.prior("f", X=X)
-
-    return drift_term
-
-
-def build_drift_term(dims=None, dataset_name_idx=None):
-    # Drift term (random walk); needs 'time' in the dims
-    # std of random walk
-    sigma_alpha = pm.Exponential("sigma_alpha", 1.0)
-
-    drift_term = pm.GaussianRandomWalk(
-        "alpha", sigma=sigma_alpha, init_dist=pm.Normal.dist(0, 1), dims="time"
-    )
-
-    return drift_term
-
-
 def leave_one_trial_out_cv_from_posterior(Xy, all_traces, neuron_name):
     """
     Do approximate leave-one-trial-out cross-validation by setting the trial-level parameters to their prior, but not refitting the population-level parameters.
