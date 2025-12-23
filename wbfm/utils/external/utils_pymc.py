@@ -974,6 +974,90 @@ def grouped_cv_compare(Xy, neuron_name, dataset_name='all', residual_mode='pca_g
     return df_cv_compare, cv_results_dict
 
 
+def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, 
+                       residual_mode='pca_global', use_additional_eigenworms=True, DEBUG=False):
+    """
+    Run grouped cross-validation model comparison for a neuron and save results.
+    
+    Similar to main() but uses grouped_cv_refitting on multiple models instead of 
+    fitting each model once. Much faster and suitable for quick CV-based model selection.
+    
+    Parameters
+    ----------
+    neuron_name : str, optional
+        Name of neuron to analyze. Defaults to 'VB02'
+    do_gfp : bool
+        Whether to use GFP data
+    dataset_name : str
+        'all', 'loop', or specific dataset name
+    skip_if_exists : bool
+        Skip if output already exists
+    residual_mode : str
+        Residual/preprocessing mode
+    use_additional_eigenworms : bool
+        Include eigenworms 2 and 3
+    DEBUG : bool
+        Run with fewer samples for testing
+    """
+    if DEBUG:
+        skip_if_exists = False
+        neuron_name = 'VB02'
+    if neuron_name is None:
+        neuron_name = 'VB02'
+
+    print(f"Running grouped CV comparison for {neuron_name} with do_gfp={do_gfp} and residual_mode={residual_mode}")
+
+    data_dir = get_hierarchical_modeling_dir(do_gfp)
+    fname = os.path.join(data_dir, 'data.h5')
+    if not os.path.exists(fname):
+        logging.warning(f"Could not find data file {fname}, trying backup")
+        fname = os.path.join(data_dir, 'data_backup.h5')
+    if not os.path.exists(fname):
+        raise FileNotFoundError(f"Could not find data file {fname}")
+    Xy = pd.read_hdf(fname)
+    print(f"Loaded data from {fname}")
+
+    if dataset_name == 'loop':
+        # Loop over all datasets
+        for dataset_name in Xy['dataset_name'].unique():
+            print(f"Running {neuron_name} for {dataset_name}")
+            if dataset_name == 'loop':
+                continue
+            main_cv_comparison(neuron_name, do_gfp=do_gfp, dataset_name=dataset_name, 
+                             skip_if_exists=skip_if_exists, residual_mode=residual_mode,
+                             use_additional_eigenworms=use_additional_eigenworms, DEBUG=DEBUG)
+        return
+
+    if dataset_name == 'all':
+        output_dir = os.path.join(data_dir, 'output_cv')
+    else:
+        output_dir = os.path.join(data_dir, 'output_cv_single_dataset')
+    if DEBUG:
+        output_dir = f"{output_dir}_debug"
+    Path(output_dir).mkdir(exist_ok=True)
+    
+    # Check if it already exists
+    if skip_if_exists and os.path.exists(os.path.join(output_dir, f'{neuron_name}_cv_compare.h5')):
+        print(f"Skipping {neuron_name} because CV results already exist")
+        return
+
+    # Run grouped CV comparison
+    df_cv_compare, cv_results_dict = grouped_cv_compare(
+        Xy, neuron_name,
+        dataset_name=dataset_name,
+        residual_mode=residual_mode,
+        use_additional_eigenworms=use_additional_eigenworms,
+        models_to_compare=['null', 'nonhierarchical', 'hierarchical_pca'],
+        DEBUG=DEBUG
+    )
+
+    if df_cv_compare is None:
+        print(f"Skipping {neuron_name} because there is no valid data")
+        return
+
+    save_grouped_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dataset_name)
+
+
 def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
          use_additional_eigenworms=True, DEBUG=False):
     """
@@ -1042,6 +1126,72 @@ def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True
         return
 
     save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir)
+
+
+def save_grouped_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dataset_name='all'):
+    """
+    Save grouped cross-validation results (without full traces, which are too large).
+    
+    Saves:
+    - df_cv_compare: model comparison DataFrame
+    - cv_results_dict: fold-level results and statistics for each model
+    - Visualization: LOO comparison plot
+    
+    Parameters
+    ----------
+    neuron_name : str
+        Name of the neuron
+    df_cv_compare : pd.DataFrame
+        Output from az.compare() with LOO metrics
+    cv_results_dict : dict
+        Mapping of model names to cv_results
+    output_dir : str
+        Directory to save outputs
+    dataset_name : str
+        Dataset identifier for filename
+    """
+    if dataset_name == 'all':
+        output_fname_base = f'{neuron_name}_cv'
+    else:
+        output_fname_base = f'{neuron_name}_{dataset_name}_cv'
+    
+    # Save the comparison DataFrame
+    fname_compare = os.path.join(output_dir, f'{output_fname_base}_compare.h5')
+    df_cv_compare.to_hdf(fname_compare, key='cv_compare')
+    print(f"Saved CV comparison to {fname_compare}")
+    
+    # Save fold-level CV results as pickle (preserves structure better than HDF5)
+    fname_results = os.path.join(output_dir, f'{output_fname_base}_results.pkl')
+    with open(fname_results, 'wb') as buffer:
+        cloudpickle.dump(cv_results_dict, buffer)
+    print(f"Saved CV fold results to {fname_results}")
+    
+    # Save a summary of fold results to HDF5 for easy inspection
+    fold_summary_data = {}
+    for model_name, cv_results in cv_results_dict.items():
+        fold_df = pd.DataFrame(cv_results['fold_results'])
+        # Drop the large test_ll_samples array for summary
+        fold_summary = fold_df[['fold', 'group_id', 'test_ll', 'train_ll', 'test_size', 'train_size']].copy()
+        fold_summary['model'] = model_name
+        fold_summary_data[model_name] = fold_summary
+    
+    if fold_summary_data:
+        fold_summary_full = pd.concat(fold_summary_data.values(), ignore_index=True)
+        fname_summary = os.path.join(output_dir, f'{output_fname_base}_fold_summary.h5')
+        fold_summary_full.to_hdf(fname_summary, key='fold_summary', mode='w')
+        print(f"Saved fold summary to {fname_summary}")
+    
+    # Save comparison plot
+    try:
+        az.plot_compare(df_cv_compare, insample_dev=False)
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f'{output_fname_base}_comparison.png'), dpi=150)
+        plt.close()
+        print(f"Saved comparison plot")
+    except Exception as e:
+        print(f"Warning: could not save comparison plot: {e}")
+    
+    print(f"Saved all CV results for {neuron_name} in {output_dir}")
 
 
 def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir):
