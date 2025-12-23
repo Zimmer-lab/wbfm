@@ -1453,7 +1453,7 @@ def force_same_indexing(vec1: pd.Series, vec2: pd.Series) -> Tuple[pd.Series, pd
 
 def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, dataset_name='all', additional_columns=None,
                                     residual_mode='pca_global', verbose=1):
-    if verbose >= 1:
+    if verbose >= 2:
         print(f"Found data columns: {Xy.columns} and datasets: {Xy['dataset_name'].unique()}")
         print(f"Attempting to load curvature terms {curvature_terms} and additional columns {additional_columns}")
 

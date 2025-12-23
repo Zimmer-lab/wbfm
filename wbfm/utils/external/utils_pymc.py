@@ -591,8 +591,8 @@ def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca
         # Map test dataset indices to the fold's coordinate system
         dataset_idx_test_fold = pd.Categorical(dataset_idx_test, categories=dataset_names_train, ordered=True).codes
         
-        for chain_idx in range(posterior_samples.dims['chain']):
-            for draw_idx in range(posterior_samples.dims['draw']):
+        for chain_idx in range(posterior_samples.sizes['chain']):
+            for draw_idx in range(posterior_samples.sizes['draw']):
                 # Extract intercept
                 intercept_sample = posterior_samples['intercept'].isel(chain=chain_idx, draw=draw_idx).values
                 if len(intercept_sample.shape) > 0:  # Per-dataset
@@ -679,8 +679,8 @@ def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca
         
         # Convert per-sample test log-likelihoods into array with shape (n_chain, n_draw)
         test_lls = np.asarray(test_lls)
-        n_chain = posterior_samples.dims['chain']
-        n_draw = posterior_samples.dims['draw']
+        n_chain = posterior_samples.sizes['chain']
+        n_draw = posterior_samples.sizes['draw']
         # If number of samples matches, reshape; otherwise leave as 1D
         if test_lls.size == n_chain * n_draw:
             test_lls_samples = test_lls.reshape(n_chain, n_draw)
