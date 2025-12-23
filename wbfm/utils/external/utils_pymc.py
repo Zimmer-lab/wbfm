@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Tuple, Dict
-
+from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
 import pymc as pm
@@ -11,6 +11,8 @@ import xarray as xr
 import arviz as az
 import cloudpickle
 from matplotlib import pyplot as plt
+from scipy import stats
+from sklearn.model_selection import GroupKFold
 from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir, get_triggered_average_modeling_dir, \
     get_triggered_average_dataframe_fname
 from wbfm.utils.external.utils_pandas import get_dataframe_for_single_neuron
@@ -152,6 +154,68 @@ def build_final_likelihood(mu, sigma, y, nu=100):
     return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
 
 
+def compute_studentt_logp(mu, sigma, y, nu=100):
+    """Compute log-likelihood under StudentT distribution using scipy."""
+    return np.sum(stats.t.logpdf(y, df=nu, loc=mu, scale=sigma))
+
+
+def compute_sigmoid_term_pca_numpy(x_pca_modes, pca0_amplitude, pca1_amplitude, inflection_point):
+    """
+    Compute sigmoid term from numpy arrays (matching build_sigmoid_term_pca logic).
+    
+    Parameters
+    ----------
+    x_pca_modes : ndarray, shape (n, 2)
+        PCA modes
+    pca0_amplitude : ndarray or scalar
+        PCA0 amplitude value(s)
+    pca1_amplitude : ndarray or scalar
+        PCA1 amplitude value(s)
+    inflection_point : scalar
+        Inflection point of sigmoid
+    
+    Returns
+    -------
+    sigmoid_term : ndarray
+        Computed sigmoid term
+    """
+    pca_term = pca0_amplitude * x_pca_modes[:, 0] + pca1_amplitude * x_pca_modes[:, 1]
+    sigmoid_term = 1.0 / (1.0 + np.exp(-(pca_term - inflection_point)))
+    return sigmoid_term
+
+
+def compute_curvature_term_numpy(curvature, eigenworm1_coefficient, eigenworm2_coefficient, 
+                                  additional_coefficients=None, curvature_terms_to_use=None):
+    """
+    Compute curvature term from numpy arrays (matching build_curvature_term logic).
+    
+    Parameters
+    ----------
+    curvature : ndarray, shape (n, n_terms)
+        Curvature features
+    eigenworm1_coefficient : ndarray or scalar
+        Coefficient for eigenworm 1
+    eigenworm2_coefficient : ndarray or scalar
+        Coefficient for eigenworm 2
+    additional_coefficients : dict, optional
+        Dict mapping coefficient names to their values for additional terms
+    curvature_terms_to_use : list, optional
+        List of curvature term names
+    
+    Returns
+    -------
+    curvature_term : ndarray
+        Computed curvature term
+    """
+    curvature_term = eigenworm1_coefficient * curvature[:, 0] + eigenworm2_coefficient * curvature[:, 1]
+    
+    if additional_coefficients is not None and len(additional_coefficients) > 0:
+        for i, coef_val in enumerate(additional_coefficients.values()):
+            curvature_term = curvature_term + coef_val * curvature[:, i+2]
+    
+    return curvature_term
+
+
 def build_sigmoid_term(x, force_positive_slope=True):
     # NOT USED
     # Sigmoid (hierarchy) term
@@ -288,7 +352,10 @@ def build_drift_term(dims=None, dataset_name_idx=None):
     return drift_term
 
 
-def leave_one_trial_out_cv_with_model(Xy, all_traces, neuron_name):
+def leave_one_trial_out_cv_from_posterior(Xy, all_traces, neuron_name):
+    """
+    Do approximate leave-one-trial-out cross-validation by setting the trial-level parameters to their prior, but not refitting the population-level parameters.
+    """
 
     ## Get raw data
     curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
@@ -331,8 +398,6 @@ def leave_one_trial_out_cv_with_model(Xy, all_traces, neuron_name):
         likelihood = build_final_likelihood(mu, sigma, y)
 
     # 2. Prepare the "Prior-Swapped" InferenceData
-
-        
     trial_params = ["zscore_pca0_amplitude", "zscore_pca1_amplitude", "zscore_intercept"]
     idata_marginal = idata.copy()
 
@@ -380,6 +445,406 @@ def leave_one_trial_out_cv_with_model(Xy, all_traces, neuron_name):
     loto_result = az.loo(loto_idata, pointwise=True)
 
     return loto_result
+
+
+def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
+                         use_additional_eigenworms=True, group_by='dataset_name', n_splits=6, DEBUG=False):
+    """
+    Perform grouped cross-validation by refitting the model for each fold.
+    
+    Uses LeaveOneGroupOut to split data by trial/group, trains on all other groups,
+    and evaluates on the held-out group.
+    
+    Parameters
+    ----------
+    Xy : pd.DataFrame
+        Full dataset
+    neuron_name : str
+        Name of the neuron to model
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data
+    use_additional_eigenworms : bool
+        Whether to include eigenworms 2 and 3
+    group_by : str
+        Column name to use for grouping (default: 'trial_idx')
+    DEBUG : bool
+        If True, runs with fewer samples for testing
+    
+    Returns
+    -------
+    cv_results : dict
+        Dictionary containing:
+        - 'fold_results': list of results per fold
+        - 'test_scores': array of test log-likelihoods per fold
+        - 'train_scores': array of training log-likelihoods per fold
+        - 'group_ids': array of group IDs that were left out
+        - 'neuron_name': neuron being analyzed
+    """
+    curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
+    if use_additional_eigenworms:
+        curvature_terms_to_use.extend(['eigenworm2', 'eigenworm3'])
+    
+    # Get data for this neuron
+    df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
+                                               curvature_terms=curvature_terms_to_use, 
+                                               residual_mode=residual_mode)
+    
+    if df_model.shape[0] == 0:
+        print(f"No valid data for {neuron_name}")
+        return None
+    
+    # Get group labels
+    if group_by not in df_model.columns:
+        print(f"Group column '{group_by}' not found in dataframe")
+        return None
+    
+    groups = df_model[group_by].values
+    X_pca = df_model[['x_pca0', 'x_pca1']].values
+    X_curvature = df_model[curvature_terms_to_use].values
+    y = df_model['y'].values
+    
+    # Setup factorization for hierarchical model
+    dataset_name_idx, dataset_name_values = df_model.dataset_name.factorize()
+    coords = {'dataset_name': dataset_name_values}
+    dims = 'dataset_name'
+    dim_opt = dict(dims=dims, dataset_name_idx=dataset_name_idx)
+    
+    # Initialize cross-validator
+    cv = GroupKFold(n_splits=n_splits)
+    
+    fold_results = []
+    test_scores = []
+    train_scores = []
+    group_ids = []
+    
+    for fold_idx, (train_idx, test_idx) in tqdm(enumerate(cv.split(y, groups=groups)), total=n_splits,
+                                                 desc=f"CV for {neuron_name}"):
+        
+        # Split data
+        X_pca_train, X_pca_test = X_pca[train_idx], X_pca[test_idx]
+        X_curv_train, X_curv_test = X_curvature[train_idx], X_curvature[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+        dataset_idx_train = dataset_name_idx[train_idx]
+        dataset_idx_test = dataset_name_idx[test_idx]
+        
+        # Recompute dataset indices for training fold (starting from 0)
+        dataset_idx_train_fold, dataset_names_train = pd.Series(dataset_idx_train).factorize()
+        coords_fold = {'dataset_name': dataset_names_train}
+        dim_opt_fold = dict(dims='dataset_name', dataset_name_idx=dataset_idx_train_fold)
+        
+        # Build and fit model on training data
+        with pm.Model(coords=coords_fold) as cv_model:
+            # Use pm.Data for inputs so we can swap them later
+            X_pca_data = pm.Data('X_pca_data', X_pca_train, mutable=True)
+            X_curv_data = pm.Data('X_curv_data', X_curv_train, mutable=True)
+            y_data = pm.Data('y_data', y_train, mutable=True)
+            
+            intercept, sigma = build_baseline_priors(**dim_opt_fold)
+            sigmoid_term = build_sigmoid_term_pca(X_pca_data, **dim_opt_fold)
+            curvature_term = build_curvature_term(X_curv_data, 
+                                                 curvature_terms_to_use=curvature_terms_to_use,
+                                                 **dim_opt_fold)
+            mu_train = pm.Deterministic('mu_train', intercept + sigmoid_term * curvature_term)
+            likelihood_train = build_final_likelihood(mu_train, sigma, y_data)
+        
+        # Sample from training model
+        with cv_model:
+            opt = dict(draws=1000, tune=1000, random_seed=42, target_accept=0.96)
+            if DEBUG:
+                opt['draws'] = 10
+                opt['tune'] = 10
+            
+            trace = pm.sample(**opt, chains=4, return_inferencedata=True, 
+                            idata_kwargs={"log_likelihood": True}, progressbar=False)
+        
+        # Get training log-likelihood
+        train_ll = trace.log_likelihood["y"].sum(dim="y_dim_0").mean().values
+        train_scores.append(train_ll)
+        
+        # Evaluate on test data by manually computing from posterior samples
+        print("  Evaluating on test data...")
+        posterior_samples = trace.posterior
+        test_lls = []
+        
+        # Map test dataset indices to the fold's coordinate system
+        dataset_idx_test_fold = pd.Categorical(dataset_idx_test, categories=dataset_names_train, ordered=True).codes
+        
+        for chain_idx in range(posterior_samples.dims['chain']):
+            for draw_idx in range(posterior_samples.dims['draw']):
+                # Extract intercept
+                intercept_sample = posterior_samples['intercept'].isel(chain=chain_idx, draw=draw_idx).values
+                if len(intercept_sample.shape) > 0:  # Per-dataset
+                    intercept_sample = intercept_sample[dataset_idx_test_fold]
+                
+                # Extract sigma
+                sigma_sample = posterior_samples['sigma'].isel(chain=chain_idx, draw=draw_idx).values
+                if len(sigma_sample.shape) > 0:  # Per-dataset
+                    sigma_sample = sigma_sample[dataset_idx_test_fold]
+                
+                # Extract PCA amplitudes and compute sigmoid term using helper function
+                inflection_point = posterior_samples['inflection_point'].isel(chain=chain_idx, draw=draw_idx).values
+                if 'pca0_amplitude' in posterior_samples:
+                    # Hierarchical per-dataset amplitudes
+                    pca0_amp = posterior_samples['pca0_amplitude'].isel(chain=chain_idx, draw=draw_idx).values[dataset_idx_test_fold]
+                    pca1_amp = posterior_samples['pca1_amplitude'].isel(chain=chain_idx, draw=draw_idx).values[dataset_idx_test_fold]
+                else:
+                    # Scalar amplitudes
+                    pca_amp = posterior_samples['pca_amplitude'].isel(chain=chain_idx, draw=draw_idx).values
+                    pca0_amp = pca_amp[0]
+                    pca1_amp = pca_amp[1]
+                
+                sigmoid_term = compute_sigmoid_term_pca_numpy(X_pca_test, pca0_amp, pca1_amp, inflection_point)
+                
+                # Extract curvature coefficients and compute term using helper function
+                eigenworm1_coef = posterior_samples['eigenworm1_coefficient'].isel(chain=chain_idx, draw=draw_idx).values
+                eigenworm2_coef = posterior_samples['eigenworm2_coefficient'].isel(chain=chain_idx, draw=draw_idx).values
+                
+                if len(eigenworm1_coef.shape) > 0:  # Per-dataset
+                    eigenworm1_coef = eigenworm1_coef[dataset_idx_test_fold]
+                    eigenworm2_coef = eigenworm2_coef[dataset_idx_test_fold]
+                
+                # Collect additional coefficients
+                additional_coefs = {}
+                for i, col_name in enumerate(curvature_terms_to_use[2:]):
+                    if col_name.startswith('eigenworm'):
+                        coef_name = f'eigenworm{int(col_name[-1])+1}_coefficient'
+                    else:
+                        coef_name = f'{col_name}_coefficient'
+                    
+                    if coef_name in posterior_samples:
+                        coef = posterior_samples[coef_name].isel(chain=chain_idx, draw=draw_idx).values
+                        additional_coefs[coef_name] = coef
+                
+                curvature_term = compute_curvature_term_numpy(X_curv_test, eigenworm1_coef, eigenworm2_coef, 
+                                                             additional_coefs, curvature_terms_to_use)
+                
+                # Compute mu and log-likelihood
+                mu_test = intercept_sample + sigmoid_term * curvature_term
+                test_ll = compute_studentt_logp(mu_test, sigma_sample, y_test, nu=100)
+                test_lls.append(test_ll)
+        
+        # Convert per-sample test log-likelihoods into array with shape (n_chain, n_draw)
+        test_lls = np.asarray(test_lls)
+        n_chain = posterior_samples.dims['chain']
+        n_draw = posterior_samples.dims['draw']
+        # If number of samples matches, reshape; otherwise leave as 1D
+        if test_lls.size == n_chain * n_draw:
+            test_lls_samples = test_lls.reshape(n_chain, n_draw)
+        else:
+            test_lls_samples = test_lls
+        
+        # Mean across posterior samples for reporting
+        test_ll_mean = np.mean(test_lls_samples) if test_lls_samples.size else np.nan
+        test_scores.append(test_ll_mean)
+        group_ids.append(groups[test_idx[0]])
+        
+        fold_results.append({
+            'fold': fold_idx,
+            'group_id': groups[test_idx[0]],
+            'test_ll': test_ll_mean,
+            'train_ll': train_ll,
+            'test_size': len(test_idx),
+            'train_size': len(train_idx),
+            'test_ll_samples': test_lls_samples,
+        })
+        
+        print(f"  Train LL: {train_ll:.4f}, Test LL: {test_ll_mean:.4f}")
+    
+    cv_results = {
+        'fold_results': fold_results,
+        'test_scores': np.array(test_scores),
+        'train_scores': np.array(train_scores),
+        'group_ids': np.array(group_ids),
+        'neuron_name': neuron_name,
+        'mean_test_ll': np.mean(test_scores),
+        'std_test_ll': np.std(test_scores),
+    }
+    
+    return cv_results
+
+
+def cv_results_to_arviz(cv_results):
+    """
+    Convert grouped cross-validation results to an ArviZ-compatible InferenceData object.
+
+    The resulting `InferenceData` contains a `posterior` group (fold-level summary
+    treated as chain/draw singletons) and a `log_likelihood` group with pointwise
+    fold log-likelihoods so that `az.loo()` and `az.plot_khat()` can be used.
+
+    Parameters
+    ----------
+    cv_results : dict
+        Output from `grouped_cv_refitting`
+
+    Returns
+    -------
+    idata : arviz.InferenceData
+        InferenceData object with `posterior` and `log_likelihood` groups.
+    """
+    fold_results = cv_results['fold_results']
+    fold_df = pd.DataFrame(fold_results)
+
+    # Posterior-like dataset: fold-wise summary (treated as length-1 chain/draw)
+    posterior_ds = xr.Dataset(
+        {
+            'test_ll': (['fold'], fold_df['test_ll'].values),
+            'train_ll': (['fold'], fold_df['train_ll'].values),
+        },
+        coords={'fold': fold_df['fold'].values},
+        attrs={
+            'neuron_name': cv_results.get('neuron_name', ''),
+            'mean_test_ll': float(cv_results.get('mean_test_ll', np.nan)),
+            'std_test_ll': float(cv_results.get('std_test_ll', np.nan)),
+        },
+    )
+
+    # Expand to have singleton chain/draw dims so arviz accepts it
+    posterior_ds = posterior_ds.expand_dims(chain=[0], draw=[0])
+
+    # Build log-likelihood group with both sum and mean-per-observation values
+    # so users can choose normalization. We prefer to include per-posterior-sample
+    # values when available so ArviZ/PSIS can operate (shape: chain x draw x folds).
+    n_folds = len(fold_df)
+    test_size = fold_df['test_size'].values
+
+    # If `test_ll_samples` was recorded per fold, assemble into array
+    if 'test_ll_samples' in fold_df.columns and not fold_df['test_ll_samples'].isnull().all():
+        # Each entry should be an array of shape (n_chain, n_draw) or a flat array
+        samples_list = []
+        for v in fold_df['test_ll_samples'].values:
+            arr = np.asarray(v)
+            if arr.ndim == 1:
+                # Single flat list of samples; attempt to reshape later
+                samples_list.append(arr)
+            elif arr.ndim == 2:
+                # (n_chain, n_draw)
+                samples_list.append(arr)
+            else:
+                # Unexpected dims, flatten
+                samples_list.append(arr.reshape(-1))
+
+        # Try to stack into shape (n_folds, n_chain, n_draw) if possible
+        try:
+            stacked = np.stack(samples_list, axis=-1)  # will be (n_chain, n_draw, n_folds) or (n_samples, n_folds)
+        except Exception:
+            # Fallback: convert to object array then to list-of-lists
+            stacked = np.array([np.asarray(x) for x in samples_list], dtype=object)
+
+        # Normalize shapes to (n_chain, n_draw, n_folds)
+        if isinstance(stacked, np.ndarray) and stacked.dtype != object:
+            if stacked.ndim == 3:
+                # If stack produced (n_chain, n_draw, n_folds) or (n_samples, n_chain, n_draw)
+                if stacked.shape[0] == n_folds:
+                    # (n_folds, n_chain, n_draw) -> transpose
+                    samples_array = np.transpose(stacked, (1, 2, 0))
+                elif stacked.shape[-1] == n_folds:
+                    samples_array = stacked
+                else:
+                    # Unexpected ordering; reshape conservatively
+                    samples_array = stacked.reshape(stacked.shape[0], stacked.shape[1], n_folds)
+            elif stacked.ndim == 2:
+                # (n_samples, n_folds) -> treat as (1, n_samples, n_folds)
+                samples_array = stacked.reshape(1, stacked.shape[0], stacked.shape[1])
+            else:
+                # Fallback to singleton
+                samples_array = stacked.reshape(1, 1, n_folds)
+        else:
+            # Could not stack numerically; fallback to singleton summary
+            y_sum = fold_df['test_ll'].values
+            y_mean = np.array([s / (sz if sz > 0 else 1) for s, sz in zip(y_sum, test_size)])
+            ll_sum_array = y_sum.reshape(1, 1, n_folds)
+            ll_mean_array = y_mean.reshape(1, 1, n_folds)
+            log_likelihood_ds = xr.Dataset(
+                {
+                    'y_sum': (['chain', 'draw', 'y_dim_0'], ll_sum_array),
+                    'y_mean': (['chain', 'draw', 'y_dim_0'], ll_mean_array),
+                    'test_size': (['y_dim_0'], test_size),
+                },
+                coords={'chain': [0], 'draw': [0], 'y_dim_0': np.arange(n_folds)},
+            )
+            idata = az.InferenceData(posterior=posterior_ds, log_likelihood=log_likelihood_ds)
+            return idata
+
+        # At this point samples_array should be numeric with shape (chain, draw, n_folds)
+        samples_array = np.asarray(samples_array)
+
+        # Compute per-fold sums (already sums over observations) and per-observation means
+        ll_sum_array = samples_array
+        # Broadcast test_size to divide across folds
+        test_size_broadcast = test_size.reshape(1, 1, n_folds)
+        ll_mean_array = ll_sum_array / (test_size_broadcast.astype(float) + (test_size_broadcast == 0))
+
+        coords_ll = {
+            'chain': np.arange(samples_array.shape[0]),
+            'draw': np.arange(samples_array.shape[1]),
+            'y_dim_0': np.arange(n_folds),
+        }
+
+        log_likelihood_ds = xr.Dataset(
+            {
+                'y_sum': (['chain', 'draw', 'y_dim_0'], ll_sum_array),
+                'y_mean': (['chain', 'draw', 'y_dim_0'], ll_mean_array),
+                'test_size': (['y_dim_0'], test_size),
+            },
+            coords=coords_ll,
+        )
+    else:
+        # Fall back to singleton chain/draw as before
+        test_size = fold_df['test_size'].values
+        y_sum = fold_df['test_ll'].values  # currently stored as mean over posterior samples of sum-ll
+        # per-observation mean (normalize by test size) — avoid division by zero
+        y_mean = np.array([s / (sz if sz > 0 else 1) for s, sz in zip(y_sum, test_size)])
+
+        ll_sum_array = y_sum.reshape(1, 1, n_folds)
+        ll_mean_array = y_mean.reshape(1, 1, n_folds)
+
+        log_likelihood_ds = xr.Dataset(
+            {
+                'y_sum': (['chain', 'draw', 'y_dim_0'], ll_sum_array),
+                'y_mean': (['chain', 'draw', 'y_dim_0'], ll_mean_array),
+                'test_size': (['y_dim_0'], test_size),
+            },
+            coords={'chain': [0], 'draw': [0], 'y_dim_0': np.arange(n_folds)},
+        )
+
+    idata = az.InferenceData(posterior=posterior_ds, log_likelihood=log_likelihood_ds)
+    return idata
+
+
+def compute_cv_loo(cv_results, normalize=True, pointwise=True):
+    """
+    Build an ArviZ `InferenceData` from CV results and compute LOO.
+
+    Parameters
+    ----------
+    cv_results : dict
+        Output from `grouped_cv_refitting`.
+    normalize : bool
+        If True, use per-observation mean log-likelihood (`y_mean`) for LOO so
+        folds with different sizes are comparable. If False, use the raw sums
+        (`y_sum`).
+    pointwise : bool
+        Passed to `az.loo()`.
+
+    Returns
+    -------
+    idata, loo
+        The constructed `InferenceData` and the computed `loo` object.
+    """
+    idata = cv_results_to_arviz(cv_results)
+
+    # Select which variable in log_likelihood to use for LOO
+    if normalize:
+        # Move y_mean into the expected 'y' variable for arviz
+        ll = xr.Dataset({'y': idata.log_likelihood['y_mean']})
+    else:
+        ll = xr.Dataset({'y': idata.log_likelihood['y_sum']})
+
+    idata_for_loo = az.InferenceData(posterior=idata.posterior, log_likelihood=ll)
+    loo = az.loo(idata_for_loo, pointwise=pointwise)
+    return idata_for_loo, loo
 
 
 def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
