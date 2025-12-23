@@ -4,10 +4,11 @@
 
 # Function to display a help message
 function show_help {
-  echo "Usage: $0 [-g] [-r] [-h] <gfp>"
+  echo "Usage: $0 [-g] [-r] [-c] [-h] <gfp>"
   echo "  -g: Use GFP data"
   echo "  -s: Use simple eigenworms (1 and 2 only)"
   echo "  -r: Trace mode; should be one of 'None', 'pca_global', 'pca_global_1'; default is pca_global"
+  echo "  -c: Run grouped CV comparison instead of full model fitting"
   echo "  -d: debug mode, which only runs a single neuron (few iterations) for testing"
   echo "  -h: Show this help message"
 }
@@ -17,13 +18,15 @@ use_gfp="false"
 use_raw_trace="false"
 debug="false"
 simple_eigenworms="false"
-while getopts gsr:d flag
+cv_comparison="false"
+while getopts gsr:dch flag
 do
     case "${flag}" in
         g) use_gfp="true";;
         s) simple_eigenworms="true";;
         r) residual_mode=${OPTARG};;
         d) debug="true";;
+        c) cv_comparison="true";;
         h) show_help
            exit 0;;
         *) echo "Error: Unknown flag"; exit 1;;
@@ -169,6 +172,10 @@ fi
 
 if [ "$residual_mode" ]; then
   CMD="$CMD --residual_mode $residual_mode"
+fi
+
+if [ "$cv_comparison" == "true" ]; then
+  CMD="$CMD --cv_comparison"
 fi
 
 if [ "$debug" == "true" ]; then

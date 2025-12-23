@@ -1058,12 +1058,13 @@ def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_
     save_grouped_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dataset_name)
 
 
-def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
-         use_additional_eigenworms=True, DEBUG=False):
+def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
+                     use_additional_eigenworms=True, DEBUG=False):
     """
-    Runs for hardcoded data location for a single neuron
-
-    Saves all the information in the same directory as the data, in the 'output' subdirectory
+    Fit full posterior models for multiple model structures and compute LOO.
+    
+    This is the original main() function. Runs for hardcoded data location for a single neuron.
+    Saves all the information in the same directory as the data, in the 'output' subdirectory.
 
     Commonly used with:
         dataset_name = 'all' to run the neuron for all datasets at once
@@ -1099,8 +1100,8 @@ def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True
             if dataset_name == 'loop':
                 # Recursion error
                 continue
-            main(neuron_name, do_gfp=do_gfp, dataset_name=dataset_name, skip_if_exists=skip_if_exists,
-                 residual_mode=residual_mode)
+            main_full_models(neuron_name, do_gfp=do_gfp, dataset_name=dataset_name, skip_if_exists=skip_if_exists,
+                           residual_mode=residual_mode, use_additional_eigenworms=use_additional_eigenworms, DEBUG=DEBUG)
         return
 
     if dataset_name == 'all':
@@ -1412,6 +1413,7 @@ if __name__ == '__main__':
     parser.add_argument('--do_gfp', action='store_true')
     parser.add_argument('--simple_eigenworms', action='store_true')
     parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--cv_comparison', action='store_true', help='Run grouped CV comparison instead of full model fitting')
 
     args = parser.parse_args()
 
@@ -1419,5 +1421,11 @@ if __name__ == '__main__':
     if residual_mode == 'None':
         residual_mode = None
 
-    main(neuron_name=args.neuron_name, do_gfp=args.do_gfp, residual_mode=residual_mode,
-         use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
+    if args.cv_comparison:
+        main_cv_comparison(neuron_name=args.neuron_name, do_gfp=args.do_gfp, 
+                          residual_mode=residual_mode,
+                          use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
+    else:
+        main_full_models(neuron_name=args.neuron_name, do_gfp=args.do_gfp, 
+                        residual_mode=residual_mode,
+                        use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
