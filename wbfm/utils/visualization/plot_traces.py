@@ -1364,6 +1364,7 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
                                                      crop_x_axis=True, row_heights=None, x_range=None,
                                                      apply_figure_size_settings=True, discrete_behaviors=False,
                                                      showlegend=True, eigenworm_behaviors=False,
+                                                     plot_separately=False,
                                                      **kwargs):
     """
     Similar to make_summary_interactive_heatmap_with_pca, but with a kymograph instead of the neural traces
@@ -1375,10 +1376,15 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     project_cfg
     to_save
     to_show
+    plot_separately : bool, default False
+        If True, returns two separate figures: one with kymograph and ethogram, one with behavior traces.
+        If False, returns a single combined figure with all elements.
 
     Returns
     -------
-
+    fig or (fig_kymograph, fig_behavior) : plotly figure or tuple of figures
+        If plot_separately is False, returns a single figure.
+        If plot_separately is True, returns a tuple of (fig_kymograph, fig_behavior).
     """
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     if x_range is None:
@@ -1390,42 +1396,87 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     num_modes_to_plot = len(behavior_alias_dict)
     behavior_kwargs = dict(fluorescence_fps=False, reset_index=False)
     behavior_kwargs.update(kwargs['behavior_kwargs']) if 'behavior_kwargs' in kwargs else {}
-    kwargs['behavior_kwargs'] =behavior_kwargs
+    kwargs['behavior_kwargs'] = behavior_kwargs
     additional_shaded_states = []#[BehaviorCodes.SLOWING, BehaviorCodes.HEAD_CAST]
     column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, _row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
         project_data, num_modes_to_plot, use_behavior_traces=True, behavior_alias_dict=behavior_alias_dict,
         additional_shaded_states=additional_shaded_states, showlegend=showlegend, **kwargs)
 
-    # One column with a heatmap, (short) ethogram, and kymograph
-    rows = 1 + num_modes_to_plot + 1
-    if not discrete_behaviors and not eigenworm_behaviors:
-        # Will add speed manually
-        rows += 1
-    cols = 1
-    if row_heights is None:
-        row_heights = _row_heights[:rows]
+    # Determine figure layout
+    if plot_separately:
+        # Create separate figures for kymograph and behaviors
+        # Kymograph only (one row)
+        rows_kymo = 1
+        # Calculate number of behavior rows: 1 for ethogram + number of behavior traces
+        num_trace_rows = sum(len(v) if isinstance(v, list) else 1 for v in behavior_alias_dict.values())
+        if not discrete_behaviors and not eigenworm_behaviors:
+            num_trace_rows += 1  # speed will be added later
+        rows_behavior = 1 + num_trace_rows  # 1 row for ethogram + trace rows
+        cols = 1
+
+        # Create custom row heights for separate figures
+        # Kymograph gets one reasonable height
+        kymo_heights = [0.6]
+        # Behavior figure: ethogram gets smaller height, traces get equal heights
+        behavior_heights = [0.15] + [0.1] * num_trace_rows
+        
+        # Kymograph figure (single row)
+        fig_kymo = make_subplots(rows=rows_kymo, cols=cols, shared_xaxes=False, shared_yaxes=False,
+                                 row_heights=kymo_heights, vertical_spacing=0.05,
+                                 subplot_titles=['Kymograph'])
+        # Behavior figure: first row = ethogram, remaining rows = individual behavior traces
+        fig_behavior = make_subplots(rows=rows_behavior, cols=cols, shared_xaxes=False, shared_yaxes=False,
+                                     row_heights=behavior_heights, vertical_spacing=0.02)
+
+        figures_to_process = [
+            (fig_kymo, 'kymo', rows_kymo),
+            (fig_behavior, 'behavior', rows_behavior)
+        ]
     else:
-        row_heights = row_heights
+        # Combined figure
+        rows = 1 + num_modes_to_plot + 1
+        if not discrete_behaviors and not eigenworm_behaviors:
+            # Will add speed manually
+            rows += 1
+        cols = 1
+        if row_heights is None:
+            row_heights = _row_heights[:rows]
+        else:
+            row_heights = row_heights
 
-    # Build figure
-    ## Kymograph and ethogram (large image subplots)
-    subplot_titles = ['', '']
-    subplot_titles.extend(list(behavior_alias_dict.keys()))
-    # subplot_titles.append('Speed')
-    fig = make_subplots(rows=rows, cols=cols, shared_xaxes=False, shared_yaxes=False,
-                        row_heights=row_heights, vertical_spacing=0.02,
-                        #subplot_titles=subplot_titles
-                        )
-    # fig.update_layout(
-    #     width=800,
-    #     height=600
-    # )
+        # Build figure
+        ## Kymograph and ethogram (large image subplots)
+        subplot_titles = ['', '']
+        subplot_titles.extend(list(behavior_alias_dict.keys()))
+        # subplot_titles.append('Speed')
+        fig = make_subplots(rows=rows, cols=cols, shared_xaxes=False, shared_yaxes=False,
+                            row_heights=row_heights, vertical_spacing=0.02,
+                            #subplot_titles=subplot_titles
+                            )
+        # fig.update_layout(
+        #     width=800,
+        #     height=600
+        # )
 
-    for opt in ethogram_opt:
-        fig.add_shape(**opt, row=2, col=1)
-    kymograph_opt['row'] = 1
-    fig.add_trace(kymograph, **kymograph_opt)
+        for opt in ethogram_opt:
+            fig.add_shape(**opt, row=2, col=1)
+        kymograph_opt['row'] = 1
+        fig.add_trace(kymograph, **kymograph_opt)
+        
+        figures_to_process = [(fig, 'combined', rows)]
 
+    # Add kymograph and ethogram to appropriate figure
+    if plot_separately:
+        # Add to kymograph figure (no ethogram here)
+        fig_kymo = figures_to_process[0][0]
+        kymograph_opt['row'] = 1
+        fig_kymo.add_trace(kymograph, **kymograph_opt)
+        # Move ethogram to the behavior figure (row 1)
+        fig_behavior = figures_to_process[1][0]
+        for opt in ethogram_opt:
+            fig_behavior.add_shape(**opt, row=1, col=1)
+        fig = fig_behavior  # Current working figure for behavior traces
+    
     ## Add behavior traces
     # I am adding multiple traces to a single plot, which the original function wasn't designed for
     # So I have to manually check the size of behavior_alias_dict and add the traces correctly
@@ -1442,11 +1493,23 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
             trace, trace_opt = trace_list[i_num_traces_used], trace_opt_list[i_num_traces_used]
             i_num_traces_used += 1
 
-            fig.add_trace(trace, **trace_opt)
+            if plot_separately:
+                # Adjust row numbers for separate behavior figure (starts at row 1)
+                adjusted_trace_opt = trace_opt.copy()
+                adjusted_trace_opt['row'] = trace_opt['row'] - rows_kymo #(1 if trace_opt['row'] > 2 else 0)
+                fig.add_trace(trace, **adjusted_trace_opt)
+            else:
+                fig.add_trace(trace, **trace_opt)
+            
             num_before_adding_shapes = len(fig.layout.shapes)
             for shade_opt in trace_shading_opt:
-                shade_opt['y1'] = 1-row_heights[0]  # Default is half the overall plot
-                fig.add_shape(**shade_opt, row=trace_opt['row'], col=trace_opt['col'])
+                if plot_separately:
+                    shade_opt['y1'] = 1.0  # Full height for separate figure
+                    row = trace_opt['row'] - rows_kymo
+                else:
+                    shade_opt['y1'] = 1-_row_heights[0]  # Default is relative to overall plot
+                    row = trace_opt['row']
+                fig.add_shape(**shade_opt, row=row, col=trace_opt['col'])
             # Force yref in all of these new shapes, which doesn't really work for subplots
             # But here it is hardcoded as 50% of the overall plot (extending across subplots)
             for i in range(num_before_adding_shapes, len(fig.layout.shapes)):
@@ -1463,34 +1526,83 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     #     for i in range(num_before_adding_shapes, len(fig.layout.shapes)):
     #         fig.layout.shapes[i]['yref'] = 'paper'
 
-    ### Final updates
+    ### Final updates - apply to kymograph figure if separate
+    if plot_separately:
+        fig_kymo = figures_to_process[0][0]
+        fig_kymo.update_xaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True, matches='x')
+        if crop_x_axis:
+            fig_kymo.update_xaxes(dict(range=x_range), row=1, col=1, overwrite=True)
+        fig_kymo.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True)
+        
+        # Flip the kymograph
+        fig_kymo.update_yaxes(dict(autorange='reversed'), col=1, row=1, overwrite=True)
+        fig_kymo.update_yaxes(dict(showticklabels=True, showgrid=False, title='Body<br>Segment'), col=1, row=1)
+        fig_kymo.update_xaxes(dict(showticklabels=True, title=project_data.x_label_for_plots), row=1, col=1, overwrite=True)
+        
+        if apply_figure_size_settings:
+            apply_figure_settings(fig_kymo, width_factor=0.3, height_factor=0.35, plotly_not_matplotlib=True)
+        
+        if to_show:
+            fig_kymo.show()
+        if to_save:
+            fname_kymo = 'summary_behavior_plot_kymograph_only.html'
+            if keep_reversal_turns:
+                fname_kymo = 'summary_behavior_plot_kymograph_only_with_reversal_turns.html'
+            _save_plotly_all_types(fig_kymo, project_data, fname=fname_kymo)
+    
+    # Apply updates to behavior figure (separate or combined)
     fig.update_xaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True, matches='x')
-    if crop_x_axis:
+    if crop_x_axis and not plot_separately:
         fig.update_xaxes(dict(range=x_range), row=1, col=1, overwrite=True)
     fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True)
-    fig.update_xaxes(dict(showticklabels=True, title=project_data.x_label_for_plots),
-                     row=5, col=1, overwrite=True,)
-
-    # Flip the kymograph
-    fig.update_yaxes(dict(autorange='reversed'), col=1, row=1, overwrite=True)
-    # Note: specific to the paper figure
-    fig.update_yaxes(dict(showticklabels=True, showgrid=False, title='Body<br>Segment'), col=1, row=1)
-    if discrete_behaviors:
-        fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=1)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Turn<br>Annotations'), col=1, row=3)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Other<br>Annotations'), col=1, row=4)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards<br>Annotation'), col=1, row=5)
-    elif eigenworm_behaviors:
-        fig.update_yaxes(dict(showticklabels=False, showgrid=False, title='Body Segment'), col=1, row=1)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=3)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=4)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards'), col=1, row=5)
+    
+    if plot_separately:
+        # For separate behavior figure, place x-axis labels on the bottom row of the behavior figure
+        fig.update_xaxes(dict(showticklabels=True, title=project_data.x_label_for_plots),
+                         row=rows_behavior, col=1, overwrite=True)
     else:
-        fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature'), col=1, row=3)
-        fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature'), col=1, row=4)
-        fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=5)
-    # Move the subplot titles down
-    # fig.update_annotations(yshift=-7)
+        # For combined figure
+        fig.update_xaxes(dict(showticklabels=True, title=project_data.x_label_for_plots),
+                         row=5, col=1, overwrite=True)
+        
+        # Flip the kymograph
+        fig.update_yaxes(dict(autorange='reversed'), col=1, row=1, overwrite=True)
+        fig.update_yaxes(dict(showticklabels=True, showgrid=False, title='Body<br>Segment'), col=1, row=1)
+
+    if discrete_behaviors:
+        if plot_separately:
+            base = 1  # ethogram occupies row 1
+            fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=base)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Turn<br>Annotations'), col=1, row=base+1)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Other<br>Annotations'), col=1, row=base+2)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards<br>Annotation'), col=1, row=base+3)
+        else:
+            fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=1)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Turn<br>Annotations'), col=1, row=3)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Other<br>Annotations'), col=1, row=4)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards<br>Annotation'), col=1, row=5)
+    elif eigenworm_behaviors:
+        if plot_separately:
+            base = 1
+            fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=base)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=base+1)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=base+2)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards'), col=1, row=base+3)
+        else:
+            fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=1)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=3)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=4)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards'), col=1, row=5)
+    else:
+        if plot_separately:
+            base = 1
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature'), col=1, row=base+1)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature'), col=1, row=base+2)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=base+3)
+        else:
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature'), col=1, row=3)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature'), col=1, row=4)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=5)
 
     if not discrete_behaviors:
         fig.update_layout(showlegend=False, overwrite=True)
@@ -1503,13 +1615,19 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
 
     # Add zero line to the speed plot
     if not discrete_behaviors and not eigenworm_behaviors:
+        # Put zero line on the bottom-most behavior row when separate, otherwise keep original row
+        target_row = rows_behavior if plot_separately else 5
         fig.update_yaxes(dict(showticklabels=True, showgrid=True, griddash='dash', gridcolor='black'),
                          range=[-0.22, 0.14],
                          tickmode='array', tickvals=[-0.22, 0],
-                         row=5, overwrite=True)
+                         row=target_row, overwrite=True)
 
     # Get the colormaps and legends in the right places, and not overlapping
-    fig.update_layout(
+    if plot_separately:
+        _fig = fig_kymo
+    else:
+        _fig = fig
+    _fig.update_layout(
         coloraxis2=dict(colorscale='RdBu',
                         colorbar=dict(
                             len=0.5,
@@ -1520,7 +1638,7 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
                             title=dict(text=r'Curvature (1/mm)', font=dict(size=14))
                         )),
     )
-    fig.update_layout(
+    _fig.update_layout(
         showlegend=True,
         legend=dict(
           yanchor="middle",
@@ -1547,7 +1665,9 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     # )
 
     if to_show:
-        fig.show()
+        if plot_separately:
+            figures_to_process[0][0].show()  # Show kymograph
+        fig.show()  # Show behavior
 
     if to_save:
         # Change fname depending on whether we're keeping reversal turns
@@ -1557,7 +1677,10 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
             fname = 'summary_behavior_plot_kymograph.html'
         _save_plotly_all_types(fig, project_data, fname=fname)
 
-    return fig
+    if plot_separately:
+        return (figures_to_process[0][0], fig)
+    else:
+        return fig
 
 
 def _get_behavior_dict(discrete_behaviors, eigenworm_behaviors):

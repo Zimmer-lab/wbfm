@@ -418,6 +418,9 @@ class BehaviorCodes(Flag):
                 return [int(num)/255 for num in integers]
             cmap = {k: matplotlib.colors.to_hex(str_2_tuple(v)) if v else v for k, v in cmap.items()}
 
+        # Add basic strings, not just enums
+        cmap.update({state.name: color for state, color in cmap.items()})
+
         return cmap
 
     # @classmethod
