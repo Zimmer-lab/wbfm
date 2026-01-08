@@ -427,7 +427,7 @@ rule sam2_segment:
         module load CUDA/12.9.1
 
         # Activate the environment and the correct cuda
-        source /lisc/opt/app/conda/miniforge3/bin/activate {params.sam2_conda_env_name}
+        source /lisc/opt/sw/software/Conda/Miniforge3/bin/activate {params.sam2_conda_env_name}
 
         # Run the script directly without temp directory overhead
         python -c "from SAM2_snakemake_scripts.sam2_video_processing_miscroscope_data_loader import main; main(['-tiff_path', '{input.ndtiff_subfolder}', '-output_file_path', '{output.output_file}', '-DLC_csv_file_path', '{input.dlc_csv}', '-column_names', '{params.column_names}', '-SAM2_path', '{params.model_path}', '--batch_size', '{params.batch_size}', '--device', '${{CUDA_VISIBLE_DEVICES:-0}}'])"
@@ -527,7 +527,7 @@ rule dlc_analyze_videos:
             export xml_catalog_files_libxml2=""
         fi 
         
-        source /lisc/opt/app/conda/miniforge3/bin/activate {params.dlc_conda_env}
+        source /lisc/opt/sw/software/Conda/Miniforge3/bin/activate {params.dlc_conda_env}
         module load CUDA/12.9.1
         # Also rename the output file to the expected name
         # We don't actually know the name without querying deeplabcut, so just rename it

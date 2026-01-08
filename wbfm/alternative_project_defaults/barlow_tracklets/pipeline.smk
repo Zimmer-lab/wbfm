@@ -351,7 +351,7 @@ rule sam2_segment:
         fi 
         
         # Activate the environment and the correct cuda
-        source /lisc/opt/app/conda/miniforge3/bin/activate {params.sam2_conda_env_name}
+        source /lisc/opt/sw/software/Conda/Miniforge3/bin/activate {params.sam2_conda_env_name}
         module load CUDA/12.9.1
         
         # Display the temporary directory being used
@@ -492,7 +492,7 @@ rule dlc_analyze_videos:
             export xml_catalog_files_libxml2=""
         fi 
         
-        source /lisc/opt/app/conda/miniforge3/bin/activate {params.dlc_conda_env}
+        source /lisc/opt/sw/software/Conda/Miniforge3/bin/activate {params.dlc_conda_env}
         module load CUDA/12.9.1
         # Also rename the output file to the expected name
         # We don't actually know the name without querying deeplabcut, so just rename it
