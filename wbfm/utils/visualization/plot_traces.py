@@ -1596,12 +1596,12 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     else:
         if plot_separately:
             base = 1
-            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature'), col=1, row=base+1)
-            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature'), col=1, row=base+2)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature<br>(1/mm)'), col=1, row=base+1)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature<br>(1/mm)'), col=1, row=base+2)
             fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=base+3)
         else:
-            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature'), col=1, row=3)
-            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature'), col=1, row=4)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature<br>(1/mm)'), col=1, row=3)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature<br>(1/mm)'), col=1, row=4)
             fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=5)
 
     if not discrete_behaviors:
@@ -1618,6 +1618,7 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
         # Put zero line on the bottom-most behavior row when separate, otherwise keep original row
         target_row = rows_behavior if plot_separately else 5
         fig.update_yaxes(dict(showticklabels=True, showgrid=True, griddash='dash', gridcolor='black'),
+                         zerolinecolor='black', zerolinewidth=2,
                          range=[-0.22, 0.14],
                          tickmode='array', tickvals=[-0.22, 0],
                          row=target_row, overwrite=True)
