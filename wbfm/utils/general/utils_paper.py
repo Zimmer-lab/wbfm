@@ -116,6 +116,7 @@ def plotly_paper_color_discrete_map():
 def intrinsic_categories_color_discrete_map(return_hex=True, mix_fraction = 0.0):
     d3 = px.colors.qualitative.D3
     cmap = {'Intrinsic': d3[4], #d3[1],           # Purple (try to emphasize)
+            'Intrinsic (modulated)': d3[6],          # Pink (try to emphasize)
             'No manifold': d3[7],         # Gray
             'Freely moving only': d3[9],  # Light blue, close to the raw blue
             'Immobilized only': d3[5],    # Bleh green, close to the immobilized green
@@ -123,7 +124,7 @@ def intrinsic_categories_color_discrete_map(return_hex=True, mix_fraction = 0.0)
             'Fwd in both': d3[4],
             'Rev in immob only': d3[2],
             'Fwd in immob only': d3[2],
-            'Encoding switches': d3[6] # Pink
+            'Encoding switches': d3[8] # Bleh Green
             }
     # Map everything to be more pastel
     if mix_fraction is not None and mix_fraction != 0:

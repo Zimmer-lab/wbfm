@@ -591,7 +591,7 @@ def intrinsic_definition(x):
 
     Specifically:
     If the freely moving condition is not significantly different from 0, then it is "No manifold."
-    Otherwise, if the difference between the two conditions is significant, then it is "Intrinsic" if the sign is the same and "Encoding switches" if the sign is different.
+    Otherwise, if the difference between the two conditions is significant, then it is "Encoding modulated" if the sign is the same and "Encoding switches" if the sign is different.
     If the immobilized is not significantly different from 0, but the difference is significant, then it is "Freely moving only".
     Finally, regardless of the 0-comparison significance of the immobilized condition, if the difference is not significant, then it is "Intrinsic".
 
@@ -601,14 +601,17 @@ def intrinsic_definition(x):
         return 'No manifold'
     elif 'gcamp_True_immob_True' in x:
         if 'same_sign_True' in x:
-            # Ignore that the difference is significant
-            return 'Intrinsic'
+            if 'diff_True' in x:
+                return 'Intrinsic (modulated)'
+            else:
+                # Difference not significant, so intrinsic
+                return 'Intrinsic'
         elif 'same_sign_False_diff_True' in x:
             # Diff must be significant, AND they must be both significantly different from 0
             return 'Encoding switches'
         else:
-            # Both different from 0, but not from each other... should not happen
-            raise ValueError
+            # Both different from 0, but not from each other... should not happen, but is most similar to encoding switches
+            return "Encoding switches"
     elif 'gcamp_True_immob_False' in x:
         # Might be a new encoding, or might just be on the edge of immob encoding
         if 'diff_True' in x:
@@ -616,7 +619,7 @@ def intrinsic_definition(x):
             return 'Freely moving only'
         else:
             # Ignore the 0-comparison significance of the immob if the difference is not significant
-            return 'Intrinsic'  # 'Intrinsic (stronger)'
+            return 'Intrinsic'
     elif 'gcamp_False_immob_True' in x:
         # Might be a removed encoding, or might just be on the edge of immob encoding
         if 'diff_True' in x:
@@ -624,7 +627,7 @@ def intrinsic_definition(x):
             return 'Immobilized only'
         else:
             # Ignore the 0-comparison significance of the immob if the difference is not significant
-            return 'Intrinsic'  # 'Intrinsic (stronger)'
+            return 'Intrinsic'
     else:
         return ValueError
 
@@ -674,7 +677,7 @@ def excel_event_full_description():
 
 def intrinsic_categories_long_description():
     return {
-            "gcamp_True_immob_True_same_sign_True_diff_True":    "Intrinsic. Statistically significant difference between a) conditions; b) freely moving and 0; and c) immobilized and 0. The medians have the same sign.",
+            "gcamp_True_immob_True_same_sign_True_diff_True":    "Modulated encoding. Statistically significant difference between a) conditions; b) freely moving and 0; and c) immobilized and 0. The medians have the same sign.",
             "gcamp_True_immob_True_same_sign_True_diff_False":   "Intrinsic. Statistically insignificant difference between conditions. Statistically significant between a) freely moving and 0 and b) 0 and immobilized. The medians have a different sign.",
             "gcamp_True_immob_False_same_sign_True_diff_False":  "Intrinsic. Statistically insignificant difference between a) conditions; and b) 0 and immobilized. Statistically significant between freely moving and 0. The medians have the same sign.",
             "gcamp_True_immob_False_same_sign_False_diff_False": "Intrinsic. Statistically insignificant difference between a) conditions; and b) 0 and immobilized. Statistically significant between freely moving and 0. The medians have the same sign.",
@@ -689,7 +692,7 @@ def intrinsic_categories_long_description():
 
 def intrinsic_categories_short_description():
     return {
-            "gcamp_True_immob_True_same_sign_True_diff_True":    "Intrinsic. Statistically significant difference between conditions, BUT The medians have the same sign.",
+            "gcamp_True_immob_True_same_sign_True_diff_True":    "Modulated encoding. Statistically significant difference between conditions, BUT the medians have the same sign.",
             "gcamp_True_immob_True_same_sign_True_diff_False":   "Intrinsic. Statistically insignificant difference between conditions.",
             "gcamp_True_immob_False_same_sign_True_diff_False":  "Intrinsic. Statistically insignificant difference between conditions.",
             "gcamp_True_immob_False_same_sign_False_diff_False": "Intrinsic. Statistically insignificant difference between conditions.",
