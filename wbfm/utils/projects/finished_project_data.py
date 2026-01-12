@@ -700,8 +700,8 @@ class ProjectData:
             try:
                 # First check if there is an nwb file at all
                 cfg_nwb = project_data.project_config.get_nwb_config()
-            except PermissionError as e:
-                project_data.logger.warning(f"Hybrid loading was set to True, but got a permission error; unable to load nwb. If there is no nwb file, this is not a problem. Full error: {e}")
+            except (PermissionError, FileNotFoundError) as e:
+                project_data.logger.warning(f"Hybrid loading was set to True, but got an error; unable to load nwb. If there is no nwb file, this is not a problem. Full error: {e}")
                 allow_hybrid_loading = False
 
         if not loaded_via_nwb and allow_hybrid_loading:
