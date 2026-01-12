@@ -352,6 +352,9 @@ class NeuronNameEditor(QWidget):
         self.swapLRButton = QPushButton("Swap L/R")
         self.swapLRButton.clicked.connect(self.swap_left_right_annotations)
 
+        self.deleteAllButton = QPushButton("Delete All Annotations")
+        self.deleteAllButton.clicked.connect(self.delete_all_annotations)
+
         # Set up each column in proper location
         layout.addWidget(QLabel("Editable table of neuron names"), 0, 0)
         layout.addWidget(self.tableView, 1, 0, 2, 1)
@@ -363,6 +366,7 @@ class NeuronNameEditor(QWidget):
         layout.addWidget(self.customIdedList, 1, 3, 2, 1)
 
         layout.addWidget(self.swapLRButton, 3, 0)
+        layout.addWidget(self.deleteAllButton, 3, 1)
 
         self.setLayout(layout)
 
@@ -689,6 +693,42 @@ class NeuronNameEditor(QWidget):
 
         # Update parent GUI elements, if any
         self.multiple_annotations_updated.emit(all_original_names, all_old_names, all_new_names)
+
+    def delete_all_annotations(self):
+        """
+        Delete all annotations with a confirmation popup
+        """
+        choice = QMessageBox.warning(
+            self,
+            "Confirm Delete All Annotations",
+            "Are you sure you want to delete all annotations? This action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+
+        if choice == QMessageBox.Yes:
+            df = self.df
+            id_col = self.manual_id_column_name
+            # For updating the GUI
+            all_original_names = []
+            all_old_names = []
+            all_new_names = []
+
+            # Clear all manual annotations and track changes
+            for i, row in df.iterrows():
+                old_name = str(df.at[i, id_col])
+                if old_name and old_name != '':  # Only track non-empty annotations
+                    all_original_names.append(str(row[self.original_id_column_name]))
+                    all_old_names.append(old_name)
+                    all_new_names.append('')
+                df.at[i, id_col] = ''
+            
+            # Update GUI elements
+            self.update_table_from_dataframe()
+            self.update_all_widgets()
+            logging.info("All annotations deleted")
+
+            # Update parent GUI elements, if any
+            self.multiple_annotations_updated.emit(all_original_names, all_old_names, all_new_names)
 
 
 if __name__ == '__main__':
