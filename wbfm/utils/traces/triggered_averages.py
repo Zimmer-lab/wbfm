@@ -853,7 +853,7 @@ class TriggeredAverageIndices:
 
         return ax
 
-    def plot_events_over_trace_from_name(self, trace, ax=None):
+    def plot_events_over_trace_from_name(self, trace, ax=None, fig_opt=None):
         """
         Plots the indices stored here over a trace (for debugging)
 
@@ -865,8 +865,10 @@ class TriggeredAverageIndices:
         -------
 
         """
+        if fig_opt is None:
+            fig_opt = {}
         if ax is None:
-            fig, ax = plt.subplots(dpi=100)
+            fig, ax = plt.subplots(dpi=100, **fig_opt)
         ax.plot(trace)
         self.plot_events_over_trace(trace, ax)
         return ax

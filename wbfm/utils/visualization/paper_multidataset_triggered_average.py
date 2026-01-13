@@ -410,10 +410,10 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                          'raw_dt': 'Time relative to\nDorsal Turn (s)',
                          'global_rev': 'Time relative to\nReversal (s)',
                          'global_fwd': 'Time relative to\nForward (s)',
-                         'residual': 'Time relative to\nventral undulation (s)',
+                         'residual': 'Time relative to\ndorsal undulation (s)',
                          'residual_collision': 'Time relative to\nself-collision (s)',
-                         'residual_rectified_fwd': 'Time relative to\nventral undulation (s)',
-                         'residual_rectified_rev': 'Time relative to\nventral undulation (s)',
+                         'residual_rectified_fwd': 'Time relative to\ndorsal undulation (s)',
+                         'residual_rectified_rev': 'Time relative to\ndorsal undulation (s)',
                          'kymo': 'Time (s)',
                          'stimulus': 'Time (s)',
                          'self_collision': 'Time relative to\nself-collision (s)',}
@@ -888,19 +888,22 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                                                                 color=color, **kwargs)
         return fig, ax
 
-    def plot_events_over_trace(self, neuron_name, trigger_type, dataset_name=None, output_foldername=None, **kwargs):
+    def plot_events_over_trace(self, neuron_name, trigger_type, dataset_name=None, output_foldername=None, 
+                               fig_opt=None, **kwargs):
         """
         Plot the full trace with the event
 
         Loops through individual triggered average objects and plots the full trace with the event.
         """
+        if fig_opt is None:
+            fig_opt = dict()
 
         these_intermediates = self.intermediates_dict[trigger_type][0]
         for _dataset, triggered_average_class in these_intermediates.items():
             if dataset_name is not None and dataset_name != _dataset:
                 continue
 
-            fig, ax = plt.subplots(dpi=100)
+            fig, ax = plt.subplots(dpi=100, **fig_opt)
             try:
                 triggered_average_class.plot_events_over_trace(neuron_name, ax=ax, **kwargs)
                 if 'rev' in trigger_type:
