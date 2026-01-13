@@ -11,7 +11,7 @@ from wbfm.utils.general.utils_hardcoded import (get_hierarchical_modeling_dir, r
                                                 neurons_with_confident_ids)
 
 
-def main(combine_left_right=True):
+def main(combine_left_right=True, verbose=0):
     output_folder = '/home/charles/Current_work/repos/dlc_for_wbfm/wbfm/notebooks/paper/intro/dimensionality'
 
     # Import traces (gcamp and immob)
@@ -73,6 +73,12 @@ def main(combine_left_right=True):
     enough_immob = neuron_counts_immob[neuron_counts_immob >= min_neurons].index
     enough_neurons = enough_gcamp.intersection(enough_immob).intersection(
         neurons_with_confident_ids(combine_left_right))
+    if verbose >= 1:
+        print(f'Number of neurons with at least {min_neurons} datasets in both conditions: {len(enough_neurons)}')
+        if verbose >= 2:
+            print(f'Neurons: {enough_neurons.tolist()}')
+            print(f'Immob neurons: {enough_immob.tolist()}')
+            print(f'Gcamp neurons: {enough_gcamp.tolist()}')
     df = df[df[neuron_row_name].isin(enough_neurons)]
 
     # Sort by mean variance explained in immob (not gcamp) per neuron

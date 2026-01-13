@@ -449,7 +449,7 @@ def _role_of_neurons():
     'Sensory': [
             'ASI', 'AWA', 'AWB', 'AWC', 'ASH', 'ASJ', 'ASG', 'ASK', 'ADF', 'PDE',
             'IL2L', 'IL2R', 'IL2', 'IL1L', 'IL1R', 'IL1', 'OLQD', 'OLQV', 'CEP', 'ADE', 'PVD', 'FLP', 'PHA', 'PHB', 'URX', 'BAG',
-            'AQR', 'SDQ', 'PQR', 'URB', 'SAA', 'URYD', 'URYV', 'URAD', 'URAV'
+            'AQR', 'SDQ', 'PQR', 'URB', 'SAA', 'URYD', 'URYV', #'URAD', 'URAV'
         ],
     'Interneuron': [
             'AIA', 'AIB', 'AIZ', 'AVA', 'AVE', 'AVB', 'AVD', 'AVG', 'RIM', 'ALA',
@@ -458,7 +458,8 @@ def _role_of_neurons():
     'Motor': [
             'DA1-DA9', 'DB1-DB7', 'DD1-DD6', 'VD1-VD13', 'VA1-VA12', 'VB1-VB11',
             'AS1-AS11', 'VC1-VC6', 'SAB', 'DVB', 'PDA', 'SIAD', 'SIAV', 'SMDD', 'SMDV',
-            'PDB', 'PVC', 'SMB', 'SIB', 'RMF', 'RMDD', 'RMDV', 'RMEV', 'RMED', 'RME', 'RIV'
+            'PDB', 'PVC', 'SMB', 'SIB', 'RMF', 'RMDD', 'RMDV', 'RMEV', 'RMED', 'RME', 'RIV',
+            'URAD', 'URAV'
         ],
     'Modulatory': [
             'RID', 'RIM'
@@ -466,7 +467,7 @@ def _role_of_neurons():
     'Forward': [
         'AVB', 'RIB', 'DB1-DB7', 'VB1-VB11', 'RME', 'RMEV', 'RMED', 'RID', 'SIAV', 'SIAD',
         'RMDD',
-        'SMDD', 'SMDV', 'URAD',  # Only in freely moving
+        'SMDD', 'SMDV', #'URAD',  # Only in freely moving
         ],
     'Reverse': [
         'AVA', 'AIB', 'RIM', 'DA1-DA9', 'VA1-VA12', 'AVE', 'RIA', 'URYD', 'URYV',
