@@ -182,6 +182,15 @@ def export_legend_for_paper(fname=None, frameon=True, ethogram=False, reversal_s
     handles = [f("s", colors[i]) for i in range(len(labels))]
     legend = plt.legend(handles, labels, loc=3, framealpha=1, frameon=frameon)
 
+    # Also turn the axis ticks off
+    ax = plt.gca()
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Set transparent background
+    ax.set_facecolor((0, 0, 0, 0))
+    plt.tight_layout()
+
     if fname is not None:
         export_legend(legend=legend, fname=fname)
 
