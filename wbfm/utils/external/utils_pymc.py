@@ -1401,11 +1401,26 @@ def save_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dat
     # Save a summary of fold results to HDF5 for easy inspection
     fold_summary_data = {}
     for model_name, cv_results in cv_results_dict.items():
-        fold_df = pd.DataFrame(cv_results['fold_results'])
-        # Drop the large test_ll_samples array for summary
-        fold_summary = fold_df[['fold', 'group_id', 'test_ll', 'train_ll', 'test_size', 'train_size']].copy()
-        fold_summary['model'] = model_name
-        fold_summary_data[model_name] = fold_summary
+        # Check if this is grouped CV results (with fold_results) or temporal split results (without)
+        if 'fold_results' in cv_results:
+            # Grouped CV format: has fold_results list
+            fold_df = pd.DataFrame(cv_results['fold_results'])
+            # Drop the large test_ll_samples array for summary
+            fold_summary = fold_df[['fold', 'group_id', 'test_ll', 'train_ll', 'test_size', 'train_size']].copy()
+            fold_summary['model'] = model_name
+            fold_summary_data[model_name] = fold_summary
+        else:
+            # Temporal split format: single train/test split per model
+            fold_summary = pd.DataFrame({
+                'fold': [0],
+                'group_id': ['temporal_split'],
+                'test_ll': [cv_results['test_ll']],
+                'train_ll': [cv_results['train_ll']],
+                'test_size': [cv_results['test_size']],
+                'train_size': [cv_results['train_size']],
+                'model': [model_name],
+            })
+            fold_summary_data[model_name] = fold_summary
     
     if fold_summary_data:
         fold_summary_full = pd.concat(fold_summary_data.values(), ignore_index=True)
