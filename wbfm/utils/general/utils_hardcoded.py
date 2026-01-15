@@ -426,7 +426,7 @@ def default_raw_data_config():
             }
 
 
-def neurons_with_confident_ids(combine_left_right=False):
+def neurons_with_confident_ids(combine_left_right=False, add_parentheses_for_less_confident=False):
     neuron_names = ['AVAL', 'AVAR', 'BAGL', 'BAGR', 'RIMR', 'RIML', 'AVEL', 'AVER',
                     'URYVL', 'URYVR', 'URADL', 'URADR', 'URYDL', 'URYDR',
                     'RIVR', 'RIVL', 'SMDVL', 'SMDVR', 'SMDDR', 'SMDDL',
@@ -437,6 +437,20 @@ def neurons_with_confident_ids(combine_left_right=False):
                     'ALA', 'RIS', 'AQR', 'RMDVL', 'RMDVR', 'URXL', 'URXR',
                     'VB01', 'VB02', 'VB03', 'DB01', 'DB02', 'VA01', 'VA02', 'DA01', 'DD01',
                     'RIBL', 'RIBR', 'RMEL', 'RMER', 'RMED', 'RMEV', 'RID', 'AVBL', 'AVBR']
+    if combine_left_right:
+        neuron_names = [n[:-1] if (n[-1] in ['L', 'R'] and len(n) > 3) else n for n in neuron_names]
+        neuron_names = list(set(neuron_names))
+    if add_parentheses_for_less_confident:
+        less_confident = less_confident_neuron_ids(combine_left_right=combine_left_right)
+        neuron_names = [f"({n})" if n in less_confident else n for n in neuron_names]
+    return neuron_names
+
+
+def less_confident_neuron_ids(combine_left_right=False):
+
+    neuron_names = ['SAAVL', 'SAAVR', 'AWBL', 'AWBR', 'RIBL', 'RIBR', #'AVBL', 'AVBR', 
+                    'AUAL', 'AUAR',
+                    'SIADL', 'SIADR', 'DB02', 'VB01', 'DA01']
     if combine_left_right:
         neuron_names = [n[:-1] if (n[-1] in ['L', 'R'] and len(n) > 3) else n for n in neuron_names]
         neuron_names = list(set(neuron_names))
