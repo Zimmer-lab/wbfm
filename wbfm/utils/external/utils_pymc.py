@@ -825,12 +825,6 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
     
     # Get training log-likelihood
     train_ll = trace.log_likelihood["y"].sum(dim="y_dim_0").mean().values
-    
-    # Rename the training log_likelihood group to avoid conflict
-    train_log_likelihood = trace.log_likelihood
-    del trace.log_likelihood
-    trace = trace.add_groups(train_log_likelihood=train_log_likelihood)
-    
     print(f"Training log-likelihood: {train_ll:.4f}")
     
     # Evaluate on test data by swapping in test data
@@ -843,13 +837,9 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
             'dataset_idx': dataset_idx_test
         })
         
-        # Compute test log-likelihood and add as separate group
+        # Compute test log-likelihood in a fresh context with test data
         test_ll_samples = pm.compute_log_likelihood(trace, progressbar=True)
         test_ll = test_ll_samples["y"].sum(dim="y_dim_0").mean().values
-        
-        # Rename to test_log_likelihood
-        del trace.log_likelihood
-        trace = trace.add_groups(test_log_likelihood=test_ll_samples)
     
     print(f"Test log-likelihood: {test_ll:.4f}")
     
