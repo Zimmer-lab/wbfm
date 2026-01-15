@@ -755,14 +755,87 @@ def plot_box_multi_axis(df, x_columns_list, y_column, color_names=None, cmap=Non
     return fig
 
 
+def convert_cv_results_to_bayesian_format(df_cv):
+    """
+    Convert cross-validation results to the format expected by package_bayesian_df_for_plot.
+    
+    Parameters
+    ----------
+    df_cv : pd.DataFrame
+        Input dataframe with columns:
+        neuron_name, model_type, fold, group_id, test_ll, train_ll, test_size, train_size, model
+    
+    Returns
+    -------
+    pd.DataFrame
+        Converted dataframe with columns compatible with package_bayesian_df_for_plot:
+        neuron_name, model_type, rank, elpd_loo, p_loo, elpd_diff, weight, se, dse, warning, scale
+    """
+    df = df_cv.copy()
+    
+    # 1. Strip 'cv_fold' from neuron_name
+    df['neuron_name'] = df['neuron_name'].str.replace('_cv_fold.*', '', regex=True)
+    
+    # 2. Normalize test_ll and train_ll by their respective sizes
+    df['test_ll_normalized'] = df['test_ll'] / df['test_size']
+    df['train_ll_normalized'] = df['train_ll'] / df['train_size']
+    
+    # 3. Calculate mean and std across folds for each neuron and model_type
+    grouped = df.groupby(['neuron_name', 'model']).agg({
+        'test_ll_normalized': ['mean', 'std'],
+        'train_ll_normalized': ['mean', 'std']
+    }).reset_index()
+    
+    # Flatten column names
+    # Note: model is renamed model_type
+    grouped.columns = ['neuron_name', 'model_type', 'test_ll_mean', 'test_ll_std', 
+                       'train_ll_mean', 'train_ll_std']
+    
+    # 4. Map to the expected output format
+    # elpd_loo corresponds to the test set performance (left-one-out CV proxy)
+    grouped['elpd_loo'] = grouped['test_ll_mean']
+    grouped['elpd_loo_train'] = grouped['train_ll_mean']
+    grouped['elpd_loo_se'] = grouped['test_ll_std']
+    grouped['elpd_loo_train_se'] = grouped['train_ll_std']
+    
+    # 5. Add ranking within each neuron (best model gets rank 0)
+    grouped['rank'] = grouped.groupby('neuron_name')['elpd_loo'].rank(method='first', ascending=False) - 1
+
+    # Calculate elpd_diff relative to the best model for each neuron
+    best_elpd = grouped.groupby('neuron_name')['elpd_loo'].transform('max')
+    grouped['elpd_diff'] = best_elpd - grouped['elpd_loo']
+    
+    # 6. Add placeholder columns
+    grouped['p_loo'] = np.nan
+    grouped['weight'] = np.nan
+    grouped['warning'] = ''
+    grouped['scale'] = np.nan
+    grouped['se'] = np.nan
+    grouped['dse'] = np.nan
+    
+    return grouped.sort_values(['neuron_name', 'rank']).reset_index(drop=True)
+
+
 def package_bayesian_df_for_plot(df, df_normalization=None,
-                                 min_num_datapoints=0):
+                                 min_num_datapoints=0, normalize_by_dse=True, DEBUG=False):
+    """
+    Builds a score to be plotted with the following logic:
+    - Hierarchy Score: ELPD improvement of hierarchical_pca over null model
+    - Behavior Score: ELPD improvement of nonhierarchical over null model
+
+    Either way, assumes that the 'elpd_diff' column is the 
+    """
+    
     # The scores should be calculated from the diff column, and the se of that, i.e. dse
     # However, the order of the models may be different, and thus the subtraction may not be what I want
     # So I could recalculate the loo for the pairs of models I actually want to compare
     # ... but I don't have the loo_dictionary, so I'll just set things to 0 if they aren't higher than the less complex models
-    df_diff = df.pivot(columns='model_type', index='neuron_name', values='elpd_diff').copy()  # .reset_index()
-    df_diff = df_diff / df.pivot(columns='model_type', index='neuron_name', values='dse')
+    df_diff = df.pivot(columns='model_type', index='neuron_name', values='elpd_diff').copy()
+    
+    if normalize_by_dse:
+        # This normalizes by the standard error, i.e. converts it to a z-score like metric
+        df_diff = df_diff / df.pivot(columns='model_type', index='neuron_name', values='dse')
+
     # Here each score is 'offset', such that the best model is 0, and the others are worse by the relevant amount
     # For example, if hierarchical_pca is rank 0 (should be), then the column 'nonhierarchical' is the improvement
     df_diff['Relative Hierarchy Score'] = df_diff['nonhierarchical']  # Check for order issues later
@@ -787,7 +860,7 @@ def package_bayesian_df_for_plot(df, df_normalization=None,
     df_diff['nonhierarchical'].fillna(0, inplace=True)
     df_diff['Behavior Score'] = df_diff['null'] - df_diff['nonhierarchical']
 
-    # If any neurons have 'hierarchical_pca' with a rank < 0, then the hierarchy score is 0
+    # If any neurons have 'hierarchical_pca' with a rank > 0, then the hierarchy score is 0
     # This is because the hierarchical_pca model should always be the best unless there is overfitting
     idx_hierarchy = df['model_type'] == 'hierarchical_pca'
     rank_of_hierarchy_models = df.loc[idx_hierarchy, 'rank']
@@ -796,6 +869,8 @@ def package_bayesian_df_for_plot(df, df_normalization=None,
     idx_of_non_first_hierarchy_models = idx_of_non_first_hierarchy_models[idx_of_non_first_hierarchy_models.isin(df_diff.index)]
     df_diff.loc[idx_of_non_first_hierarchy_models, 'Hierarchy Score'] = 0
     df_diff.loc[idx_of_non_first_hierarchy_models, 'Relative Hierarchy Score'] = 0
+    if DEBUG:
+        print(f"Neurons with non-best hierarchical_pca models: {idx_of_non_first_hierarchy_models}")
 
     # If any neurons have 'null' with a rank = 0, then both scores are 0
     # This is because the null model should always be the worst
@@ -805,19 +880,16 @@ def package_bayesian_df_for_plot(df, df_normalization=None,
     # We may have dropped some rows from df_diff, so ensure the index is still valid
     idx_of_first_null_models = idx_of_first_null_models[idx_of_first_null_models.isin(df_diff.index)]
     df_diff.loc[idx_of_first_null_models, 'Behavior Score'] = 0  # The hierarchy is already set to 0
+    if DEBUG:
+        print(f"Neurons with null models as the best: {idx_of_first_null_models}")
 
     x, y = df_diff['Hierarchy Score'], df_diff['Behavior Score']
     text_labels = pd.Series(list(x.index), index=x.index)
-    # no_label_idx = np.logical_and(x < 5, y < 8)  # Displays some blue-only text
-    # no_label_idx = y < 8
-    # text_labels[no_label_idx] = ''
 
     df_to_plot = df_diff.copy()
     df_to_plot['text'] = text_labels
     df_to_plot['neuron_name'] = df_to_plot.index
-    # df_to_plot = pd.DataFrame({'Hierarchy Score': x, 'Behavior Score': y,
-    #                            'text': text_labels, 'neuron_name': x.index})
-    # df_to_plot = df_to_plot[df_to_plot.index.isin(neurons_with_confident_ids())]
+
     return df_to_plot
 
 
@@ -1530,17 +1602,8 @@ def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp,
     """
 
     # Add a couple names back in
-    # df_to_plot_gfp.loc['VB02', 'text'] = 'VB02 (gfp)'
-    # df_to_plot_gfp.loc['RMED', 'text'] = 'RMED (gfp)'
-    # df_to_plot_gfp.loc['RMEV', 'text'] = 'RMEV (gfp)'
     rename_func = lambda x: f'{x} (gfp)' if x != '' else ''
     df_to_plot_gfp.loc[:, 'text'] = df_to_plot_gfp.loc[:, 'text'].apply(rename_func)
-    # df_to_plot_gcamp.loc['RMDVL', 'text'] = 'RMDVL'
-    # df_to_plot_gcamp.loc['SMDVR', 'text'] = 'SMDVR'
-    # df_to_plot_gcamp.loc['VB03', 'text'] = 'VB03'
-    # Remove a couple names
-    # df_to_plot_gcamp.loc['BAGL', 'text'] = ''
-    # df_to_plot_gcamp.loc['URADL', 'text'] = ''
 
     df_to_plot = pd.concat([df_to_plot_gcamp, df_to_plot_gfp])
     df_to_plot['Dataset Type'] = df_to_plot['datatype']
@@ -1569,13 +1632,10 @@ def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp,
         text[_df[y] <= y_max_gfp] = ''
     
     fig = px.scatter(_df, 
-                     # x='Hierarchy Score', y='Behavior Score', range_y=[-2, 60],
                      y=y, x=x, #range_x=[-2, 60],
                      text=text if display_text else None, 
-                     # color='Category', #
                      color='Dataset Type',
                      color_discrete_map=plotly_paper_color_discrete_map(), 
-                     #size='Size', 
                      size_max=10,
                      hover_data=['Category'],
                      **kwargs
@@ -1584,13 +1644,6 @@ def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp,
 
     apply_figure_settings(fig, width_factor=1.0, height_factor=0.3)
 
-    # gfp lines
-    # fig.add_shape(type="line",
-    #               x0=x_max_gfp, y0=0,  # start of the line (bottom of the plot)
-    #               x1=x_max_gfp, y1=1,  # end of the line (top of the plot)
-    #               line=dict(color="black", width=1, dash="dash"),
-    #               xref='x',
-    #               yref='paper')
     fig.add_shape(type="line",
                   x0=0, y0=y_max_gfp,  # start of the line (bottom of the plot)
                   x1=1, y1=y_max_gfp,  # end of the line (top of the plot)
@@ -1613,56 +1666,13 @@ def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp,
     ))
     fig.update_xaxes(title=f'{x}')# over Behavior model')
     fig.update_yaxes(title=f'{y}')# <br>over Trivial model')
-    
-    # Add contour plot for the gfp points
-    # _df2 = _df[_df['Dataset Type'] == 'Freely Moving (GFP, residual)']
-    # hist, x_edges, y_edges = np.histogram2d(_df2[x], _df2[y], bins=4)
-    # x_centers = (x_edges[:-1] + x_edges[1:]) / 2
-    # y_centers = (y_edges[:-1] + y_edges[1:]) / 2
-    # # contour = go.Figure(data=
-    # contour = go.Contour(
-    #         x=x_centers,
-    #         y=y_centers,
-    #         z=hist.T * 2,
-    #         contours_coloring='lines',
-    #         line_width=2,
-    #     )
-    # )
-    # Combine the scatter and contour plots
-    # fig.add_trace(contour)
-
     if output_folder is not None:
         ##
         # Make a figure for presentations with fewer names
         ##
         apply_figure_settings(fig, height_factor=0.4, width_factor=0.5)
-        # fig.show()  # Showing here messes it up for the next save
         fname = os.path.join(output_folder, 'hierarchy_behavior_score_with_gfp_presentation.png')
         fig.write_image(fname, scale=7)
-
-    ##
-    # Final settings
-    ##
-
-    # # Add some additional annotations with arrows and offsets (gfp)
-    # annotations_to_add = ['VB02', 'RMED', 'RMEV']
-    # offset_list = [[10, -150], [250, -50], [130, -50]]
-    # for offset, neuron in zip(offset_list, annotations_to_add):
-    #     ind = df_to_plot['datatype'] == 'Freely Moving (GFP, residual)'
-    #     xy = list(df_to_plot[ind].loc[neuron, [x, y]])
-    #     text = f'{neuron} (GFP)'
-    #     fig.add_annotation(x=xy[0], y=xy[1], ax=offset[0], ay=offset[1],
-    #                        text=text, showarrow=True)
-
-    # # Add some additional annotations with arrows and offsets (gcamp)
-    # annotations_to_add = ['RIS']
-    # offset_list = [[100, -50]]
-    # for offset, neuron in zip(offset_list, annotations_to_add):
-    #     ind = df_to_plot['datatype'] == 'Freely Moving (GCaMP, residual)'
-    #     xy = list(df_to_plot[ind].loc[neuron, [x, y]])
-    #     text = f'{neuron}'
-    #     fig.add_annotation(x=xy[0], y=xy[1], ax=offset[0], ay=offset[1],
-    #                        text=text, showarrow=True)
 
     apply_figure_settings(fig, height_factor=0.25, width_factor=0.5)
 

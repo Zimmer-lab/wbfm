@@ -688,6 +688,378 @@ def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca
     return cv_results
 
 
+def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
+                              use_additional_eigenworms=True, train_frac=2/3, 
+                              model_type='hierarchical_pca', DEBUG=False):
+    """
+    Perform temporal train-test split by holding out the middle third of the time series.
+    
+    Splits data temporally: trains on first and last thirds, tests on middle third.
+    This allows learning trial-specific parameters for all trials.
+    
+    Parameters
+    ----------
+    Xy : pd.DataFrame
+        Full dataset
+    neuron_name : str
+        Name of the neuron to model
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data
+    use_additional_eigenworms : bool
+        Whether to include eigenworms 2 and 3
+    train_frac : float
+        Fraction of data to use for training (default: 2/3)
+    model_type : str
+        Which model to fit: 'null', 'nonhierarchical', or 'hierarchical_pca' (default)
+    DEBUG : bool
+        If True, runs with fewer samples for testing
+    
+    Returns
+    -------
+    results : dict
+        Dictionary containing:
+        - 'test_ll': test log-likelihood
+        - 'train_ll': training log-likelihood
+        - 'test_size': number of test samples
+        - 'train_size': number of training samples
+        - 'neuron_name': neuron being analyzed
+        - 'trace': posterior trace object
+        - 'model': PyMC model object
+    """
+    curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
+    if use_additional_eigenworms:
+        curvature_terms_to_use.extend(['eigenworm2', 'eigenworm3'])
+    
+    # Get data for this neuron
+    df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
+                                               curvature_terms=curvature_terms_to_use, 
+                                               residual_mode=residual_mode)
+    
+    if df_model.shape[0] == 0:
+        print(f"No valid data for {neuron_name}")
+        return None
+    
+    # Sort by time to ensure temporal ordering
+    if 'time' in df_model.columns:
+        df_model = df_model.sort_values('time').reset_index(drop=True)
+    
+    # Create temporal split: middle third for test, outer thirds for train
+    n_samples = len(df_model)
+    test_size = int(n_samples * (1 - train_frac))
+    train_size_each_side = (n_samples - test_size) // 2
+    # Account for rounding: ensure all samples are covered
+    train_size_second_half = n_samples - test_size - train_size_each_side
+    
+    # Indices for train (beginning and end) and test (middle)
+    train_idx = np.concatenate([
+        np.arange(0, train_size_each_side),
+        np.arange(train_size_each_side + test_size, train_size_each_side + test_size + train_size_second_half)
+    ])
+    test_idx = np.arange(train_size_each_side, train_size_each_side + test_size)
+    
+    print(f"Train size: {len(train_idx)}, Test size: {len(test_idx)}")
+    print(f"Train indices: [0:{train_size_each_side}] + [{train_size_each_side + test_size}:{n_samples}]")
+    print(f"Test indices: [{train_size_each_side}:{train_size_each_side + test_size}]")
+    
+    # Extract features
+    X_pca = df_model[['x_pca0', 'x_pca1']].values
+    X_curvature = df_model[curvature_terms_to_use].values
+    y = df_model['y'].values
+    
+    # Setup factorization for hierarchical model
+    dataset_name_idx, dataset_name_values = df_model.dataset_name.factorize()
+    coords = {'dataset_name': dataset_name_values}
+    dims = 'dataset_name'
+    dim_opt = dict(dims=dims, dataset_name_idx=dataset_name_idx)
+    
+    # Split data
+    X_pca_train, X_pca_test = X_pca[train_idx], X_pca[test_idx]
+    X_curv_train, X_curv_test = X_curvature[train_idx], X_curvature[test_idx]
+    y_train, y_test = y[train_idx], y[test_idx]
+    dataset_idx_train = dataset_name_idx[train_idx]
+    dataset_idx_test = dataset_name_idx[test_idx]
+    
+    # Build and fit model
+    with pm.Model(coords=coords) as model:
+        # Use pm.Data for inputs so we can swap them later
+        X_pca_data = pm.Data('X_pca_data', X_pca_train, mutable=True)
+        X_curv_data = pm.Data('X_curv_data', X_curv_train, mutable=True)
+        y_data = pm.Data('y_data', y_train, mutable=True)
+        dataset_idx_data = pm.Data('dataset_idx', dataset_idx_train, mutable=True)
+        
+        # Update dim_opt to use the mutable dataset index
+        dim_opt_mutable = dict(dims=dims, dataset_name_idx=dataset_idx_data)
+        
+        intercept, sigma = build_baseline_priors(**dim_opt_mutable)
+        
+        if model_type == 'null':
+            # Just intercept, no other terms
+            mu = pm.Deterministic('mu', intercept)
+        elif model_type == 'nonhierarchical':
+            # Curvature but no sigmoid
+            curvature_term = build_curvature_term(X_curv_data, 
+                                                 curvature_terms_to_use=curvature_terms_to_use,
+                                                 **dim_opt_mutable)
+            mu = pm.Deterministic('mu', intercept + curvature_term)
+        elif model_type == 'hierarchical_pca':
+            # Sigmoid times curvature (full model)
+            sigmoid_term = build_sigmoid_term_pca(X_pca_data, **dim_opt_mutable)
+            curvature_term = build_curvature_term(X_curv_data, 
+                                                 curvature_terms_to_use=curvature_terms_to_use,
+                                                 **dim_opt_mutable)
+            mu = pm.Deterministic('mu', intercept + sigmoid_term * curvature_term)
+        else:
+            raise ValueError(f"Unknown model_type: {model_type}")
+        
+        likelihood = build_final_likelihood(mu, sigma, y_data)
+    
+    # Sample from model
+    with model:
+        opt = dict(draws=1000, tune=1000, random_seed=42, target_accept=0.96)
+        if DEBUG:
+            opt['draws'] = 10
+            opt['tune'] = 10
+        
+        trace = pm.sample(**opt, chains=4, return_inferencedata=True, 
+                        idata_kwargs={"log_likelihood": True}, progressbar=True)
+    
+    # Get training log-likelihood
+    train_ll = trace.log_likelihood["y"].sum(dim="y_dim_0").mean().values
+    print(f"Training log-likelihood: {train_ll:.4f}")
+    
+    # Evaluate on test data by swapping in test data
+    print("Evaluating on test data...")
+    with model:
+        pm.set_data({
+            'X_pca_data': X_pca_test,
+            'X_curv_data': X_curv_test,
+            'y_data': y_test,
+            'dataset_idx': dataset_idx_test
+        })
+        
+        # Compute posterior predictive with test data
+        ppc = pm.sample_posterior_predictive(trace, progressbar=True)
+        
+        # Compute test log-likelihood manually using the posterior samples
+        test_ll_samples = pm.compute_log_likelihood(trace, progressbar=True)
+        test_ll = test_ll_samples["y"].sum(dim="y_dim_0").mean().values
+    
+    print(f"Test log-likelihood: {test_ll:.4f}")
+    
+    results = {
+        'test_ll': float(test_ll),
+        'train_ll': float(train_ll),
+        'test_size': len(test_idx),
+        'train_size': len(train_idx),
+        'neuron_name': neuron_name,
+        'model_type': model_type,
+        'trace': trace,
+        'model': model,
+        'train_idx': train_idx,
+        'test_idx': test_idx,
+    }
+    
+    return results
+
+
+def temporal_split_to_arviz(results):
+    """
+    Convert temporal train-test split results to an ArviZ-compatible InferenceData object.
+    
+    Since the temporal split already produces a full posterior trace with trial-specific
+    parameters, this function simply extracts the relevant log-likelihood information
+    and adds test set metadata.
+    
+    Parameters
+    ----------
+    results : dict
+        Output from `temporal_train_test_split`, containing:
+        - 'trace': arviz InferenceData with posterior samples
+        - 'test_ll': test set log-likelihood
+        - 'train_ll': training set log-likelihood
+        - 'test_size': number of test observations
+        - 'train_size': number of training observations
+        - 'neuron_name': neuron identifier
+        - 'model_type': type of model fitted
+    
+    Returns
+    -------
+    idata : arviz.InferenceData
+        Enhanced InferenceData object with additional test set information in attributes
+        and a 'test_log_likelihood' group if available.
+    """
+    trace = results['trace']
+    
+    # Add metadata to the existing trace
+    trace.posterior.attrs.update({
+        'neuron_name': results['neuron_name'],
+        'model_type': results['model_type'],
+        'test_ll': float(results['test_ll']),
+        'train_ll': float(results['train_ll']),
+        'test_size': int(results['test_size']),
+        'train_size': int(results['train_size']),
+    })
+    
+    # The trace already contains log_likelihood from training
+    # We can add test log-likelihood as a separate group if desired
+    if 'test_ll_per_sample' in results:
+        # If you've stored per-posterior-sample test likelihoods
+        test_ll_samples = results['test_ll_per_sample']
+        
+        # Create test_log_likelihood dataset
+        test_ll_ds = xr.Dataset(
+            {
+                'y': (['chain', 'draw', 'y_dim_0'], test_ll_samples),
+            },
+            coords={
+                'chain': trace.posterior.coords['chain'],
+                'draw': trace.posterior.coords['draw'],
+                'y_dim_0': np.arange(test_ll_samples.shape[-1]),
+            },
+        )
+        
+        # Add as a new group to the InferenceData
+        trace = trace.assign(test_log_likelihood=test_ll_ds)
+    
+    return trace
+
+
+def compare_temporal_splits(results_list, model_names=None):
+    """
+    Compare multiple models trained with temporal splits using ArviZ.
+    
+    Parameters
+    ----------
+    results_list : list of dict
+        List of results from `temporal_train_test_split` for different models
+    model_names : list of str, optional
+        Names for each model. If None, uses model_type from results.
+    
+    Returns
+    -------
+    comparison_df : pd.DataFrame
+        Comparison of models with test/train log-likelihoods
+    """
+    comparison_data = []
+    
+    for i, results in enumerate(results_list):
+        if model_names is not None:
+            name = model_names[i]
+        else:
+            name = results.get('model_type', f'model_{i}')
+        
+        comparison_data.append({
+            'model': name,
+            'neuron': results['neuron_name'],
+            'train_ll': results['train_ll'],
+            'test_ll': results['test_ll'],
+            'train_size': results['train_size'],
+            'test_size': results['test_size'],
+            'train_ll_per_obs': results['train_ll'] / results['train_size'],
+            'test_ll_per_obs': results['test_ll'] / results['test_size'],
+        })
+    
+    df = pd.DataFrame(comparison_data)
+    
+    # Add relative performance metrics
+    if len(df) > 1:
+        baseline_test_ll = df['test_ll'].iloc[0]
+        df['test_ll_improvement'] = df['test_ll'] - baseline_test_ll
+        df['test_ll_ratio'] = df['test_ll'] / baseline_test_ll
+    
+    return df
+
+
+def compute_loo_from_temporal_split(results):
+    """
+    Compute LOO-CV approximation from temporal split results.
+    
+    Note: This uses the training set log-likelihood from the trace.
+    For proper LOO-CV, you'd need pointwise log-likelihoods.
+    
+    Parameters
+    ----------
+    results : dict
+        Output from `temporal_train_test_split`
+    
+    Returns
+    -------
+    loo : arviz LOO result
+        Leave-one-out cross-validation approximation
+    """
+    trace = results['trace']
+    
+    # Check if log_likelihood is available
+    if not hasattr(trace, 'log_likelihood'):
+        raise ValueError("Trace does not contain log_likelihood group. "
+                        "Ensure idata_kwargs={'log_likelihood': True} was used during sampling.")
+    
+    # Compute LOO using ArviZ
+    loo = az.loo(trace, pointwise=True)
+    
+    return loo
+
+
+def plot_temporal_split_comparison(results_list, model_names=None, figsize=(12, 5)):
+    """
+    Create visualization comparing multiple models from temporal splits.
+    
+    Parameters
+    ----------
+    results_list : list of dict
+        List of results from `temporal_train_test_split`
+    model_names : list of str, optional
+        Names for each model
+    figsize : tuple
+        Figure size
+    
+    Returns
+    -------
+    fig : matplotlib Figure
+    """
+    import matplotlib.pyplot as plt
+    
+    if model_names is None:
+        model_names = [r.get('model_type', f'Model {i}') for i, r in enumerate(results_list)]
+    
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+    
+    # Extract metrics
+    train_lls = [r['train_ll'] / r['train_size'] for r in results_list]
+    test_lls = [r['test_ll'] / r['test_size'] for r in results_list]
+    
+    # Plot 1: Per-observation log-likelihoods
+    x = np.arange(len(model_names))
+    width = 0.35
+    
+    axes[0].bar(x - width/2, train_lls, width, label='Train', alpha=0.8)
+    axes[0].bar(x + width/2, test_lls, width, label='Test', alpha=0.8)
+    axes[0].set_xlabel('Model')
+    axes[0].set_ylabel('Log-likelihood per observation')
+    axes[0].set_title('Model Performance')
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(model_names, rotation=45, ha='right')
+    axes[0].legend()
+    axes[0].grid(axis='y', alpha=0.3)
+    
+    # Plot 2: Generalization gap
+    gaps = np.array(train_lls) - np.array(test_lls)
+    colors = ['green' if g < 0.5 else 'orange' if g < 1.0 else 'red' for g in gaps]
+    axes[1].bar(x, gaps, color=colors, alpha=0.8)
+    axes[1].set_xlabel('Model')
+    axes[1].set_ylabel('Train - Test LL per obs')
+    axes[1].set_title('Generalization Gap')
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(model_names, rotation=45, ha='right')
+    axes[1].axhline(y=0, color='k', linestyle='--', alpha=0.3)
+    axes[1].grid(axis='y', alpha=0.3)
+    
+    plt.tight_layout()
+    return fig
+
+
 def cv_results_to_arviz(cv_results):
     """
     Convert grouped cross-validation results to an ArviZ-compatible InferenceData object.
@@ -1013,7 +1385,7 @@ def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_
         return
 
     # Run grouped CV comparison
-    df_cv_compare, cv_results_dict = grouped_cv_compare(
+    df_cv_compare, cv_results_dict = temporal_train_test_split(
         Xy, neuron_name,
         dataset_name=dataset_name,
         residual_mode=residual_mode,
