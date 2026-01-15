@@ -749,13 +749,11 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
     n_samples = len(df_model)
     test_size = int(n_samples * (1 - train_frac))
     train_size_each_side = (n_samples - test_size) // 2
-    # Account for rounding: ensure all samples are covered
-    train_size_second_half = n_samples - test_size - train_size_each_side
     
     # Indices for train (beginning and end) and test (middle)
     train_idx = np.concatenate([
         np.arange(0, train_size_each_side),
-        np.arange(train_size_each_side + test_size, train_size_each_side + test_size + train_size_second_half)
+        np.arange(train_size_each_side + test_size, n_samples)
     ])
     test_idx = np.arange(train_size_each_side, train_size_each_side + test_size)
     
@@ -827,6 +825,12 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
     
     # Get training log-likelihood
     train_ll = trace.log_likelihood["y"].sum(dim="y_dim_0").mean().values
+    
+    # Rename the training log_likelihood group to avoid conflict
+    train_log_likelihood = trace.log_likelihood
+    del trace.log_likelihood
+    trace = trace.assign(train_log_likelihood=train_log_likelihood)
+    
     print(f"Training log-likelihood: {train_ll:.4f}")
     
     # Evaluate on test data by swapping in test data
@@ -839,12 +843,13 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
             'dataset_idx': dataset_idx_test
         })
         
-        # Compute posterior predictive with test data
-        ppc = pm.sample_posterior_predictive(trace, progressbar=True)
-        
-        # Compute test log-likelihood manually using the posterior samples
+        # Compute test log-likelihood and add as separate group
         test_ll_samples = pm.compute_log_likelihood(trace, progressbar=True)
         test_ll = test_ll_samples["y"].sum(dim="y_dim_0").mean().values
+        
+        # Rename to test_log_likelihood
+        del trace.log_likelihood
+        trace = trace.assign(test_log_likelihood=test_ll_samples)
     
     print(f"Test log-likelihood: {test_ll:.4f}")
     
@@ -862,68 +867,6 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
     }
     
     return results
-
-
-def temporal_split_to_arviz(results):
-    """
-    Convert temporal train-test split results to an ArviZ-compatible InferenceData object.
-    
-    Since the temporal split already produces a full posterior trace with trial-specific
-    parameters, this function simply extracts the relevant log-likelihood information
-    and adds test set metadata.
-    
-    Parameters
-    ----------
-    results : dict
-        Output from `temporal_train_test_split`, containing:
-        - 'trace': arviz InferenceData with posterior samples
-        - 'test_ll': test set log-likelihood
-        - 'train_ll': training set log-likelihood
-        - 'test_size': number of test observations
-        - 'train_size': number of training observations
-        - 'neuron_name': neuron identifier
-        - 'model_type': type of model fitted
-    
-    Returns
-    -------
-    idata : arviz.InferenceData
-        Enhanced InferenceData object with additional test set information in attributes
-        and a 'test_log_likelihood' group if available.
-    """
-    trace = results['trace']
-    
-    # Add metadata to the existing trace
-    trace.posterior.attrs.update({
-        'neuron_name': results['neuron_name'],
-        'model_type': results['model_type'],
-        'test_ll': float(results['test_ll']),
-        'train_ll': float(results['train_ll']),
-        'test_size': int(results['test_size']),
-        'train_size': int(results['train_size']),
-    })
-    
-    # The trace already contains log_likelihood from training
-    # We can add test log-likelihood as a separate group if desired
-    if 'test_ll_per_sample' in results:
-        # If you've stored per-posterior-sample test likelihoods
-        test_ll_samples = results['test_ll_per_sample']
-        
-        # Create test_log_likelihood dataset
-        test_ll_ds = xr.Dataset(
-            {
-                'y': (['chain', 'draw', 'y_dim_0'], test_ll_samples),
-            },
-            coords={
-                'chain': trace.posterior.coords['chain'],
-                'draw': trace.posterior.coords['draw'],
-                'y_dim_0': np.arange(test_ll_samples.shape[-1]),
-            },
-        )
-        
-        # Add as a new group to the InferenceData
-        trace = trace.assign(test_log_likelihood=test_ll_ds)
-    
-    return trace
 
 
 def cv_results_to_arviz(cv_results):
@@ -1183,9 +1126,9 @@ def grouped_cv_compare(Xy, neuron_name, dataset_name='all', residual_mode='pca_g
     return df_cv_compare, cv_results_dict
 
 
-def temporal_split_compare(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
-                           use_additional_eigenworms=True, models_to_compare=None,
-                           train_frac=2/3, DEBUG=False):
+def temporal_split_compare_simple(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
+                                  use_additional_eigenworms=True, models_to_compare=None,
+                                  train_frac=2/3, DEBUG=False):
     """
     Simplified comparison using only test set performance (no LOO).
     
@@ -1258,9 +1201,14 @@ def temporal_split_compare(Xy, neuron_name, dataset_name='all', residual_mode='p
     # Add relative performance vs best model
     best_test_ll = df_compare['test_ll_per_obs'].max()
     df_compare['test_ll_diff'] = df_compare['test_ll_per_obs'] - best_test_ll
+
+    # Add names to match az.compare format
+    df_compare.index.name = 'model'
+    df_compare['elpd_loo'] = df_compare['test_ll_per_obs'] * df_compare['test_size']  # undo normalization for compatibility
+    df_compare['p_loo'] = np.nan  # not computed here
+    df_compare['loo_scale'] = 'test_ll_per_obs'
     
     return df_compare, results_dict
-
 
 
 def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, 
@@ -1345,7 +1293,7 @@ def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_
         print(f"Skipping {neuron_name} because there is no valid data")
         return
 
-    save_grouped_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dataset_name)
+    save_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dataset_name)
 
 
 def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
@@ -1419,7 +1367,7 @@ def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if
     save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir)
 
 
-def save_grouped_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dataset_name='all'):
+def save_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dataset_name='all'):
     """
     Save grouped cross-validation results (without full traces, which are too large).
     
