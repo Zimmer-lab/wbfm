@@ -441,12 +441,12 @@ def neurons_with_confident_ids(combine_left_right=False, add_parentheses_for_les
         neuron_names = [n[:-1] if (n[-1] in ['L', 'R'] and len(n) > 3) else n for n in neuron_names]
         neuron_names = list(set(neuron_names))
     if add_parentheses_for_less_confident:
-        less_confident = less_confident_neuron_ids(combine_left_right=combine_left_right)
+        less_confident = neurons_with_less_confident_ids(combine_left_right=combine_left_right)
         neuron_names = [f"({n})" if n in less_confident else n for n in neuron_names]
     return neuron_names
 
 
-def less_confident_neuron_ids(combine_left_right=False):
+def neurons_with_less_confident_ids(combine_left_right=False, return_mapping=False):
 
     neuron_names = ['SAAVL', 'SAAVR', 'AWBL', 'AWBR', 'RIBL', 'RIBR', #'AVBL', 'AVBR', 
                     'AUAL', 'AUAR',
@@ -454,6 +454,11 @@ def less_confident_neuron_ids(combine_left_right=False):
     if combine_left_right:
         neuron_names = [n[:-1] if (n[-1] in ['L', 'R'] and len(n) > 3) else n for n in neuron_names]
         neuron_names = list(set(neuron_names))
+    if return_mapping:
+        # Map from all confident names to themselves, except those that are less confident
+        all_neuron_names = neurons_with_confident_ids(combine_left_right=combine_left_right)
+        mapping = {n: f"({n})" if n in neuron_names else n for n in all_neuron_names}
+        return mapping
     return neuron_names
 
 
