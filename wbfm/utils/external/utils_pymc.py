@@ -926,140 +926,6 @@ def temporal_split_to_arviz(results):
     return trace
 
 
-def compare_temporal_splits(results_list, model_names=None):
-    """
-    Compare multiple models trained with temporal splits using ArviZ.
-    
-    Parameters
-    ----------
-    results_list : list of dict
-        List of results from `temporal_train_test_split` for different models
-    model_names : list of str, optional
-        Names for each model. If None, uses model_type from results.
-    
-    Returns
-    -------
-    comparison_df : pd.DataFrame
-        Comparison of models with test/train log-likelihoods
-    """
-    comparison_data = []
-    
-    for i, results in enumerate(results_list):
-        if model_names is not None:
-            name = model_names[i]
-        else:
-            name = results.get('model_type', f'model_{i}')
-        
-        comparison_data.append({
-            'model': name,
-            'neuron': results['neuron_name'],
-            'train_ll': results['train_ll'],
-            'test_ll': results['test_ll'],
-            'train_size': results['train_size'],
-            'test_size': results['test_size'],
-            'train_ll_per_obs': results['train_ll'] / results['train_size'],
-            'test_ll_per_obs': results['test_ll'] / results['test_size'],
-        })
-    
-    df = pd.DataFrame(comparison_data)
-    
-    # Add relative performance metrics
-    if len(df) > 1:
-        baseline_test_ll = df['test_ll'].iloc[0]
-        df['test_ll_improvement'] = df['test_ll'] - baseline_test_ll
-        df['test_ll_ratio'] = df['test_ll'] / baseline_test_ll
-    
-    return df
-
-
-def compute_loo_from_temporal_split(results):
-    """
-    Compute LOO-CV approximation from temporal split results.
-    
-    Note: This uses the training set log-likelihood from the trace.
-    For proper LOO-CV, you'd need pointwise log-likelihoods.
-    
-    Parameters
-    ----------
-    results : dict
-        Output from `temporal_train_test_split`
-    
-    Returns
-    -------
-    loo : arviz LOO result
-        Leave-one-out cross-validation approximation
-    """
-    trace = results['trace']
-    
-    # Check if log_likelihood is available
-    if not hasattr(trace, 'log_likelihood'):
-        raise ValueError("Trace does not contain log_likelihood group. "
-                        "Ensure idata_kwargs={'log_likelihood': True} was used during sampling.")
-    
-    # Compute LOO using ArviZ
-    loo = az.loo(trace, pointwise=True)
-    
-    return loo
-
-
-def plot_temporal_split_comparison(results_list, model_names=None, figsize=(12, 5)):
-    """
-    Create visualization comparing multiple models from temporal splits.
-    
-    Parameters
-    ----------
-    results_list : list of dict
-        List of results from `temporal_train_test_split`
-    model_names : list of str, optional
-        Names for each model
-    figsize : tuple
-        Figure size
-    
-    Returns
-    -------
-    fig : matplotlib Figure
-    """
-    import matplotlib.pyplot as plt
-    
-    if model_names is None:
-        model_names = [r.get('model_type', f'Model {i}') for i, r in enumerate(results_list)]
-    
-    fig, axes = plt.subplots(1, 2, figsize=figsize)
-    
-    # Extract metrics
-    train_lls = [r['train_ll'] / r['train_size'] for r in results_list]
-    test_lls = [r['test_ll'] / r['test_size'] for r in results_list]
-    
-    # Plot 1: Per-observation log-likelihoods
-    x = np.arange(len(model_names))
-    width = 0.35
-    
-    axes[0].bar(x - width/2, train_lls, width, label='Train', alpha=0.8)
-    axes[0].bar(x + width/2, test_lls, width, label='Test', alpha=0.8)
-    axes[0].set_xlabel('Model')
-    axes[0].set_ylabel('Log-likelihood per observation')
-    axes[0].set_title('Model Performance')
-    axes[0].set_xticks(x)
-    axes[0].set_xticklabels(model_names, rotation=45, ha='right')
-    axes[0].legend()
-    axes[0].grid(axis='y', alpha=0.3)
-    
-    # Plot 2: Generalization gap
-    gaps = np.array(train_lls) - np.array(test_lls)
-    colors = ['green' if g < 0.5 else 'orange' if g < 1.0 else 'red' for g in gaps]
-    axes[1].bar(x, gaps, color=colors, alpha=0.8)
-    axes[1].set_xlabel('Model')
-    axes[1].set_ylabel('Train - Test LL per obs')
-    axes[1].set_title('Generalization Gap')
-    axes[1].set_xticks(x)
-    axes[1].set_xticklabels(model_names, rotation=45, ha='right')
-    axes[1].axhline(y=0, color='k', linestyle='--', alpha=0.3)
-    axes[1].grid(axis='y', alpha=0.3)
-    
-    plt.tight_layout()
-    return fig
-
-
 def cv_results_to_arviz(cv_results):
     """
     Convert grouped cross-validation results to an ArviZ-compatible InferenceData object.
@@ -1317,6 +1183,86 @@ def grouped_cv_compare(Xy, neuron_name, dataset_name='all', residual_mode='pca_g
     return df_cv_compare, cv_results_dict
 
 
+def temporal_split_compare(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
+                           use_additional_eigenworms=True, models_to_compare=None,
+                           train_frac=2/3, DEBUG=False):
+    """
+    Simplified comparison using only test set performance (no LOO).
+    
+    This is faster and more straightforward than the LOO-based comparison,
+    and directly uses the held-out test set performance.
+    
+    Parameters
+    ----------
+    Same as temporal_split_compare
+    
+    Returns
+    -------
+    df_compare : pd.DataFrame
+        Comparison DataFrame with test/train performance metrics
+    results_dict : dict
+        Dictionary mapping model names to their temporal split results
+    """
+    if models_to_compare is None:
+        models_to_compare = ['null', 'nonhierarchical', 'hierarchical_pca']
+    
+    results_dict = {}
+    comparison_data = []
+    
+    for model_name in models_to_compare:
+        print(f"\n{'='*60}")
+        print(f"Running temporal split for {model_name} model on {neuron_name}")
+        print(f"{'='*60}")
+        
+        # Run temporal split for this model
+        results = temporal_train_test_split(
+            Xy, neuron_name,
+            dataset_name=dataset_name,
+            residual_mode=residual_mode,
+            use_additional_eigenworms=use_additional_eigenworms,
+            train_frac=train_frac,
+            model_type=model_name,
+            DEBUG=DEBUG
+        )
+        
+        if results is None:
+            print(f"Skipping {model_name} for {neuron_name} (no results)")
+            continue
+        
+        results_dict[model_name] = results
+        
+        comparison_data.append({
+            'model': model_name,
+            'test_ll': results['test_ll'],
+            'train_ll': results['train_ll'],
+            'test_ll_per_obs': results['test_ll'] / results['test_size'],
+            'train_ll_per_obs': results['train_ll'] / results['train_size'],
+            'generalization_gap': (results['train_ll'] / results['train_size']) - 
+                                 (results['test_ll'] / results['test_size']),
+            'test_size': results['test_size'],
+            'train_size': results['train_size'],
+        })
+        
+        print(f"Test LL/obs for {model_name}: {results['test_ll'] / results['test_size']:.4f}")
+    
+    if not comparison_data:
+        print(f"No results for {neuron_name}")
+        return None, results_dict
+    
+    df_compare = pd.DataFrame(comparison_data).set_index('model')
+    
+    # Add ranking based on test performance
+    df_compare['rank'] = df_compare['test_ll_per_obs'].rank(ascending=False).astype(int)
+    df_compare = df_compare.sort_values('test_ll_per_obs', ascending=False)
+    
+    # Add relative performance vs best model
+    best_test_ll = df_compare['test_ll_per_obs'].max()
+    df_compare['test_ll_diff'] = df_compare['test_ll_per_obs'] - best_test_ll
+    
+    return df_compare, results_dict
+
+
+
 def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, 
                        residual_mode='pca_global', use_additional_eigenworms=True, DEBUG=False):
     """
@@ -1378,6 +1324,7 @@ def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_
     if DEBUG:
         output_dir = f"{output_dir}_debug"
     Path(output_dir).mkdir(exist_ok=True)
+    print(f"Output directory: {output_dir}")
     
     # Check if it already exists
     if skip_if_exists and os.path.exists(os.path.join(output_dir, f'{neuron_name}_cv_compare.h5')):
@@ -1385,7 +1332,7 @@ def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_
         return
 
     # Run grouped CV comparison
-    df_cv_compare, cv_results_dict = temporal_train_test_split(
+    df_cv_compare, cv_results_dict = temporal_split_compare(
         Xy, neuron_name,
         dataset_name=dataset_name,
         residual_mode=residual_mode,
