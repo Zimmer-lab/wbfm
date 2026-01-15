@@ -841,8 +841,8 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
         del trace.log_likelihood
         
         # Compute test log-likelihood
-        test_ll_samples = pm.compute_log_likelihood(trace, progressbar=True)
-        test_ll = test_ll_samples["y"].sum(dim="y_dim_0").mean().values
+        test_ll_idata = pm.compute_log_likelihood(trace, progressbar=True)
+        test_ll = test_ll_idata.log_likelihood["y"].sum(dim="y_dim_0").mean().values
     
     print(f"Test log-likelihood: {test_ll:.4f}")
     
