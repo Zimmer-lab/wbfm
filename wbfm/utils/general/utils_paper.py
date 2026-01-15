@@ -1,8 +1,11 @@
 from collections import defaultdict
 import logging
 import os
+import re
 from typing import Dict
-
+from cv2 import add
+from scipy import stats
+from statsmodels.stats.multitest import multipletests
 from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,10 +13,10 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from tqdm.auto import tqdm
-
+from wbfm.utils.external.utils_plotly import colored_text
 from wbfm.utils.external.utils_matplotlib import export_legend
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
-from wbfm.utils.general.utils_hardcoded import get_neuron_base, load_paper_datasets, neuron_groups
+from wbfm.utils.general.utils_hardcoded import get_neuron_base, load_paper_datasets, neuron_groups, intrinsic_definition, intrinsic_categories_short_description, neurons_with_less_confident_ids
 
 from wbfm.utils.utils_cache import cache_to_disk_class
 from wbfm.utils.external.utils_plotly import pastelize_color, mute_color
@@ -1412,3 +1415,109 @@ def calc_displacement_dataframes(all_projects):
     df_displacement_gcamp = pd.DataFrame(all_displacements)
     
     return df_displacement_gcamp
+
+
+def calc_p_values_for_pca_weights(wbfm_weights: pd.DataFrame, immob_weights: pd.DataFrame,
+                                  intrinsic_categories_fname=None, add_parentheses_for_less_confident=True):
+    """
+    Calculate p values for PCA weights between two datasets; neurons should be id'ed in both datasets.
+    """
+
+    ##
+    ## Initial calculation of p values with multiple comparison correction
+    ##
+    opts_multipletests = dict(method='fdr_bh', alpha=0.05)
+
+    names_to_keep = set(wbfm_weights.columns).intersection(immob_weights.columns)
+    wbfm_melt = wbfm_weights.melt(var_name='neuron_name', value_name='PC1 weight').assign(dataset_type='gcamp')
+    immob_melt = immob_weights.melt(var_name='neuron_name', value_name='PC1 weight').assign(dataset_type='immob')
+    df_both = pd.concat([wbfm_melt, immob_melt], axis=0)
+    df_both = df_both[df_both['neuron_name'].isin(names_to_keep)]
+    df_both['Dataset Type'] = df_both['dataset_type'].map(data_type_name_mapping())
+
+    # Update the neuron names to include parentheses if they are less confident
+    if add_parentheses_for_less_confident:
+        mapping = neurons_with_less_confident_ids(combine_left_right=True, return_mapping=True)
+        df_both['neuron_name'] = df_both['neuron_name'].map(lambda x: mapping.get(x, x))
+
+    # Significantly different from 0... need a permutation version, so use an extra function
+    # From: https://stackoverflow.com/questions/73569894/permutation-based-alternative-to-scipy-stats-ttest-1samp
+    # def _t_statistic(x, axis=-1):
+    #     # return stats.ttest_1samp(x, popmean=0, axis=axis).statistic
+    #     return stats.ttest_1samp(x, popmean=0).statistic
+
+    # def t_statistic_permutation(x):
+    #     return stats.permutation_test((x.values, ), _t_statistic, permutation_type='samples', ).pvalue
+
+    def t_statistic_permutation(x):
+        return stats.wilcoxon(x.values).pvalue
+
+    # func = lambda x: stats.ttest_1samp(x, 0)[1]
+    df_groupby = df_both.dropna().groupby(['neuron_name', 'dataset_type'])
+    df_pvalue = df_groupby['PC1 weight'].apply(t_statistic_permutation).to_frame()
+    df_pvalue.columns = ['p_value']
+
+    # Multiple comparison correction in the same way for all tests
+    output = multipletests(df_pvalue.values.squeeze(), **opts_multipletests)
+    df_pvalue['p_value_corrected'] = output[1]
+    df_pvalue['significance_corrected'] = output[0]
+
+    # Sign of medians
+    df_medians_gcamp = df_groupby['PC1 weight'].median()[(slice(None), 'gcamp')]
+    df_medians_immob = df_groupby['PC1 weight'].median()[(slice(None), 'immob')]
+
+    # Significantly different from each other (should be exact same as the boxplot)
+    df_groupby = df_both.dropna().groupby(['neuron_name'])
+    func = lambda x: stats.ttest_ind(x[x['dataset_type']=='gcamp']['PC1 weight'], x[x['dataset_type']=='immob']['PC1 weight'], 
+                                    equal_var=False, permutations=1000)[1]
+    df_significant_diff = df_groupby.apply(func).to_frame()
+    df_significant_diff.columns = ['p_value_diff']
+    # Multiple comparison correction in the same way for all tests
+    output = multipletests(df_significant_diff.values.squeeze(), **opts_multipletests)
+    df_significant_diff['p_value_corrected_diff'] = output[1]
+    df_significant_diff['significance_corrected_diff'] = output[0]
+
+    ##
+    ## Conversion to interpretable categories
+    ##
+    # Process p value comparisons to 0
+    df_pvalue_thresh = df_pvalue['significance_corrected'].reset_index()
+
+    # Collect signficance calculations per datatype
+    df_pivot = df_pvalue_thresh.pivot_table(index='neuron_name', columns='dataset_type', values='significance_corrected', aggfunc='first')
+    df_4states_complex = df_pivot.astype(str).radd(df_pivot.columns + '_')
+    df_4states_complex = (df_4states_complex['gcamp'] + '_' + df_4states_complex['immob'])#.reset_index()
+
+    # Add suffix to the state: are both medians on the same side?
+    df_medians_gcamp.name = 'same_sign'
+    df_medians_immob.name = 'same_sign'
+    df_medians_same_sign = ((df_medians_gcamp>0) == (df_medians_immob>0)).astype(str).radd(df_medians_gcamp.name + '_')
+    df_4states_complex = df_4states_complex.to_frame().join(df_medians_same_sign)#.reset_index()
+
+    # Add suffix to the state: is the difference between them significant?
+    df_4states_complex = df_4states_complex.join(df_significant_diff['significance_corrected_diff'].astype(str).radd('diff_'))
+
+    # Combine into final categories
+    df_4states_complex.columns = ['pvalue_result', 'diff_sign', 'diff_sig']
+    df_4states = (df_4states_complex['pvalue_result'] + '_' + df_4states_complex['diff_sign'] + '_' + df_4states_complex['diff_sig']).to_frame()
+    df_4states.columns = ['Result']
+
+    df_4states_counts = df_4states['Result'].value_counts().reset_index()
+    df_4states_counts['Result_simple'] = df_4states_counts['Result'].map(intrinsic_definition)
+    df_4states['Result_simple'] = df_4states['Result'].map(intrinsic_definition)
+
+    df_4states['Result_description'] = df_4states['Result'].map(intrinsic_categories_short_description())
+
+    # Also add the original booleans that lead to these categories
+    df_categories = df_4states.copy().join(df_4states_complex.loc[:, ['pvalue_result', 'diff_sign', 'diff_sig']]).drop(columns='Result')
+
+    # Color xticks by later pie chart colors
+    # NOTE: IF UPDATING NEURONS: this will remove neurons, which then will not get into the pie chart later
+    # df_categories = pd.read_excel('fig3/intrinsic_categories.xlsx')
+    df_categories['Result_simple_color'] = df_categories['Result_simple'].map(intrinsic_categories_color_discrete_map(return_hex=False))
+    df_both = pd.merge(df_both, df_categories, on='neuron_name', validate='many_to_one')
+    df_both['neuron_name_html'] = df_both.apply(lambda x: colored_text(x['neuron_name'], x['Result_simple_color'], bold=True), axis=1)
+    if intrinsic_categories_fname is not None:
+        df_4states.sort_values(by='Result_description').to_excel(intrinsic_categories_fname)
+
+    return df_both, df_significant_diff, df_4states_counts
