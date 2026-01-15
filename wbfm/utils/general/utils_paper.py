@@ -1,9 +1,7 @@
 from collections import defaultdict
 import logging
 import os
-import re
 from typing import Dict
-from cv2 import add
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 from matplotlib.patches import Rectangle
