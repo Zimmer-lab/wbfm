@@ -11,10 +11,12 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from tqdm.auto import tqdm
+from pathlib import Path
+
 from wbfm.utils.external.utils_plotly import colored_text
 from wbfm.utils.external.utils_matplotlib import export_legend
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
-from wbfm.utils.general.utils_hardcoded import get_neuron_base, load_paper_datasets, neuron_groups, intrinsic_definition, intrinsic_categories_short_description, neurons_with_less_confident_ids
+from wbfm.utils.general.utils_hardcoded import get_neuron_base, load_paper_datasets, neuron_groups, intrinsic_definition, intrinsic_categories_short_description, neurons_with_confident_ids, neurons_with_less_confident_ids
 
 from wbfm.utils.utils_cache import cache_to_disk_class
 from wbfm.utils.external.utils_plotly import pastelize_color, mute_color
@@ -1519,3 +1521,160 @@ def calc_p_values_for_pca_weights(wbfm_weights: pd.DataFrame, immob_weights: pd.
         df_4states.sort_values(by='Result_description').to_excel(intrinsic_categories_fname)
 
     return df_both, df_significant_diff, df_4states_counts
+
+
+def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp, 
+                                   output_folder=None, remove_names_of_ns=True, display_text=True, to_show=True, **kwargs):
+    """
+    Plot Bayesian model comparison with GFP thresholds indicated.
+    """
+
+    # Add a couple names back in
+    # df_to_plot_gfp.loc['VB02', 'text'] = 'VB02 (gfp)'
+    # df_to_plot_gfp.loc['RMED', 'text'] = 'RMED (gfp)'
+    # df_to_plot_gfp.loc['RMEV', 'text'] = 'RMEV (gfp)'
+    rename_func = lambda x: f'{x} (gfp)' if x != '' else ''
+    df_to_plot_gfp.loc[:, 'text'] = df_to_plot_gfp.loc[:, 'text'].apply(rename_func)
+    # df_to_plot_gcamp.loc['RMDVL', 'text'] = 'RMDVL'
+    # df_to_plot_gcamp.loc['SMDVR', 'text'] = 'SMDVR'
+    # df_to_plot_gcamp.loc['VB03', 'text'] = 'VB03'
+    # Remove a couple names
+    # df_to_plot_gcamp.loc['BAGL', 'text'] = ''
+    # df_to_plot_gcamp.loc['URADL', 'text'] = ''
+
+    df_to_plot = pd.concat([df_to_plot_gcamp, df_to_plot_gfp])
+    df_to_plot['Dataset Type'] = df_to_plot['datatype']
+    df_to_plot['Size'] = 1
+
+    x_max_gfp = df_to_plot_gfp[x].max()
+    y_max_gfp = df_to_plot_gfp[y].max()
+    print('GFP thresholds: ', y_max_gfp, x_max_gfp)
+
+    def categorize_row(row):
+        if row[y] > y_max_gfp and row[x] > x_max_gfp:
+            return 'Hierarchical Behavior'
+        elif row[y] <= y_max_gfp and row[x] > x_max_gfp:
+            return 'Behavior only'
+        elif row[y] > y_max_gfp and row[x] <= x_max_gfp:
+            return 'Hierarchy only'
+        else:
+            return 'No Behavior or Hierarchy'
+
+    # Apply function to create new column
+    df_to_plot_gcamp['Category'] = df_to_plot_gcamp.apply(categorize_row, axis=1)
+    df_to_plot['Category'] = df_to_plot.apply(categorize_row, axis=1)
+    _df = df_to_plot[df_to_plot.index.isin(neurons_with_confident_ids())]
+    text = _df['text'].copy()
+    if remove_names_of_ns:
+        text[_df[y] <= y_max_gfp] = ''
+    
+    fig = px.scatter(_df, 
+                     # x='Hierarchy Score', y='Behavior Score', range_y=[-2, 60],
+                     y=y, x=x, #range_x=[-2, 60],
+                     text=text if display_text else None, 
+                     # color='Category', #
+                     color='Dataset Type',
+                     color_discrete_map=plotly_paper_color_discrete_map(), 
+                     #size='Size', 
+                     size_max=10,
+                     hover_data=['Category'],
+                     **kwargs
+                    )
+    fig.update_traces(textposition='middle left')
+
+    apply_figure_settings(fig, width_factor=1.0, height_factor=0.3)
+
+    # gfp lines
+    # fig.add_shape(type="line",
+    #               x0=x_max_gfp, y0=0,  # start of the line (bottom of the plot)
+    #               x1=x_max_gfp, y1=1,  # end of the line (top of the plot)
+    #               line=dict(color="black", width=1, dash="dash"),
+    #               xref='x',
+    #               yref='paper')
+    fig.add_shape(type="line",
+                  x0=0, y0=y_max_gfp,  # start of the line (bottom of the plot)
+                  x1=1, y1=y_max_gfp,  # end of the line (top of the plot)
+                  line=dict(color="black", width=1, dash="dash"),
+                  xref='paper',
+                  yref='y')
+    # Diagonal line
+    xy_max = np.min([df_to_plot[x].max(), df_to_plot[y].max()])
+    fig.add_shape(type="line",
+                  x0=0, y0=0,  # start of the line (bottom of the plot)
+                  x1=xy_max, y1=xy_max,  # end of the line (top of the plot)
+                  line=dict(color="black", width=1, dash="dash"),
+                  xref='x',
+                  yref='y')
+    fig.update_layout(legend=dict(
+        yanchor="top",
+        y=1.02,
+        xanchor="left",
+        x=0.02
+    ))
+    fig.update_xaxes(title=f'{x}')# over Behavior model')
+    fig.update_yaxes(title=f'{y}')# <br>over Trivial model')
+    
+    # Add contour plot for the gfp points
+    # _df2 = _df[_df['Dataset Type'] == 'Freely Moving (GFP, residual)']
+    # hist, x_edges, y_edges = np.histogram2d(_df2[x], _df2[y], bins=4)
+    # x_centers = (x_edges[:-1] + x_edges[1:]) / 2
+    # y_centers = (y_edges[:-1] + y_edges[1:]) / 2
+    # # contour = go.Figure(data=
+    # contour = go.Contour(
+    #         x=x_centers,
+    #         y=y_centers,
+    #         z=hist.T * 2,
+    #         contours_coloring='lines',
+    #         line_width=2,
+    #     )
+    # )
+    # Combine the scatter and contour plots
+    # fig.add_trace(contour)
+
+    if output_folder is not None:
+        ##
+        # Make a figure for presentations with fewer names
+        ##
+        apply_figure_settings(fig, height_factor=0.4, width_factor=0.5)
+        # fig.show()  # Showing here messes it up for the next save
+        fname = os.path.join(output_folder, 'hierarchy_behavior_score_with_gfp_presentation.png')
+        fig.write_image(fname, scale=7)
+
+    ##
+    # Final settings
+    ##
+
+    # # Add some additional annotations with arrows and offsets (gfp)
+    # annotations_to_add = ['VB02', 'RMED', 'RMEV']
+    # offset_list = [[10, -150], [250, -50], [130, -50]]
+    # for offset, neuron in zip(offset_list, annotations_to_add):
+    #     ind = df_to_plot['datatype'] == 'Freely Moving (GFP, residual)'
+    #     xy = list(df_to_plot[ind].loc[neuron, [x, y]])
+    #     text = f'{neuron} (GFP)'
+    #     fig.add_annotation(x=xy[0], y=xy[1], ax=offset[0], ay=offset[1],
+    #                        text=text, showarrow=True)
+
+    # # Add some additional annotations with arrows and offsets (gcamp)
+    # annotations_to_add = ['RIS']
+    # offset_list = [[100, -50]]
+    # for offset, neuron in zip(offset_list, annotations_to_add):
+    #     ind = df_to_plot['datatype'] == 'Freely Moving (GCaMP, residual)'
+    #     xy = list(df_to_plot[ind].loc[neuron, [x, y]])
+    #     text = f'{neuron}'
+    #     fig.add_annotation(x=xy[0], y=xy[1], ax=offset[0], ay=offset[1],
+    #                        text=text, showarrow=True)
+
+    apply_figure_settings(fig, height_factor=0.25, width_factor=0.5)
+
+    if output_folder is not None:
+        fname = os.path.join(output_folder, f'x-{x}_y-{y}.png')
+        fig.write_image(fname, scale=3)
+        fname = Path(fname).with_suffix('.svg')
+        fig.write_image(fname)
+        fname = Path(fname).with_suffix('.html')
+        fig.write_html(fname)
+        
+    if to_show:
+        fig.show()
+    
+    return fig, _df, text
