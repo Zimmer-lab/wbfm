@@ -1126,7 +1126,7 @@ def grouped_cv_compare(Xy, neuron_name, dataset_name='all', residual_mode='pca_g
     return df_cv_compare, cv_results_dict
 
 
-def temporal_split_compare_simple(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
+def temporal_split_compare(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
                                   use_additional_eigenworms=True, models_to_compare=None,
                                   train_frac=2/3, DEBUG=False):
     """
