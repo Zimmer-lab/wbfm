@@ -829,7 +829,7 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
     # Rename the training log_likelihood group to avoid conflict
     train_log_likelihood = trace.log_likelihood
     del trace.log_likelihood
-    trace = trace.assign(train_log_likelihood=train_log_likelihood)
+    trace = trace.add_groups(train_log_likelihood=train_log_likelihood)
     
     print(f"Training log-likelihood: {train_ll:.4f}")
     
@@ -849,7 +849,7 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
         
         # Rename to test_log_likelihood
         del trace.log_likelihood
-        trace = trace.assign(test_log_likelihood=test_ll_samples)
+        trace = trace.add_groups(test_log_likelihood=test_ll_samples)
     
     print(f"Test log-likelihood: {test_ll:.4f}")
     
