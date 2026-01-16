@@ -816,21 +816,25 @@ def convert_cv_results_to_bayesian_format(df_cv):
     return grouped.sort_values(['neuron_name', 'rank']).reset_index(drop=True)
 
 
-def package_bayesian_df_for_plot(df, df_normalization=None,
+def package_bayesian_df_for_plot(df, df_normalization=None, val_name='elpd_diff', take_absolute_value=False,
                                  min_num_datapoints=0, normalize_by_dse=True, DEBUG=False):
     """
     Builds a score to be plotted with the following logic:
     - Hierarchy Score: ELPD improvement of hierarchical_pca over null model
     - Behavior Score: ELPD improvement of nonhierarchical over null model
 
-    Either way, assumes that the 'elpd_diff' column is the 
+    Either way, assumes that the 'elpd_diff' column is the difference between the best model and the given model,
+    such that the best model has elpd_diff = 0, and worse models have positive elpd_diff.
     """
     
     # The scores should be calculated from the diff column, and the se of that, i.e. dse
     # However, the order of the models may be different, and thus the subtraction may not be what I want
     # So I could recalculate the loo for the pairs of models I actually want to compare
     # ... but I don't have the loo_dictionary, so I'll just set things to 0 if they aren't higher than the less complex models
-    df_diff = df.pivot(columns='model_type', index='neuron_name', values='elpd_diff').copy()
+    df = df.copy()
+    if take_absolute_value:
+        df[val_name] = df[val_name].abs()
+    df_diff = df.pivot(columns='model_type', index='neuron_name', values=val_name)
     
     if normalize_by_dse:
         # This normalizes by the standard error, i.e. converts it to a z-score like metric

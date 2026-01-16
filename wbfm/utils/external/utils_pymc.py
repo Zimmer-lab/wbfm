@@ -743,23 +743,36 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
     
     # Sort by time to ensure temporal ordering
     if 'time' in df_model.columns:
-        df_model = df_model.sort_values('time').reset_index(drop=True)
+        df_model = df_model.sort_values(['dataset_name', 'time']).reset_index(drop=True)
     
     # Create temporal split: middle third for test, outer thirds for train
-    n_samples = len(df_model)
-    test_size = int(n_samples * (1 - train_frac))
-    train_size_each_side = (n_samples - test_size) // 2
+    # Do this per trial (dataset_name) so each trial contributes balanced data
+    def split_trial_temporal(group, train_frac=2/3):
+        """Split a trial's indices into train/test temporally."""
+        n = len(group)
+        test_size = int(n * (1 - train_frac))
+        train_size_each_side = (n - test_size) // 2
+        
+        indices = group.index.values
+        train = np.concatenate([
+            indices[:train_size_each_side],
+            indices[train_size_each_side + test_size:]
+        ])
+        test = indices[train_size_each_side:train_size_each_side + test_size]
+        return train, test
     
-    # Indices for train (beginning and end) and test (middle)
-    train_idx = np.concatenate([
-        np.arange(0, train_size_each_side),
-        np.arange(train_size_each_side + test_size, n_samples)
-    ])
-    test_idx = np.arange(train_size_each_side, train_size_each_side + test_size)
+    # Apply split to each trial and collect indices
+    train_idx_list = []
+    test_idx_list = []
+    for _, group in df_model.groupby('dataset_name'):
+        train, test = split_trial_temporal(group, train_frac)
+        train_idx_list.append(train)
+        test_idx_list.append(test)
+    
+    train_idx = np.concatenate(train_idx_list)
+    test_idx = np.concatenate(test_idx_list)
     
     print(f"Train size: {len(train_idx)}, Test size: {len(test_idx)}")
-    print(f"Train indices: [0:{train_size_each_side}] + [{train_size_each_side + test_size}:{n_samples}]")
-    print(f"Test indices: [{train_size_each_side}:{train_size_each_side + test_size}]")
     
     # Extract features
     X_pca = df_model[['x_pca0', 'x_pca1']].values
