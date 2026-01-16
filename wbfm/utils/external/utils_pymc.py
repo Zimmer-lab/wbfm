@@ -743,7 +743,10 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
     
     # Sort by time to ensure temporal ordering
     if 'time' in df_model.columns:
-        df_model = df_model.sort_values(['dataset_name', 'time']).reset_index(drop=True)
+        df_model = df_model.sort_values(['dataset_name', 'time'])
+    
+    # Make sure that the index of df_model is contiguous
+    df_model = df_model.reset_index()
     
     # Create temporal split: middle third for test, outer thirds for train
     # Do this per trial (dataset_name) so each trial contributes balanced data
