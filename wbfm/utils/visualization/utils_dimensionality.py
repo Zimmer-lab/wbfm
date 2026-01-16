@@ -155,7 +155,7 @@ def calculate_dimensionality_of_single_neurons(combine_left_right=True, verbose=
     new_col = new_col.map(lambda x: x if x != 'Inter, ' else 'Interneuron')
     new_col = new_col.str.replace('Sensory, ', 'Sensory')
     new_col = new_col.str.replace('SensorySensory', 'Sensory')
-    new_col = new_col.str.replace('SensoryReverse', 'Sensory')
+    new_col = new_col.str.replace('SensoryBackward', 'Sensory')
     # new_col = new_col.str.replace('Forward', 'Forward')
     # new_col = new_col.str.replace('Reverse', 'Reverse')
     df_combined['combined_role'] = new_col
@@ -164,7 +164,7 @@ def calculate_dimensionality_of_single_neurons(combine_left_right=True, verbose=
                      # symbol='role', color='fwd_rev',
                      color='combined_role',
                      color_discrete_map=plotly_paper_color_discrete_map(),
-                     category_orders={'combined_role': ['Sensory', 'Interneuron', 'Motor', 'Inter, Forward', 'Inter, Reverse']},
+                     category_orders={'combined_role': ['Sensory', 'Interneuron', 'Motor', 'Inter, Forward', 'Inter, Backward']},
                      hover_name=df_combined.index)
                      #title='Effect sizes and p values of the difference in variance explained between immob and gcamp')
 
