@@ -488,7 +488,7 @@ def _role_of_neurons():
         'RMDD',
         'SMDD', 'SMDV', #'URAD',  # Only in freely moving
         ],
-    'Reverse': [
+    'Backward': [
         'AVA', 'AIB', 'RIM', 'DA1-DA9', 'VA1-VA12', 'AVE', 'RIA', 'URYD', 'URYV',
         'RMDV',
         ],
@@ -521,7 +521,7 @@ def role_of_neuron_dict(only_fwd_rev=False, include_fwd_rev=False, include_basic
     role_dict = defaultdict(list)
     for role, info in _role_of_neurons().items():
 
-        if role in ['Forward', 'Reverse']:
+        if role in ['Forward', 'Backward']:
             if not only_fwd_rev and not include_fwd_rev:
                 continue
         elif only_fwd_rev:

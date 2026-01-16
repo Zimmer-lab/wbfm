@@ -11,7 +11,7 @@ from wbfm.utils.general.utils_hardcoded import (get_hierarchical_modeling_dir, r
                                                 neurons_with_confident_ids)
 
 
-def main(combine_left_right=True, verbose=0):
+def calculate_dimensionality_of_single_neurons(combine_left_right=True, verbose=0):
     output_folder = '/home/charles/Current_work/repos/dlc_for_wbfm/wbfm/notebooks/paper/intro/dimensionality'
 
     # Import traces (gcamp and immob)
@@ -208,5 +208,5 @@ def main(combine_left_right=True, verbose=0):
 
 
 if __name__ == '__main__':
-    main(combine_left_right=False)
-    main(combine_left_right=True)
+    calculate_dimensionality_of_single_neurons(combine_left_right=False)
+    calculate_dimensionality_of_single_neurons(combine_left_right=True)
