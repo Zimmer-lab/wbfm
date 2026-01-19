@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import reduce
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Tuple
 import plotly.express as px
 import numpy as np
 import pandas as pd
@@ -374,7 +374,7 @@ def build_pca_time_series_from_multiple_projects(all_projects: Dict[str, Project
 
 
 def build_cca_time_series_from_multiple_projects(all_projects: Dict[str, ProjectData], n_components=2,
-                                                 **kwargs) -> pd.DataFrame:
+                                                 **kwargs) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Like build_pca_time_series_from_multiple_projects, but for CCA modes
 
@@ -386,15 +386,19 @@ def build_cca_time_series_from_multiple_projects(all_projects: Dict[str, Project
                    beh_kwargs=beh_kwargs)
 
     # Calculate for all projects
-    all_dfs = {}
+    all_dfs_neural = {}
+    all_dfs_beh = {}
     for dataset_name, p in all_projects.items():
         p.use_physical_x_axis = True
         cca_obj = CCAPlotter(p, **cca_opt)
-        df = cca_obj.calc_cca(n_components=n_components, return_dataframes=True, **kwargs)
-        all_dfs[dataset_name] = df
-    df_traces = pd.concat(all_dfs)
-    df_traces = df_traces.reset_index(names=['dataset_name', 'local_time'])
-    return df_traces
+        df_neural, df_beh, _ = cca_obj.calc_cca(n_components=n_components, return_dataframes=True, **kwargs)
+        all_dfs_neural[dataset_name] = df_neural
+        all_dfs_beh[dataset_name] = df_beh
+    df_traces_neural = pd.concat(all_dfs_neural)
+    df_traces_beh = pd.concat(all_dfs_beh)
+    df_traces_neural = df_traces_neural.reset_index(names=['dataset_name', 'local_time'])
+    df_traces_beh = df_traces_beh.reset_index(names=['dataset_name', 'local_time'])
+    return df_traces_neural, df_traces_beh
 
 
 def build_dataframe_of_variance_explained(all_projects: Dict[str, ProjectData], n_components=2,
