@@ -4,8 +4,10 @@ from typing import Tuple, List, Union, Dict, Optional
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LinearRegression
 
 from wbfm.utils.external.custom_errors import DataSynchronizationError
+from wbfm.utils.general.utils_hardcoded import default_discrete_behaviors
 
 
 def fix_extra_spaces_in_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -1473,13 +1475,27 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
     x_pca1 = _Xy[f'pca_1']
     x_pca1 = (x_pca1 - x_pca1.mean()) / x_pca1.std()  # z-score
     if residual_mode == 'pca_global' or residual_mode == 'pca_global_2':
-        # Predict the residual
+        # Predict the residual, subtracting 2 pca modes
         y = _Xy[f'{neuron_name}'] - _Xy[f'{neuron_name}_manifold']
     elif residual_mode == 'pca_global_1':
         # Subtract only pc1
         y = _Xy[f'{neuron_name}'] - _Xy[f'{neuron_name}_manifold1']
     elif residual_mode is None:
         y = _Xy[f'{neuron_name}']
+    elif residual_mode == 'cca_continuous':
+        # Predict the residual, subtracting cca modes
+        # Use 2 CCA modes, column name = CCA_neural_mode_{i}
+        x = _Xy[[f'CCA_neural_mode_{i}' for i in range(2)]].values
+        # I don't have the subtracted version, so do a linear regression to get it
+        y_pred = LinearRegression().fit(x, _Xy[f'{neuron_name}']).predict(x)
+        y = _Xy[f'{neuron_name}'] - y_pred
+    elif residual_mode == 'discrete' or residual_mode == 'binary':
+        # Predict the residual, subtracting discrete modes
+        cols = default_discrete_behaviors()
+        x = _Xy[cols].values
+        # I don't have the subtracted version, so do a linear regression to get it
+        y_pred = LinearRegression().fit(x, _Xy[f'{neuron_name}']).predict(x)
+        y = _Xy[f'{neuron_name}'] - y_pred
     else:
         raise ValueError(f"Unknown residual mode {residual_mode}; should be None, 'pca_global', or 'pca_global_1'")
     y = (y - y.mean()) / y.std()  # z-score

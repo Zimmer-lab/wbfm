@@ -7,7 +7,7 @@ function show_help {
   echo "Usage: $0 [-g] [-r] [-c] [-h] <gfp>"
   echo "  -g: Use GFP data"
   echo "  -s: Use simple eigenworms (1 and 2 only)"
-  echo "  -r: Trace mode; should be one of 'None', 'pca_global', 'pca_global_1'; default is pca_global"
+  echo "  -r: Trace mode; should be one of 'None', 'pca_global', 'pca_global_1', 'cca_continuous', 'discrete'; default is pca_global"
   echo "  -c: Run temporal-split CV comparison instead of full model fitting"
   echo "  -d: debug mode, which only runs a single neuron (few iterations) for testing"
   echo "  -h: Show this help message"

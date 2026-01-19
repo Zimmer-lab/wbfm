@@ -41,7 +41,7 @@ from tqdm.auto import tqdm
 
 from wbfm.utils.projects.neuropal_manager import NeuropalManager
 from wbfm.utils.traces.triggered_averages import plot_triggered_average_from_matrix_low_level
-from wbfm.utils.general.utils_hardcoded import read_names_of_neurons_to_id, neurons_with_confident_ids
+from wbfm.utils.general.utils_hardcoded import default_discrete_behaviors, read_names_of_neurons_to_id, neurons_with_confident_ids
 from wbfm.utils.external.utils_pandas import dataframe_to_numpy_zxy_single_frame, df_to_matches, \
     get_column_name_from_time_and_column_value, fix_extra_spaces_in_dataframe_columns, \
     get_contiguous_blocks_from_column, make_binary_vector_from_starts_and_ends, fill_missing_indices_with_nan, \
@@ -1061,7 +1061,7 @@ class ProjectData:
         """
 
         if binary_behaviors:
-            behavior_codes = ['rev', 'ventral_turn', 'dorsal_turn', 'pause', 'self_collision']
+            behavior_codes = default_discrete_behaviors()
         else:
             behavior_codes = ['signed_middle_body_speed', 'ventral_only_body_curvature', 'ventral_only_head_curvature',
                               'dorsal_only_body_curvature', 'dorsal_only_head_curvature']

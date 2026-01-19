@@ -837,3 +837,8 @@ def get_neuron_base(neuron_name:str) -> str:
         if (possible_base + "L" in all_neurons) and (possible_base + "R" in all_neurons):
             return possible_base
     return neuron_name
+
+
+def default_discrete_behaviors():
+    discrete_behavior_names = ['rev', 'ventral_turn', 'dorsal_turn', 'pause', 'self_collision']
+    return discrete_behavior_names

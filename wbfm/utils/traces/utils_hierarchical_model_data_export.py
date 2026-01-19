@@ -1,6 +1,6 @@
 import os
 
-from wbfm.utils.general.utils_hardcoded import load_paper_datasets, get_hierarchical_modeling_dir
+from wbfm.utils.general.utils_hardcoded import default_discrete_behaviors, load_paper_datasets, get_hierarchical_modeling_dir
 from wbfm.utils.visualization.multiproject_wrappers import build_cca_time_series_from_multiple_projects, build_trace_time_series_from_multiple_projects, \
     build_behavior_time_series_from_multiple_projects, build_cross_dataset_eigenworms, \
     build_pca_time_series_from_multiple_projects
@@ -49,7 +49,7 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
         df_all_behavior.sort_values(['dataset_name', 'local_time'], inplace=True)
 
         # Add discrete behaviors, and save as int
-        discrete_behavior_names = ['rev', 'ventral_turn', 'dorsal_turn', 'pause', 'self_collision']
+        discrete_behavior_names = default_discrete_behaviors()
         df_beh_binary = build_behavior_time_series_from_multiple_projects(all_projects, behavior_names=discrete_behavior_names)
         for name in discrete_behavior_names:
             df_beh_binary[name] = df_beh_binary[name].astype(int)

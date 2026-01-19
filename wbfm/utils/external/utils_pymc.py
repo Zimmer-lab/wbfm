@@ -1352,7 +1352,7 @@ def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if
         return
 
     if dataset_name == 'all':
-        output_dir = os.path.join(data_dir, 'output')
+        output_dir = os.path.join(data_dir, f'output_{residual_mode}')
     else:
         output_dir = os.path.join(data_dir, 'output_single_dataset')
     if DEBUG:
@@ -1565,9 +1565,9 @@ if __name__ == '__main__':
 
     if args.cv_comparison:
         main_cv_comparison(neuron_name=args.neuron_name, do_gfp=args.do_gfp, 
-                          residual_mode=residual_mode,
-                          use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
+                           residual_mode=residual_mode,
+                           use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
     else:
         main_full_models(neuron_name=args.neuron_name, do_gfp=args.do_gfp, 
-                        residual_mode=residual_mode,
-                        use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
+                         residual_mode=residual_mode,
+                         use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
