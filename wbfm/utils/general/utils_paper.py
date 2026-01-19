@@ -1,3 +1,4 @@
+from calendar import c
 from collections import defaultdict
 import logging
 import os
@@ -955,6 +956,7 @@ def plot_foldchange_boxes(
         nonsig_color: str = "lightgray",
         neuron_order: list = None,
         add_text: bool = False,
+        center_at_zero: bool = False,
         DEBUG=False
 ):
     """
@@ -1022,7 +1024,7 @@ def plot_foldchange_boxes(
     if len(all_values) == 0:
         raise ValueError("No numeric values found to color boxes.")
 
-    if use_pval_log10:
+    if use_pval_log10 or center_at_zero:
         # force symmetric color scale around 0
         abs_max = np.max(np.abs(all_values))
         v_min, v_max = -abs_max, abs_max
@@ -1123,6 +1125,10 @@ def plot_foldchange_boxes(
     # X ticks
     # xtick_positions = [xi * (bw + behavior_hspace) + bw / 2.0 for xi in range(n_beh)]
     # print(xtick_positions)
+    if DEBUG:
+        print("X tick positions and labels:")
+        print(xtick_positions)
+        print(xtick_labels)
     if 'sub' in xtick_positions:
         ax.set_xticks(xtick_positions['sub'])
         ax.set_xticklabels(xtick_labels['sub'])
@@ -1151,6 +1157,9 @@ def plot_foldchange_boxes(
     ax.tick_params(axis="y", which="both", length=0)
 
     # Group labels
+    if DEBUG:
+        print("Group positions:")
+        print(group_positions)
     for g, (start_y, end_y) in group_positions.items():
         ymid = (start_y + end_y) / 2.0 + bh / 2.0
         ax.text(
@@ -1174,10 +1183,16 @@ def plot_foldchange_boxes(
 
     # Colorbar
     sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap_obj)
-    sm.set_array(all_values)
-    cbar = fig.colorbar(sm, ax=ax, fraction=0.06, pad=0.03)
+    if DEBUG:
+        print(f"Creating colorbar with vmin: {vmin}, vmax: {vmax}")
+        print(cmap_obj)
+        print(norm)
+    # Don't set array - let the norm handle the mapping
+    
+    cbar = fig.colorbar(sm, ax=ax)
+    # cbar = fig.colorbar(sm, ax=ax, fraction=0.06, pad=0.03)
     cbar_label = "Signed -log10(adj p-value)" if use_pval_log10 else value_col.replace("_", " ").title()
-    cbar.set_label(cbar_label,fontsize=10)
+    cbar.set_label(cbar_label, fontsize=10)
 
     # --- Modify colorbar tick labels if clipping happened ---
     ticks = cbar.get_ticks()

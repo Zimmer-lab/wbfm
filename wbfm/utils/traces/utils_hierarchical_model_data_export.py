@@ -66,6 +66,11 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
                                                                       residual_mode='pca_global_1')
     df_all_manifold1.sort_values(['dataset_name', 'local_time'], inplace=True)
 
+    # Also calculate CCA modes as done in the paper
+    df_all_pca = build_cca_time_series_from_multiple_projects(all_projects, use_paper_options=True)
+    df_all_pca.rename(columns={i: f'pca_{i}' for i in range(4)}, inplace=True)
+
+
     # Align and export
     # Remake local time columns to just be integers
     df_all_traces['local_time'] = df_all_traces.groupby('dataset_name').cumcount()

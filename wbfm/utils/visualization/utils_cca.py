@@ -113,7 +113,7 @@ class CCAPlotter:
             return self._df_beh
 
     @lru_cache(maxsize=16)
-    def calc_cca(self, n_components=3, binary_behaviors=False, sparse_tau=None):
+    def calc_cca(self, n_components=3, binary_behaviors=False, sparse_tau=None, return_dataframes=False):
         """
         Does regular or sparse CCA. Returns the transformed data and the CCA object
 
@@ -141,6 +141,12 @@ class CCAPlotter:
             import cca_zoo.models as scc_mod
             cca = scc_mod.SCCA_IPLS(latent_dims=n_components, tau=sparse_tau)
             X_r, Y_r = cca.fit_transform([X, Y])
+        
+        if return_dataframes:
+            # Basically just set up the indices to be the same as the input dataframes
+            X_r = pd.DataFrame(X_r, index=X.index, columns=[f'CCA_neural_mode_{i+1}' for i in range(X_r.shape[1])])
+            Y_r = pd.DataFrame(Y_r, index=Y.index, columns=[f'CCA_behavior_mode_{i+1}' for i in range(Y_r.shape[1])])
+
         return X_r, Y_r, cca
 
     def calc_cca_scores(self, n_components=3, binary_behaviors=False, sparse_tau=None):
