@@ -39,7 +39,7 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
 
     if not do_immobilized:
         behavior_names = ['curvature_vb02', #'curvature_5', 'curvature_10', 'curvature_15', 'curvature_20',
-                          'fwd', 'speed', 'ventral_only_head_curvature', 'dorsal_only_head_curvature',
+                          'speed', 'ventral_only_head_curvature', 'dorsal_only_head_curvature',
                           'ventral_only_body_curvature', 'dorsal_only_body_curvature', 'self_collision',
                           'head_signed_curvature', 'summed_curvature',
                           'worm_nose_peak_frequency', 'worm_head_peak_frequency', 'worm_body_peak_frequency']
@@ -47,7 +47,13 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
         behavior_names += [f'curvature_{i}' for i in range(1, 100)]
         df_all_behavior = build_behavior_time_series_from_multiple_projects(all_projects, behavior_names=behavior_names)
         df_all_behavior.sort_values(['dataset_name', 'local_time'], inplace=True)
-        df_all_behavior['fwd'] = df_all_behavior['fwd'].astype(int)
+
+        # Add discrete behaviors, and save as int
+        discrete_behavior_names = ['rev', 'ventral_turn', 'dorsal_turn', 'pause', 'self_collision']
+        df_beh_binary = build_behavior_time_series_from_multiple_projects(all_projects, behavior_names=discrete_behavior_names)
+        for name in discrete_behavior_names:
+            df_beh_binary[name] = df_beh_binary[name].astype(int)
+        df_all_behavior = df_all_behavior.merge(df_beh_binary, on=['dataset_name', 'local_time'], how='inner')
 
         # Recalculate multi-dataset eigenworms
         df_eigenworms = build_cross_dataset_eigenworms(all_projects)
