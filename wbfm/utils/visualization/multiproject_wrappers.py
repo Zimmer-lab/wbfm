@@ -391,7 +391,7 @@ def build_cca_time_series_from_multiple_projects(all_projects: Dict[str, Project
     for dataset_name, p in all_projects.items():
         p.use_physical_x_axis = True
         cca_obj = CCAPlotter(p, **cca_opt)
-        df_neural, df_beh, _ = cca_obj.calc_cca(n_components=n_components, return_dataframes=True, **kwargs)
+        df_neural, df_beh, _ = cca_obj.calc_cca(n_components=n_components, return_dataframes=True)
         all_dfs_neural[dataset_name] = df_neural
         all_dfs_beh[dataset_name] = df_beh
     df_traces_neural = pd.concat(all_dfs_neural)
