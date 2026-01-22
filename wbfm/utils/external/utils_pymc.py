@@ -108,7 +108,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
                 opt['tune'] = 10
 
             trace = pm.sample(**opt,
-                              chains=4, return_inferencedata=True, idata_kwargs={"log_likelihood": True})
+                              chains=10, return_inferencedata=True, idata_kwargs={"log_likelihood": True})
             if sample_posterior:
                 posterior_keys = list(trace.posterior.keys())
                 # var_names = base_names_to_sample.intersection(posterior_keys)
