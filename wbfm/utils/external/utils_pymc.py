@@ -1306,7 +1306,7 @@ def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_
 
 
 def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
-                     use_additional_eigenworms=True, DEBUG=False):
+                     use_additional_eigenworms=True, keep_large_vars=False, DEBUG=False):
     """
     Fit full posterior models for multiple model structures and compute LOO.
     
@@ -1348,7 +1348,8 @@ def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if
                 # Recursion error
                 continue
             main_full_models(neuron_name, do_gfp=do_gfp, dataset_name=dataset_name, skip_if_exists=skip_if_exists,
-                           residual_mode=residual_mode, use_additional_eigenworms=use_additional_eigenworms, DEBUG=DEBUG)
+                           residual_mode=residual_mode, use_additional_eigenworms=use_additional_eigenworms, 
+                           keep_large_vars=keep_large_vars, DEBUG=DEBUG)
         return
 
     if dataset_name == 'all':
@@ -1373,7 +1374,7 @@ def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if
         print(f"Skipping {neuron_name} because there is no valid data")
         return
 
-    save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir)
+    save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=keep_large_vars)
 
 
 def save_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dataset_name='all'):
@@ -1457,14 +1458,34 @@ def save_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dat
     print(f"Saved all CV results for {neuron_name} in {output_dir}")
 
 
-def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir):
+def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=False):
     # Save objects
     if dataset_name == 'all':
         output_fname_base = f'{neuron_name}'
 
         # arviz has a specific function for traces
         for model_name, traces in all_traces.items():
-            az.to_netcdf(traces, os.path.join(output_dir, f'{output_fname_base}_{model_name}_trace.nc'))
+            # Optionally drop large variables (deterministic outputs with ~20k observations) to reduce file size
+            if not keep_large_vars:
+                traces_to_save = traces.copy()
+                # Drop large deterministic variables by name (keep 'y' for log_likelihood)
+                large_vars_to_drop = ['curvature_term', 'mu', 'sigmoid_term', 'pca_term']
+                vars_to_drop = [v for v in large_vars_to_drop if v in traces_to_save.posterior.data_vars]
+                
+                if vars_to_drop:
+                    traces_to_save.posterior = traces_to_save.posterior.drop_vars(vars_to_drop)
+                    print(f"Dropped large variables from {model_name}: {vars_to_drop}")
+                
+                # Also drop from posterior_predictive if it exists
+                if hasattr(traces_to_save, 'posterior_predictive') and traces_to_save.posterior_predictive is not None:
+                    pp_vars_to_drop = [v for v in large_vars_to_drop if v in traces_to_save.posterior_predictive.data_vars]
+                    if pp_vars_to_drop:
+                        traces_to_save.posterior_predictive = traces_to_save.posterior_predictive.drop_vars(pp_vars_to_drop)
+                        print(f"Dropped large variables from posterior_predictive of {model_name}: {pp_vars_to_drop}")
+            else:
+                traces_to_save = traces
+            
+            az.to_netcdf(traces_to_save, os.path.join(output_dir, f'{output_fname_base}_{model_name}_trace.nc'))
     else:
         output_fname_base = f'{neuron_name}_{dataset_name}'
     # Also save the model
@@ -1554,6 +1575,7 @@ if __name__ == '__main__':
     # Boolean
     parser.add_argument('--do_gfp', action='store_true')
     parser.add_argument('--simple_eigenworms', action='store_true')
+    parser.add_argument('--keep_large_vars', action='store_true', help='Keep large deterministic variables (curvature_term, mu, etc.) in saved traces')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--cv_comparison', action='store_true', help='Run grouped CV comparison instead of full model fitting')
 
@@ -1570,4 +1592,4 @@ if __name__ == '__main__':
     else:
         main_full_models(neuron_name=args.neuron_name, do_gfp=args.do_gfp, 
                          residual_mode=residual_mode,
-                         use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
+                         use_additional_eigenworms=not args.simple_eigenworms, keep_large_vars=args.keep_large_vars, DEBUG=args.debug)
