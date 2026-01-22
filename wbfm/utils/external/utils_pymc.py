@@ -150,11 +150,11 @@ def build_baseline_priors(dims=None, dataset_name_idx=None):
     return intercept, sigma
 
 
-def build_final_likelihood(mu, sigma, y, nu=100):
+def build_final_likelihood(mu, sigma, y, nu=5):
     return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
 
 
-def compute_studentt_logp(mu, sigma, y, nu=100):
+def compute_studentt_logp(mu, sigma, y, nu=5):
     """Compute log-likelihood under StudentT distribution using scipy."""
     return np.sum(stats.t.logpdf(y, df=nu, loc=mu, scale=sigma))
 
@@ -283,8 +283,8 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         hyper_log_amplitude, hyper_log_sigma = 0, 1
     else:
         # Hyperprior
-        hyper_log_amplitude = pm.Normal('log_amplitude_mu', mu=0, sigma=1)
-        hyper_log_sigma = pm.Exponential('log_amplitude_sigma', lam=1)
+        hyper_log_amplitude = pm.Normal('log_amplitude_mu', mu=0, sigma=2)
+        hyper_log_sigma = pm.Exponential('log_amplitude_sigma', lam=5)
     zscore_log_amplitude = pm.Normal('zscore_log_amplitude', mu=0, sigma=1, dims=dims)
     log_amplitude = pm.Deterministic('log_amplitude', hyper_log_amplitude + zscore_log_amplitude*hyper_log_sigma)
     amplitude = pm.Deterministic('amplitude', pm.math.exp(log_amplitude))
@@ -304,7 +304,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
                 coef_name = f'{col_name}_coefficient'
             if DEBUG:
                 print(f"Adding {coef_name} to the model")
-            additional_column_dict[coef_name] = pm.Normal(coef_name, mu=0, sigma=0.5, dims=None)
+            additional_column_dict[coef_name] = pm.Normal(coef_name, mu=0, sigma=1, dims=None)
     # eigenworm3_coefficient = pm.Normal('eigenworm3_coefficient', mu=0, sigma=0.5, dims=None)
     # eigenworm4_coefficient = pm.Normal('eigenworm4_coefficient', mu=0, sigma=0.5, dims=None)
 
