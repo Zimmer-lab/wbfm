@@ -132,6 +132,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
 
 
 def build_baseline_priors(dims=None, dataset_name_idx=None):
+    # Note that with dr/r50 input data, the median is subtracted out so this is nearly centered already
     if dims is None:
         intercept = pm.Normal('intercept', mu=0, sigma=1)
         sigma = pm.HalfCauchy("sigma", beta=0.02)
@@ -236,7 +237,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
     #     sigmoid_slope = pm.Deterministic('sigmoid_slope', pm.math.exp(log_sigmoid_slope))
     # else:
     #     sigmoid_slope = pm.Normal('sigmoid_slope', mu=0, sigma=1)
-    inflection_point = pm.Normal('inflection_point', mu=0, sigma=2)
+    inflection_point = pm.Normal('inflection_point', mu=0, sigma=5)
 
     # PCA modes and coefficients
     if dims is None:
@@ -247,10 +248,10 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
     else:
         # Hyperprior
-        hyper_pca0_amplitude = pm.Normal('hyper_pca0_amplitude', mu=0, sigma=1)
-        hyper_pca0_sigma = pm.Exponential('hyper_pca0_sigma', lam=1)
-        hyper_pca1_amplitude = pm.Normal('hyper_pca1_amplitude', mu=0, sigma=1)
-        hyper_pca1_sigma = pm.Exponential('hyper_pca1_sigma', lam=1)
+        hyper_pca0_amplitude = pm.Normal('hyper_pca0_amplitude', mu=0, sigma=5)
+        hyper_pca0_sigma = pm.Exponential('hyper_pca0_sigma', lam=10)
+        hyper_pca1_amplitude = pm.Normal('hyper_pca1_amplitude', mu=0, sigma=5)
+        hyper_pca1_sigma = pm.Exponential('hyper_pca1_sigma', lam=10)
         zscore_pca0_amplitude = pm.Normal('zscore_pca0_amplitude', mu=0, sigma=1, dims=dims)
         zscore_pca1_amplitude = pm.Normal('zscore_pca1_amplitude', mu=0, sigma=1, dims=dims)
 
