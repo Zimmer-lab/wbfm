@@ -1506,10 +1506,10 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
     curvature = _Xy[curvature_terms]
     curvature = (curvature - curvature.mean()) / curvature.std()  # z-score
     # State
-    fwd = _Xy['fwd'].astype(str)
+    rev = _Xy['rev'].astype(str)
     # Package as dataframe again, and drop na values
     all_dfs = [pd.DataFrame({'y': y, 'x': x, 'x_pca0': x_pca0, 'x_pca1': x_pca1,
-                             'dataset_name': _Xy['dataset_name'], 'fwd': fwd}),
+                             'dataset_name': _Xy['dataset_name'], 'rev': rev}),
                pd.DataFrame(curvature)]
     if additional_columns is not None:
         all_dfs.append(_Xy[additional_columns])
