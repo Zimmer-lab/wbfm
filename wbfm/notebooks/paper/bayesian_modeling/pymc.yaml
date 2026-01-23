@@ -20,3 +20,4 @@ dependencies:
       - tifffile  #==2023.7.10
       - networkx
       - statsmodels
+      - kaleido
