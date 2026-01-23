@@ -108,7 +108,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
                 opt['tune'] = 10
 
             trace = pm.sample(**opt,
-                              chains=4, return_inferencedata=True, idata_kwargs={"log_likelihood": True})
+                              chains=10, return_inferencedata=True, idata_kwargs={"log_likelihood": True})
             if sample_posterior:
                 posterior_keys = list(trace.posterior.keys())
                 # var_names = base_names_to_sample.intersection(posterior_keys)
@@ -132,6 +132,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
 
 
 def build_baseline_priors(dims=None, dataset_name_idx=None):
+    # Note that with dr/r50 input data, the median is subtracted out so this is nearly centered already
     if dims is None:
         intercept = pm.Normal('intercept', mu=0, sigma=1)
         sigma = pm.HalfCauchy("sigma", beta=0.02)
@@ -149,11 +150,11 @@ def build_baseline_priors(dims=None, dataset_name_idx=None):
     return intercept, sigma
 
 
-def build_final_likelihood(mu, sigma, y, nu=100):
+def build_final_likelihood(mu, sigma, y, nu=5):
     return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
 
 
-def compute_studentt_logp(mu, sigma, y, nu=100):
+def compute_studentt_logp(mu, sigma, y, nu=5):
     """Compute log-likelihood under StudentT distribution using scipy."""
     return np.sum(stats.t.logpdf(y, df=nu, loc=mu, scale=sigma))
 
@@ -331,7 +332,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
     #     sigmoid_slope = pm.Deterministic('sigmoid_slope', pm.math.exp(log_sigmoid_slope))
     # else:
     #     sigmoid_slope = pm.Normal('sigmoid_slope', mu=0, sigma=1)
-    inflection_point = pm.Normal('inflection_point', mu=0, sigma=2)
+    inflection_point = pm.Normal('inflection_point', mu=0, sigma=5)
 
     # PCA modes and coefficients
     if dims is None:
@@ -342,10 +343,10 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
     else:
         # Hyperprior
-        hyper_pca0_amplitude = pm.Normal('hyper_pca0_amplitude', mu=0, sigma=1)
-        hyper_pca0_sigma = pm.Exponential('hyper_pca0_sigma', lam=1)
-        hyper_pca1_amplitude = pm.Normal('hyper_pca1_amplitude', mu=0, sigma=1)
-        hyper_pca1_sigma = pm.Exponential('hyper_pca1_sigma', lam=1)
+        hyper_pca0_amplitude = pm.Normal('hyper_pca0_amplitude', mu=0, sigma=5)
+        hyper_pca0_sigma = pm.Exponential('hyper_pca0_sigma', lam=10)
+        hyper_pca1_amplitude = pm.Normal('hyper_pca1_amplitude', mu=0, sigma=5)
+        hyper_pca1_sigma = pm.Exponential('hyper_pca1_sigma', lam=10)
         zscore_pca0_amplitude = pm.Normal('zscore_pca0_amplitude', mu=0, sigma=1, dims=dims)
         zscore_pca1_amplitude = pm.Normal('zscore_pca1_amplitude', mu=0, sigma=1, dims=dims)
 
@@ -377,8 +378,8 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         hyper_log_amplitude, hyper_log_sigma = 0, 1
     else:
         # Hyperprior
-        hyper_log_amplitude = pm.Normal('log_amplitude_mu', mu=0, sigma=1)
-        hyper_log_sigma = pm.Exponential('log_amplitude_sigma', lam=1)
+        hyper_log_amplitude = pm.Normal('log_amplitude_mu', mu=0, sigma=2)
+        hyper_log_sigma = pm.Exponential('log_amplitude_sigma', lam=5)
     zscore_log_amplitude = pm.Normal('zscore_log_amplitude', mu=0, sigma=1, dims=dims)
     log_amplitude = pm.Deterministic('log_amplitude', hyper_log_amplitude + zscore_log_amplitude*hyper_log_sigma)
     amplitude = pm.Deterministic('amplitude', pm.math.exp(log_amplitude))
@@ -398,7 +399,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
                 coef_name = f'{col_name}_coefficient'
             if DEBUG:
                 print(f"Adding {coef_name} to the model")
-            additional_column_dict[coef_name] = pm.Normal(coef_name, mu=0, sigma=0.5, dims=None)
+            additional_column_dict[coef_name] = pm.Normal(coef_name, mu=0, sigma=1, dims=None)
     # eigenworm3_coefficient = pm.Normal('eigenworm3_coefficient', mu=0, sigma=0.5, dims=None)
     # eigenworm4_coefficient = pm.Normal('eigenworm4_coefficient', mu=0, sigma=0.5, dims=None)
 
@@ -1401,7 +1402,7 @@ def main_cv_comparison(neuron_name=None, do_gfp=False, dataset_name='all', skip_
 
 
 def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
-                     use_additional_eigenworms=True, DEBUG=False):
+                     use_additional_eigenworms=True, keep_large_vars=False, DEBUG=False):
     """
     Fit full posterior models for multiple model structures and compute LOO.
     
@@ -1443,7 +1444,8 @@ def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if
                 # Recursion error
                 continue
             main_full_models(neuron_name, do_gfp=do_gfp, dataset_name=dataset_name, skip_if_exists=skip_if_exists,
-                           residual_mode=residual_mode, use_additional_eigenworms=use_additional_eigenworms, DEBUG=DEBUG)
+                           residual_mode=residual_mode, use_additional_eigenworms=use_additional_eigenworms, 
+                           keep_large_vars=keep_large_vars, DEBUG=DEBUG)
         return
 
     if dataset_name == 'all':
@@ -1468,7 +1470,7 @@ def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if
         print(f"Skipping {neuron_name} because there is no valid data")
         return
 
-    save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir)
+    save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=keep_large_vars)
 
 
 def save_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dataset_name='all'):
@@ -1552,14 +1554,34 @@ def save_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dat
     print(f"Saved all CV results for {neuron_name} in {output_dir}")
 
 
-def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir):
+def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=False):
     # Save objects
     if dataset_name == 'all':
         output_fname_base = f'{neuron_name}'
 
         # arviz has a specific function for traces
         for model_name, traces in all_traces.items():
-            az.to_netcdf(traces, os.path.join(output_dir, f'{output_fname_base}_{model_name}_trace.nc'))
+            # Optionally drop large variables (deterministic outputs with ~20k observations) to reduce file size
+            if not keep_large_vars:
+                traces_to_save = traces.copy()
+                # Drop large deterministic variables by name (keep 'y' for log_likelihood)
+                large_vars_to_drop = ['curvature_term', 'mu', 'sigmoid_term', 'pca_term']
+                vars_to_drop = [v for v in large_vars_to_drop if v in traces_to_save.posterior.data_vars]
+                
+                if vars_to_drop:
+                    traces_to_save.posterior = traces_to_save.posterior.drop_vars(vars_to_drop)
+                    print(f"Dropped large variables from {model_name}: {vars_to_drop}")
+                
+                # Also drop from posterior_predictive if it exists
+                if hasattr(traces_to_save, 'posterior_predictive') and traces_to_save.posterior_predictive is not None:
+                    pp_vars_to_drop = [v for v in large_vars_to_drop if v in traces_to_save.posterior_predictive.data_vars]
+                    if pp_vars_to_drop:
+                        traces_to_save.posterior_predictive = traces_to_save.posterior_predictive.drop_vars(pp_vars_to_drop)
+                        print(f"Dropped large variables from posterior_predictive of {model_name}: {pp_vars_to_drop}")
+            else:
+                traces_to_save = traces
+            
+            az.to_netcdf(traces_to_save, os.path.join(output_dir, f'{output_fname_base}_{model_name}_trace.nc'))
     else:
         output_fname_base = f'{neuron_name}_{dataset_name}'
     # Also save the model
@@ -1649,6 +1671,7 @@ if __name__ == '__main__':
     # Boolean
     parser.add_argument('--do_gfp', action='store_true')
     parser.add_argument('--simple_eigenworms', action='store_true')
+    parser.add_argument('--keep_large_vars', action='store_true', help='Keep large deterministic variables (curvature_term, mu, etc.) in saved traces')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--cv_comparison', action='store_true', help='Run grouped CV comparison instead of full model fitting')
 
@@ -1665,4 +1688,4 @@ if __name__ == '__main__':
     else:
         main_full_models(neuron_name=args.neuron_name, do_gfp=args.do_gfp, 
                          residual_mode=residual_mode,
-                         use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
+                         use_additional_eigenworms=not args.simple_eigenworms, keep_large_vars=args.keep_large_vars, DEBUG=args.debug)

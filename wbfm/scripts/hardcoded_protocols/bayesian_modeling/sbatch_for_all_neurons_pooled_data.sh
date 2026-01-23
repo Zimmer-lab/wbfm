@@ -9,6 +9,7 @@ function show_help {
   echo "  -s: Use simple eigenworms (1 and 2 only)"
   echo "  -r: Trace mode; should be one of 'None', 'pca_global', 'pca_global_1', 'cca_continuous', 'discrete'; default is pca_global"
   echo "  -c: Run temporal-split CV comparison instead of full model fitting"
+  echo "  -k: Keep large deterministic variables (curvature_term, mu, etc.) in saved traces"
   echo "  -d: debug mode, which only runs a single neuron (few iterations) for testing"
   echo "  -h: Show this help message"
 }
@@ -19,7 +20,8 @@ use_raw_trace="false"
 debug="false"
 simple_eigenworms="false"
 cv_comparison="false"
-while getopts gsr:dch flag
+keep_large_vars="false"
+while getopts gsr:dckh flag
 do
     case "${flag}" in
         g) use_gfp="true";;
@@ -27,6 +29,7 @@ do
         r) residual_mode=${OPTARG};;
         d) debug="true";;
         c) cv_comparison="true";;
+        k) keep_large_vars="true";;
         h) show_help
            exit 0;;
         *) echo "Error: Unknown flag"; exit 1;;
@@ -176,6 +179,10 @@ fi
 
 if [ "$cv_comparison" == "true" ]; then
   CMD="$CMD --cv_comparison"
+fi
+
+if [ "$keep_large_vars" == "true" ]; then
+  CMD="$CMD --keep_large_vars"
 fi
 
 if [ "$debug" == "true" ]; then
