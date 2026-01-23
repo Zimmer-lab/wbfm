@@ -150,11 +150,11 @@ def build_baseline_priors(dims=None, dataset_name_idx=None):
     return intercept, sigma
 
 
-def build_final_likelihood(mu, sigma, y, nu=5):
+def build_final_likelihood(mu, sigma, y, nu=100):
     return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
 
 
-def compute_studentt_logp(mu, sigma, y, nu=5):
+def compute_studentt_logp(mu, sigma, y, nu=100):
     """Compute log-likelihood under StudentT distribution using scipy."""
     return np.sum(stats.t.logpdf(y, df=nu, loc=mu, scale=sigma))
 
