@@ -17,6 +17,79 @@ from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
 from wbfm.utils.external.utils_pandas import get_dataframe_for_single_neuron
 
 
+def initialize_hierarchical_model_data(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
+                                       use_additional_eigenworms=True, use_additional_behaviors=False):
+    """
+    Initialize data for hierarchical Bayesian models.
+    
+    Handles:
+    - Loading PCA modes and setting up curvature terms
+    - Factorizing dataset indices if using hierarchical structure
+    - Creating model coordinates and dimension options
+    
+    Parameters
+    ----------
+    Xy : pd.DataFrame
+        Full dataset
+    neuron_name : str
+        Name of the neuron to model
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data
+    use_additional_eigenworms : bool
+        Include eigenworms 2 and 3
+    use_additional_behaviors : bool
+        Include additional behavior terms (speed, self_collision, etc.)
+    
+    Returns
+    -------
+    dict with keys:
+        - 'df_model': DataFrame with all model data
+        - 'pca_modes': array of shape (n_timepoints, 2)
+        - 'curvature_terms_to_use': list of curvature term names
+        - 'coords': dict of PyMC coordinates
+        - 'dims': dimension name ('dataset_name' or None)
+        - 'dataset_name_idx': array of dataset indices or None
+        - 'dim_opt': dict with dims and dataset_name_idx for unpacking into functions
+    """
+    # Build curvature terms list
+    curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
+    if use_additional_eigenworms:
+        curvature_terms_to_use.extend(['eigenworm2', 'eigenworm3'])
+    if use_additional_behaviors:
+        curvature_terms_to_use.extend(['speed', 'self_collision'])
+    
+    # Load data for this neuron
+    df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
+                                               curvature_terms=curvature_terms_to_use, 
+                                               residual_mode=residual_mode)
+    
+    # Extract PCA modes
+    pca_modes = df_model[['x_pca0', 'x_pca1']].values
+    
+    # Initialize hierarchical structure based on dataset_name
+    if dataset_name == 'all':
+        dataset_name_idx, dataset_name_values = df_model.dataset_name.factorize()
+        coords = {'dataset_name': dataset_name_values}
+        dims = 'dataset_name'
+    else:
+        coords = {}
+        dims, dataset_name_idx = None, None
+    
+    dim_opt = dict(dims=dims, dataset_name_idx=dataset_name_idx)
+    
+    return {
+        'df_model': df_model,
+        'pca_modes': pca_modes,
+        'curvature_terms_to_use': curvature_terms_to_use,
+        'coords': coords,
+        'dims': dims,
+        'dataset_name_idx': dataset_name_idx,
+        'dim_opt': dim_opt,
+    }
+
+
 def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residual_mode='pca_global',
                         sample_posterior=True, use_additional_behaviors=False,
                         use_additional_eigenworms=True,
@@ -34,39 +107,31 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
 
     """
     rng = 424242
-    curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
-    if use_additional_eigenworms:
-        curvature_terms_to_use.extend(['eigenworm2', 'eigenworm3'])
-    if use_additional_behaviors:
-        # curvature_terms_to_use = curvature_terms_to_use[:2]
-        curvature_terms_to_use.extend([#'dorsal_only_body_curvature', 'dorsal_only_head_curvature',
-                                       #    'ventral_only_body_curvature', 'ventral_only_head_curvature',
-                                           'speed',
-                                           'self_collision'])
-    # First pack into a single dataframe to drop nan, then unpack
+    
+    # Initialize model data using helper function
     try:
-        df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
-                                                   curvature_terms=curvature_terms_to_use, residual_mode=residual_mode)
+        model_data = initialize_hierarchical_model_data(
+            Xy, neuron_name, 
+            dataset_name=dataset_name,
+            residual_mode=residual_mode,
+            use_additional_eigenworms=use_additional_eigenworms,
+            use_additional_behaviors=use_additional_behaviors
+        )
     except KeyError as e:
         print(f"Skipping {neuron_name} because there is no valid data (KeyError: {e})")
         return None, None, None
-    pca_modes = df_model[['x_pca0', 'x_pca1']].values
-    y = df_model['y'].values
-    curvature = df_model[curvature_terms_to_use].values
-
-    if df_model.shape[0] == 0:
+    
+    if model_data['df_model'].shape[0] == 0:
         print(f"Skipping {neuron_name} because there is no valid data (shape is 0)")
         return None, None, None
-
-    if dataset_name == 'all':
-        dataset_name_idx, dataset_name_values = df_model.dataset_name.factorize()
-        coords = {'dataset_name': dataset_name_values}
-        dims = 'dataset_name'
-    else:
-        coords = {}
-        dims, dataset_name_idx = None, None
-
-    dim_opt = dict(dims=dims, dataset_name_idx=dataset_name_idx)
+    
+    # Extract relevant data
+    pca_modes = model_data['pca_modes']
+    curvature = model_data['df_model'][model_data['curvature_terms_to_use']].values
+    y = model_data['df_model']['y'].values
+    coords = model_data['coords']
+    dim_opt = model_data['dim_opt']
+    curvature_terms_to_use = model_data['curvature_terms_to_use']
 
     with pm.Model(coords=coords) as null_model:
         # Just do a flat line (intercept)
@@ -185,7 +250,7 @@ def compute_sigmoid_term_pca_numpy(x_pca_modes, pca0_amplitude, pca1_amplitude, 
 
 
 def reconstruct_sigmoid_term_from_trace(idata, neuron_name, Xy=None, dataset_name='all', residual_mode='pca_global',
-                                         use_additional_eigenworms=True, dims=None, dataset_name_idx=None):
+                                         use_additional_eigenworms=True):
     """
     Reconstruct sigmoid_term time series from saved posterior samples using PyMC.
     
@@ -208,23 +273,18 @@ def reconstruct_sigmoid_term_from_trace(idata, neuron_name, Xy=None, dataset_nam
         Residual/preprocessing mode for data (default: 'pca_global')
     use_additional_eigenworms : bool
         Whether the model used eigenworms 2 and 3 (default: True)
-    dims : str, optional
-        Dimension name for hierarchical models (e.g., 'dataset_name')
-    dataset_name_idx : ndarray, optional
-        Dataset indices for mapping time points to datasets in hierarchical models
     
     Returns
     -------
-    sigmoid_term : xarray.DataArray
-        Reconstructed sigmoid term with dimensions (chain, draw, time)
-        Shape is (n_chain, n_draw, n_timepoints)
+    idata : arviz.InferenceData
+        InferenceData with computed sigmoid_term in the deterministics group
     
     Examples
     --------
-    >>> sigmoid_recon = reconstruct_sigmoid_term_from_trace(idata, neuron_name='VB02', Xy=Xy)
+    >>> idata_recon = reconstruct_sigmoid_term_from_trace(idata, neuron_name='VB02', Xy=Xy)
     >>> 
     >>> # Compute quantiles across posterior samples
-    >>> quantiles = sigmoid_recon.quantile([0.05, 0.5, 0.95], dim=['chain', 'draw'])
+    >>> quantiles = idata_recon.posterior['sigmoid_term'].quantile([0.05, 0.5, 0.95], dim=['chain', 'draw'])
     """
     # Load data if not provided
     if Xy is None:
@@ -237,44 +297,32 @@ def reconstruct_sigmoid_term_from_trace(idata, neuron_name, Xy=None, dataset_nam
             raise FileNotFoundError(f"Could not find data file {fname}")
         Xy = pd.read_hdf(fname)
     
-    # Get PCA modes for this neuron
-    curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
-    if use_additional_eigenworms:
-        curvature_terms_to_use.extend(['eigenworm2', 'eigenworm3'])
-    
-    df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
-                                               curvature_terms=curvature_terms_to_use, 
-                                               residual_mode=residual_mode)
-    x_pca_modes = df_model[['x_pca0', 'x_pca1']].values
-    
-    # Extract coords from the saved posterior to match the original model
-    # Filter out reserved names ('chain', 'draw', '__sample__') and auto-generated dim coords (e.g., '*_dim_0')
-    coords = {k: v for k, v in idata.posterior.coords.items() 
-              if k not in {'chain', 'draw', '__sample__'} and not k.endswith('_dim_0')}
+    # Initialize model data using helper function
+    model_data = initialize_hierarchical_model_data(
+        Xy, neuron_name, 
+        dataset_name=dataset_name,
+        residual_mode=residual_mode,
+        use_additional_eigenworms=use_additional_eigenworms
+    )
     
     # Build a fresh model with the same coords as the original
-    with pm.Model(coords=coords) as recon_model:
-        x_pca_data = pm.Data('x_pca_data', x_pca_modes)
+    with pm.Model(coords=model_data['coords']) as recon_model:
+        x_pca_data = pm.Data('x_pca_data', model_data['pca_modes'])
         
         # Build the sigmoid term using the existing function
         sigmoid_term_deterministic = build_sigmoid_term_pca(
             x_pca_data, 
-            dims=dims, 
-            dataset_name_idx=dataset_name_idx
+            **model_data['dim_opt']
         )
     
     # Use PyMC's compute_deterministics to evaluate sigmoid_term for all posterior samples
     with recon_model:
-        # My version of pymc doesn't have compute_deterministics, so I copied it in this file
         idata = pm.compute_deterministics(
             idata, 
             var_names=['sigmoid_term'],
             progressbar=True,
             merge_dataset=True
         )
-    
-    # Extract sigmoid_term from the computed deterministics
-    # sigmoid_term_xr = idata_with_sigmoid.posterior['sigmoid_term']
     
     return idata
 
