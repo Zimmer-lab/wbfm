@@ -183,6 +183,101 @@ def compute_sigmoid_term_pca_numpy(x_pca_modes, pca0_amplitude, pca1_amplitude, 
     return sigmoid_term
 
 
+def reconstruct_sigmoid_term_from_trace(idata, neuron_name, Xy=None, dataset_name='all', residual_mode='pca_global',
+                                         use_additional_eigenworms=True, dims=None, dataset_name_idx=None):
+    """
+    Reconstruct sigmoid_term time series from saved posterior samples using PyMC.
+    
+    Builds a PyMC model with the sigmoid_term deterministic and uses 
+    pm.compute_deterministics to evaluate it for all posterior samples.
+    Uses the same coords as the original model.
+    
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+        Saved posterior with 'inflection_point' and 'pca0_amplitude', 'pca1_amplitude'
+        in the posterior group. Should have coords matching the original model.
+    neuron_name : str
+        Name of the neuron to reconstruct
+    Xy : pd.DataFrame, optional
+        Full dataset. If None, will be loaded from hardcoded location using get_hierarchical_modeling_dir
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data (default: 'pca_global')
+    use_additional_eigenworms : bool
+        Whether the model used eigenworms 2 and 3 (default: True)
+    dims : str, optional
+        Dimension name for hierarchical models (e.g., 'dataset_name')
+    dataset_name_idx : ndarray, optional
+        Dataset indices for mapping time points to datasets in hierarchical models
+    
+    Returns
+    -------
+    sigmoid_term : xarray.DataArray
+        Reconstructed sigmoid term with dimensions (chain, draw, time)
+        Shape is (n_chain, n_draw, n_timepoints)
+    
+    Examples
+    --------
+    >>> sigmoid_recon = reconstruct_sigmoid_term_from_trace(idata, neuron_name='VB02', Xy=Xy)
+    >>> 
+    >>> # Compute quantiles across posterior samples
+    >>> quantiles = sigmoid_recon.quantile([0.05, 0.5, 0.95], dim=['chain', 'draw'])
+    """
+    # Load data if not provided
+    if Xy is None:
+        data_dir = get_hierarchical_modeling_dir(do_gfp=False)
+        fname = os.path.join(data_dir, 'data.h5')
+        if not os.path.exists(fname):
+            logging.warning(f"Could not find data file {fname}, trying backup")
+            fname = os.path.join(data_dir, 'data_backup.h5')
+        if not os.path.exists(fname):
+            raise FileNotFoundError(f"Could not find data file {fname}")
+        Xy = pd.read_hdf(fname)
+    
+    # Get PCA modes for this neuron
+    curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
+    if use_additional_eigenworms:
+        curvature_terms_to_use.extend(['eigenworm2', 'eigenworm3'])
+    
+    df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
+                                               curvature_terms=curvature_terms_to_use, 
+                                               residual_mode=residual_mode)
+    x_pca_modes = df_model[['x_pca0', 'x_pca1']].values
+    
+    # Extract coords from the saved posterior to match the original model
+    # Filter out reserved names ('chain', 'draw', '__sample__') and auto-generated dim coords (e.g., '*_dim_0')
+    coords = {k: v for k, v in idata.posterior.coords.items() 
+              if k not in {'chain', 'draw', '__sample__'} and not k.endswith('_dim_0')}
+    
+    # Build a fresh model with the same coords as the original
+    with pm.Model(coords=coords) as recon_model:
+        x_pca_data = pm.Data('x_pca_data', x_pca_modes)
+        
+        # Build the sigmoid term using the existing function
+        sigmoid_term_deterministic = build_sigmoid_term_pca(
+            x_pca_data, 
+            dims=dims, 
+            dataset_name_idx=dataset_name_idx
+        )
+    
+    # Use PyMC's compute_deterministics to evaluate sigmoid_term for all posterior samples
+    with recon_model:
+        # My version of pymc doesn't have compute_deterministics, so I copied it in this file
+        idata = pm.compute_deterministics(
+            idata, 
+            var_names=['sigmoid_term'],
+            progressbar=True,
+            merge_dataset=True
+        )
+    
+    # Extract sigmoid_term from the computed deterministics
+    # sigmoid_term_xr = idata_with_sigmoid.posterior['sigmoid_term']
+    
+    return idata
+
+
 def compute_curvature_term_numpy(curvature, eigenworm1_coefficient, eigenworm2_coefficient, 
                                   additional_coefficients=None, curvature_terms_to_use=None):
     """
