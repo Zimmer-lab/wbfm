@@ -15,6 +15,7 @@ from scipy import stats
 from sklearn.model_selection import GroupKFold
 from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
 from wbfm.utils.external.utils_pandas import get_dataframe_for_single_neuron
+from statsmodels.stats.multitest import multipletests
 
 
 def initialize_hierarchical_model_data(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
@@ -1710,6 +1711,134 @@ class ExamplePymcPlotter:
         df = pd.DataFrame({'y': mu, 'sigmoid_term': sigmoid_term, 'curvature_term': curvature_term})
 
         return df
+
+
+def _load_all_traces(foldername):
+    from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+    fnames = neurons_with_confident_ids()
+    all_traces = {}
+    for neuron in tqdm(fnames):
+        trace_fname = os.path.join(foldername, f'{neuron}_hierarchical_pca_trace.nc')
+        if os.path.exists(trace_fname):
+            try:
+                trace = az.from_netcdf(trace_fname)
+                all_traces[neuron] = trace
+            except (ValueError, OSError) as e:
+                print(f"Error for neuron {neuron}; this is not surprising if some are still being written: {e}")
+    return all_traces
+
+def do_all_bayesian_ttests(suffix = '_pca_global', do_gfp=False):
+
+    parent_folder = get_hierarchical_modeling_dir(do_gfp=do_gfp)
+                
+    foldername = os.path.join(parent_folder, f'output{suffix}')
+    all_traces = _load_all_traces(foldername)
+
+    Xy = pd.read_hdf(os.path.join(parent_folder, 'data.h5'))
+
+    # foldername = os.path.join(f'{parent_folder}_gfp', f'output{suffix}')
+    # all_traces_gfp = load_all_traces(foldername)
+
+    cols_to_plot = ['Hierarchy only', 'Hierarchical Behavior']
+
+    # Just plot all
+    neurons_to_plot = set(all_traces.keys())
+
+    var_names = [#"self_collision", 'amplitude_mu', 
+                #'speed', 'phase', 'dorsal', 'ventral', 
+                'hyper_pca0_amplitude', "hyper_pca1_amplitude",  
+                'pca0_amplitude', 'pca1_amplitude',
+                'log_amplitude_mu', 'amplitude',
+                'phase_shift', 
+                'eigenworm3_coefficient', 'eigenworm4_coefficient'
+    ]
+    # var_names.extend([f'eigenworm{i+1}_coefficient' for i in range(4)])
+    var_names2 = ["sigmoid_term"]
+
+    def _convert_0d_xarray(array, suffix=''):
+        return pd.DataFrame({
+            f"{name}{suffix}": [da.item()]
+            for name, da in array.data_vars.items()
+        })
+
+    all_dfs = {}
+    for n in tqdm(neurons_to_plot):
+        # Original set of variables
+        posterior = az.extract(all_traces[n], group='posterior', var_names=var_names, filter_vars='like')
+        median_ds = posterior[var_names].median()
+        median_df = _convert_0d_xarray(median_ds)
+        all_dfs[n] = [median_df.T]
+
+        # Also calculate the bayesian p-value vs. 0 for all columns
+        prob_gt_zero = (posterior[var_names] > 0).mean()
+        # Get the smaller one (or vector) and multiply by 2
+        p_two_sided = 2 * xr.where(
+            prob_gt_zero <= 0.5,
+            prob_gt_zero,
+            1 - prob_gt_zero
+        )
+        _df = _convert_0d_xarray(p_two_sided, suffix="_p_value")
+        all_dfs[n].append(_df.T)
+
+        # Recalculate the sigmoid term
+        idata = all_traces[n]
+        idata = reconstruct_sigmoid_term_from_trace(idata, n, Xy)
+        
+        # Variables with specific postprocessing
+        dat = az.extract(idata, group='posterior', var_names=var_names2, filter_vars='like')
+        summary = xr.Dataset(
+            {
+                "sigmoid_term": dat.median(),
+                "sigmoid_term_quantile": dat.quantile(0.8),
+                "sigmoid_term_variance": dat.var(),
+            }
+        )
+        all_dfs[n].extend([_convert_0d_xarray(summary).T])
+        
+        all_dfs[n] = pd.concat(all_dfs[n])
+    
+    # Add final columns
+    df_params = pd.concat(all_dfs, axis=1).T.droplevel(1)
+    df_params['dataset_type'] = 'residual'
+
+    df_params['muscle_position'] = muscle_position
+    df_params.loc['RID', 'muscle_position'] = np.nan  # RID is strange
+
+    _df = df_to_plot_with_var[df_to_plot_with_var['datatype']=='Freely Moving (GCaMP, residual)'].copy()
+    _df.index = _df['neuron_name']
+    df_params['Hierarchy Score'] = _df['Hierarchy Score']
+    df_params['Relative Hierarchy Score'] = _df['Relative Hierarchy Score']
+
+    df_params['Neuron Type'] = list(pd.Series(df_params.index).map(role_of_neuron_dict()))
+
+    # Multiple comparison correction
+    for col in df_params.columns:
+        if '_p_value' in col:
+            sig_flag, p_value_corrected = multipletests(df_params[col].values.squeeze(), method='fdr_bh', alpha=0.05)
+            df_params[f'{col}_corrected'] = p_value_corrected
+            df_params[f'{col}_is_significant'] = sig_flag
+
+    from wbfm.utils.general.utils_hardcoded import role_of_neuron_dict
+    # Get radial term: combination of raw curvature amplitude and median of the sigmoid term
+    # df_params['r'] = np.exp(df_params['log_amplitude_mu']) * df_params['sigmoid_term_quantile'] 
+    df_params['r'] = df_params['amplitude'] * df_params['sigmoid_term_quantile']
+    df_params['size'] = df_params['Relative Hierarchy Score'] + 1  # Add a minimum size
+
+    df_params['Neuron Type'] = pd.Series(df_params.index).map(role_of_neuron_dict(include_ventral_dorsal=True)).values
+
+    # r = df_params['log_amplitude_mu']
+    df_params['text'] = np.array(df_params.index)
+    df_params['text_complete'] = np.array(df_params.index)
+    df_params.loc[df_params['r'] < 0.1, 'text'] = ''
+
+    # Basic printing
+    print("Summary of parameters:")
+    print(df_params.describe())
+    # Also print the p_values for pca0_amplitude_p_value_corrected
+    print("Corrected p-values for pca0_amplitude:")
+    print(df_params[['pca0_amplitude_p_value_corrected', 'pca0_amplitude_p_value_is_significant']].sort_values('pca0_amplitude_p_value_corrected'))
+
+    return df_params
 
 
 if __name__ == '__main__':
