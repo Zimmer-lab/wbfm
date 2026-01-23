@@ -6,7 +6,7 @@ from wbfm.utils.visualization.multiproject_wrappers import build_cca_time_series
     build_pca_time_series_from_multiple_projects
 
 
-def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if_exists=False):
+def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if_exists=False, DEBUG=False):
     """
     Loads the relevant projects, and exports both behavior and traces to a single .h5 file
 
@@ -61,6 +61,13 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
         # Also calculate CCA modes as done in the paper
         df_all_cca = build_cca_time_series_from_multiple_projects(all_projects, use_paper_options=True)[0]
         df_all_cca.rename(columns={i: f'pca_{i}' for i in range(4)}, inplace=True)
+        # Reset the local time column to be integer indices
+        df_all_cca['local_time_physical'] = df_all_cca['local_time']
+        df_all_cca['local_time'] = df_all_cca.groupby('dataset_name').cumcount()
+    else:
+        df_all_behavior = None
+        df_eigenworms = None
+        df_all_cca = None
 
     # Get pca modes
     df_all_pca = build_pca_time_series_from_multiple_projects(all_projects, use_paper_options=True)
@@ -97,5 +104,9 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
     df_all = df_all.merge(df_all_pca, on=['dataset_name', 'local_time'], how='inner')
 
     # Export
-    df_all.to_hdf(output_fname, key='df_with_missing')
-    print(f"Exported to {output_fname}")
+    if not DEBUG:
+        df_all.to_hdf(output_fname, key='df_with_missing')
+        print(f"Exported to {output_fname}")
+    else:
+        # Return all individual dataframes for debugging
+        return df_all, df_all_traces, df_all_manifold, df_all_manifold1, df_all_behavior, df_eigenworms, df_all_cca, df_all_pca

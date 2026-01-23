@@ -18,7 +18,7 @@ from wbfm.utils.external.utils_pandas import get_dataframe_for_single_neuron
 
 
 def initialize_hierarchical_model_data(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
-                                       use_additional_eigenworms=True, use_additional_behaviors=False):
+                                       use_additional_eigenworms=True, use_additional_behaviors=False, verbose=0):
     """
     Initialize data for hierarchical Bayesian models.
     
@@ -63,7 +63,7 @@ def initialize_hierarchical_model_data(Xy, neuron_name, dataset_name='all', resi
     # Load data for this neuron
     df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
                                                curvature_terms=curvature_terms_to_use, 
-                                               residual_mode=residual_mode)
+                                               residual_mode=residual_mode, verbose=verbose)
     
     # Extract PCA modes
     pca_modes = df_model[['x_pca0', 'x_pca1']].values
@@ -250,7 +250,7 @@ def compute_sigmoid_term_pca_numpy(x_pca_modes, pca0_amplitude, pca1_amplitude, 
 
 
 def reconstruct_sigmoid_term_from_trace(idata, neuron_name, Xy=None, dataset_name='all', residual_mode='pca_global',
-                                         use_additional_eigenworms=True):
+                                         use_additional_eigenworms=True, DEBUG=False):
     """
     Reconstruct sigmoid_term time series from saved posterior samples using PyMC.
     
@@ -302,12 +302,15 @@ def reconstruct_sigmoid_term_from_trace(idata, neuron_name, Xy=None, dataset_nam
         Xy, neuron_name, 
         dataset_name=dataset_name,
         residual_mode=residual_mode,
-        use_additional_eigenworms=use_additional_eigenworms
+        use_additional_eigenworms=use_additional_eigenworms,
+        verbose=0 if not DEBUG else 1
     )
     
     # Build a fresh model with the same coords as the original
     with pm.Model(coords=model_data['coords']) as recon_model:
         x_pca_data = pm.Data('x_pca_data', model_data['pca_modes'])
+        if DEBUG:
+            print("Reconstructing sigmoid_term with PCA modes shape:", model_data['pca_modes'].shape)
         
         # Build the sigmoid term using the existing function
         sigmoid_term_deterministic = build_sigmoid_term_pca(
@@ -320,7 +323,7 @@ def reconstruct_sigmoid_term_from_trace(idata, neuron_name, Xy=None, dataset_nam
         idata = pm.compute_deterministics(
             idata, 
             var_names=['sigmoid_term'],
-            progressbar=True,
+            progressbar=False,
             merge_dataset=True
         )
     
