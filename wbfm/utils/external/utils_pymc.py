@@ -1776,6 +1776,10 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
         median_df = _convert_0d_xarray(median_ds)
         all_dfs[n] = [median_df.T]
 
+        # Also store the variances, with suffix '_var'
+        var_ds = posterior[var_names].var()
+        var_df = _convert_0d_xarray(var_ds, suffix='_var')
+
         # Also calculate the bayesian p-value vs. 0 for all columns
         prob_gt_zero = (posterior[var_names] > 0).mean()
         # Get the smaller one (or vector) and multiply by 2
@@ -1848,9 +1852,6 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
     df_params.loc[df_params['r'] < 0.1, 'text'] = ''
 
     # Basic printing
-    print("Summary of parameters:")
-    print(df_params.describe())
-    # Also print the p_values for pca0_amplitude_p_value_corrected
     print("Corrected p-values for pca0_amplitude:")
     print(df_params[['pca0_amplitude_p_value_corrected', 'pca0_amplitude_p_value_is_significant']].sort_values('pca0_amplitude_p_value_corrected'))
 
