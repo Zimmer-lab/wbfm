@@ -1787,19 +1787,22 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
         all_dfs[n].append(_df.T)
 
         # Recalculate the sigmoid term
-        idata = all_traces[n]
-        idata = reconstruct_sigmoid_term_from_trace(idata, n, Xy)
-        
-        # Variables with specific postprocessing
-        dat = az.extract(idata, group='posterior', var_names=var_names2, filter_vars='like')
-        summary = xr.Dataset(
-            {
-                "sigmoid_term": dat.median(),
-                "sigmoid_term_quantile": dat.quantile(0.8),
-                "sigmoid_term_variance": dat.var(),
-            }
-        )
-        all_dfs[n].extend([_convert_0d_xarray(summary).T])
+        try:
+            idata = all_traces[n]
+            idata = reconstruct_sigmoid_term_from_trace(idata, n, Xy)
+            
+            # Variables with specific postprocessing
+            dat = az.extract(idata, group='posterior', var_names=var_names2, filter_vars='like')
+            summary = xr.Dataset(
+                {
+                    "sigmoid_term": dat.median(),
+                    "sigmoid_term_quantile": dat.quantile(0.8),
+                    "sigmoid_term_variance": dat.var(),
+                }
+            )
+            all_dfs[n].extend([_convert_0d_xarray(summary).T])
+        except AttributeError:
+            logging.warning(f"Could not reconstruct sigmoid term for neuron {n}, skipping")
         
         all_dfs[n] = pd.concat(all_dfs[n])
     
@@ -1826,9 +1829,16 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
 
     from wbfm.utils.general.utils_hardcoded import role_of_neuron_dict
     # Get radial term: combination of raw curvature amplitude and median of the sigmoid term
-    # df_params['r'] = np.exp(df_params['log_amplitude_mu']) * df_params['sigmoid_term_quantile'] 
-    df_params['r'] = df_params['amplitude'] * df_params['sigmoid_term_quantile']
-    df_params['size'] = df_params['Relative Hierarchy Score'] + 1  # Add a minimum size
+    if 'sigmoid_term_quantile' in df_params.columns:
+        # df_params['r'] = np.exp(df_params['log_amplitude_mu']) * df_params['sigmoid_term_quantile'] 
+        df_params['r'] = df_params['amplitude'] * df_params['sigmoid_term_quantile']
+    else:
+        logging.warning("sigmoid_term_quantile not found in df_params; using amplitude only for 'r'") 
+        df_params['r'] = df_params['amplitude']
+    if 'Relative Hierarchy Score' in df_params.columns:
+        df_params['size'] = df_params['Relative Hierarchy Score'] + 1  # Add a minimum size
+    else:
+        df_params['size'] = 1.0  # Default size
 
     df_params['Neuron Type'] = pd.Series(df_params.index).map(role_of_neuron_dict(include_ventral_dorsal=True)).values
 
