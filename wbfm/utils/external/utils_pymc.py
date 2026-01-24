@@ -1713,13 +1713,15 @@ class ExamplePymcPlotter:
         return df
 
 
-def _load_all_traces(foldername):
+def _load_all_traces(foldername, single_neuron=None):
     from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
     fnames = neurons_with_confident_ids()
     all_traces = {}
     for neuron in tqdm(fnames):
         trace_fname = os.path.join(foldername, f'{neuron}_hierarchical_pca_trace.nc')
         if os.path.exists(trace_fname):
+            if single_neuron is not None and neuron != single_neuron:
+                continue
             try:
                 trace = az.from_netcdf(trace_fname)
                 all_traces[neuron] = trace
@@ -1727,12 +1729,12 @@ def _load_all_traces(foldername):
                 print(f"Error for neuron {neuron}; this is not surprising if some are still being written: {e}")
     return all_traces
 
-def do_all_bayesian_ttests(suffix = '_pca_global', do_gfp=False):
+def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False):
 
     parent_folder = get_hierarchical_modeling_dir(do_gfp=do_gfp)
                 
     foldername = os.path.join(parent_folder, f'output{suffix}')
-    all_traces = _load_all_traces(foldername)
+    all_traces = _load_all_traces(foldername, single_neuron=single_neuron)
 
     Xy = pd.read_hdf(os.path.join(parent_folder, 'data.h5'))
 
@@ -1742,7 +1744,10 @@ def do_all_bayesian_ttests(suffix = '_pca_global', do_gfp=False):
     cols_to_plot = ['Hierarchy only', 'Hierarchical Behavior']
 
     # Just plot all
-    neurons_to_plot = set(all_traces.keys())
+    if single_neuron is None:
+        neurons_to_plot = set(all_traces.keys())
+    else:
+        neurons_to_plot = [single_neuron]
 
     var_names = [#"self_collision", 'amplitude_mu', 
                 #'speed', 'phase', 'dorsal', 'ventral', 
@@ -1801,13 +1806,13 @@ def do_all_bayesian_ttests(suffix = '_pca_global', do_gfp=False):
     df_params = pd.concat(all_dfs, axis=1).T.droplevel(1)
     df_params['dataset_type'] = 'residual'
 
-    df_params['muscle_position'] = muscle_position
-    df_params.loc['RID', 'muscle_position'] = np.nan  # RID is strange
+    # df_params['muscle_position'] = muscle_position
+    # df_params.loc['RID', 'muscle_position'] = np.nan  # RID is strange
 
-    _df = df_to_plot_with_var[df_to_plot_with_var['datatype']=='Freely Moving (GCaMP, residual)'].copy()
-    _df.index = _df['neuron_name']
-    df_params['Hierarchy Score'] = _df['Hierarchy Score']
-    df_params['Relative Hierarchy Score'] = _df['Relative Hierarchy Score']
+    # _df = df_to_plot_with_var[df_to_plot_with_var['datatype']=='Freely Moving (GCaMP, residual)'].copy()
+    # _df.index = _df['neuron_name']
+    # df_params['Hierarchy Score'] = _df['Hierarchy Score']
+    # df_params['Relative Hierarchy Score'] = _df['Relative Hierarchy Score']
 
     df_params['Neuron Type'] = list(pd.Series(df_params.index).map(role_of_neuron_dict()))
 
