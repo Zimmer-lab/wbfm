@@ -1854,7 +1854,7 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
 
     # Basic printing
     print("Corrected p-values for pca0_amplitude:")
-    print(df_params[['pca0_amplitude_p_value_corrected', 'pca0_amplitude_p_value_is_significant']].sort_values('pca0_amplitude_p_value_corrected'))
+    print(df_params[['hyper_pca0_amplitude_p_value_corrected', 'hyper_pca0_amplitude_p_value_is_significant']].sort_values('pca0_amplitude_p_value_corrected'))
 
     return df_params
 
