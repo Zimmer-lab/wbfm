@@ -1731,6 +1731,7 @@ def _load_all_traces(foldername, single_neuron=None):
     return all_traces
 
 def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False):
+    from wbfm.utils.general.utils_hardcoded import role_of_neuron_dict
 
     parent_folder = get_hierarchical_modeling_dir(gfp=do_gfp)
                 
@@ -1827,7 +1828,6 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
             df_params[f'{col}_corrected'] = p_value_corrected
             df_params[f'{col}_is_significant'] = sig_flag
 
-    from wbfm.utils.general.utils_hardcoded import role_of_neuron_dict
     # Get radial term: combination of raw curvature amplitude and median of the sigmoid term
     if 'sigmoid_term_quantile' in df_params.columns:
         # df_params['r'] = np.exp(df_params['log_amplitude_mu']) * df_params['sigmoid_term_quantile'] 
