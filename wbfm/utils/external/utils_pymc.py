@@ -1731,7 +1731,7 @@ def _load_all_traces(foldername, single_neuron=None):
 
 def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False):
 
-    parent_folder = get_hierarchical_modeling_dir(do_gfp=do_gfp)
+    parent_folder = get_hierarchical_modeling_dir(gfp=do_gfp)
                 
     foldername = os.path.join(parent_folder, f'output{suffix}')
     all_traces = _load_all_traces(foldername, single_neuron=single_neuron)
