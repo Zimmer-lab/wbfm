@@ -1824,7 +1824,7 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
     # Multiple comparison correction
     for col in df_params.columns:
         if '_p_value' in col:
-            sig_flag, p_value_corrected = multipletests(df_params[col].values.squeeze(), method='fdr_bh', alpha=0.05)
+            sig_flag, p_value_corrected, _ = multipletests(df_params[col].values.squeeze(), method='fdr_bh', alpha=0.05)
             df_params[f'{col}_corrected'] = p_value_corrected
             df_params[f'{col}_is_significant'] = sig_flag
 
