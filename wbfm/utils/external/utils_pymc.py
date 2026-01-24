@@ -1779,6 +1779,7 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
         # Also store the variances, with suffix '_var'
         var_ds = posterior[var_names].var()
         var_df = _convert_0d_xarray(var_ds, suffix='_var')
+        all_dfs[n].append(var_df.T)
 
         # Also calculate the bayesian p-value vs. 0 for all columns
         prob_gt_zero = (posterior[var_names] > 0).mean()
