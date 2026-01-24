@@ -1716,17 +1716,18 @@ class ExamplePymcPlotter:
 def _load_all_traces(foldername, single_neuron=None):
     from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
     fnames = neurons_with_confident_ids()
+    if single_neuron is not None:
+        fnames = [single_neuron]
     all_traces = {}
     for neuron in tqdm(fnames):
         trace_fname = os.path.join(foldername, f'{neuron}_hierarchical_pca_trace.nc')
         if os.path.exists(trace_fname):
-            if single_neuron is not None and neuron != single_neuron:
-                continue
             try:
                 trace = az.from_netcdf(trace_fname)
                 all_traces[neuron] = trace
             except (ValueError, OSError) as e:
                 print(f"Error for neuron {neuron}; this is not surprising if some are still being written: {e}")
+    print(f"Loaded {len(all_traces)} out of {len(fnames)} neurons from {foldername}")
     return all_traces
 
 def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False):
