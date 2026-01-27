@@ -1485,23 +1485,31 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
     elif residual_mode == 'cca_continuous':
         # Predict the residual, subtracting cca modes
         # Use 2 CCA modes, column name = CCA_neural_mode_{i}
-        x = _Xy[[f'CCA_neural_mode_{i+1}' for i in range(2)]].values
+        _x = _Xy[[f'CCA_neural_mode_{i+1}' for i in range(2)]].values
         # I don't have the subtracted version, so do a linear regression to get it
         # Remove NaN values for fitting
-        mask = ~(np.isnan(x).any(axis=1) | _Xy[f'{neuron_name}'].isna())
-        y_pred = LinearRegression().fit(x[mask], _Xy[f'{neuron_name}'][mask]).predict(x)
+        mask = ~(np.isnan(_x).any(axis=1) | _Xy[f'{neuron_name}'].isna())
+        y_pred = LinearRegression().fit(_x[mask], _Xy[f'{neuron_name}'][mask]).predict(_x)
         y = _Xy[f'{neuron_name}'] - y_pred
         y = pd.Series(y, index=_Xy.index)
+
+        # Overwrite x_pca0 and x_pca1 with the cca modes
+        x_pca0 = _Xy[f'CCA_neural_mode_1']
+        x_pca1 = _Xy[f'CCA_neural_mode_2']
     elif residual_mode == 'discrete' or residual_mode == 'binary':
         # Predict the residual, subtracting discrete modes
         cols = default_discrete_behaviors()
-        x = _Xy[cols].values
+        _x = _Xy[cols].values
         # I don't have the subtracted version, so do a linear regression to get it
         # Remove NaN values for fitting
-        mask = ~(np.isnan(x).any(axis=1) | _Xy[f'{neuron_name}'].isna())
-        y_pred = LinearRegression().fit(x[mask], _Xy[f'{neuron_name}'][mask]).predict(x)
+        mask = ~(np.isnan(_x).any(axis=1) | _Xy[f'{neuron_name}'].isna())
+        y_pred = LinearRegression().fit(_x[mask], _Xy[f'{neuron_name}'][mask]).predict(_x)
         y = _Xy[f'{neuron_name}'] - y_pred
         y = pd.Series(y, index=_Xy.index)
+
+        # Overwrite x_pca0 and x_pca1 with the interpretable discrete behaviors
+        x_pca0 = _Xy['REV']
+        x_pca1 = _Xy['VENTRAL_TURN']
     else:
         raise ValueError(f"Unknown residual mode {residual_mode}; should be None, 'pca_global', or 'pca_global_1'")
     y = (y - y.mean()) / y.std()  # z-score
@@ -1514,7 +1522,8 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
     # State
     rev = _Xy['rev'].astype(str)
     # Package as dataframe again, and drop na values
-    all_dfs = [pd.DataFrame({'y': y, 'x': x, 'x_pca0': x_pca0, 'x_pca1': x_pca1,
+    all_dfs = [pd.DataFrame({'y': y, 'x': x, 
+                             'x_pca0': x_pca0, 'x_pca1': x_pca1,  # These will actually be used, even if they are not always pca modes
                              'dataset_name': _Xy['dataset_name'], 'rev': rev}),
                pd.DataFrame(curvature)]
     if additional_columns is not None:
