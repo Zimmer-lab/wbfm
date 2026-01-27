@@ -40,7 +40,7 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
     if not do_immobilized:
         behavior_names = ['curvature_vb02', #'curvature_5', 'curvature_10', 'curvature_15', 'curvature_20',
                           'speed', 'ventral_only_head_curvature', 'dorsal_only_head_curvature',
-                          'ventral_only_body_curvature', 'dorsal_only_body_curvature', 'self_collision',
+                          'ventral_only_body_curvature', 'dorsal_only_body_curvature',
                           'head_signed_curvature', 'summed_curvature',
                           'worm_nose_peak_frequency', 'worm_head_peak_frequency', 'worm_body_peak_frequency']
         # Also include the entire kymograph
