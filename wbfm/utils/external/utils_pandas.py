@@ -1508,8 +1508,8 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
         y = pd.Series(y, index=_Xy.index)
 
         # Overwrite x_pca0 and x_pca1 with the interpretable discrete behaviors
-        x_pca0 = _Xy['REV']
-        x_pca1 = _Xy['VENTRAL_TURN']
+        x_pca0 = _Xy['rev']
+        x_pca1 = _Xy['ventral_turn']
     else:
         raise ValueError(f"Unknown residual mode {residual_mode}; should be None, 'pca_global', or 'pca_global_1'")
     y = (y - y.mean()) / y.std()  # z-score
