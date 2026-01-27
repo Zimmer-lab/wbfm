@@ -149,8 +149,10 @@ NUM_TASKS=${#neuron_list[@]}
 if [ "$use_gfp" == "true" ]; then
   CMD="$CMD --do_gfp"
   NUM_HOURS=6
+  MEM_PER_TASK=32G
 else
   NUM_HOURS=18
+  MEM_PER_TASK=128G
 fi
 
 if [ "$simple_eigenworms" == "true" ]; then
@@ -165,8 +167,10 @@ if [ "$cv_comparison" == "true" ]; then
   CMD="$CMD --cv_comparison"
 fi
 
+EXTRA_SBATCH_ARGS=""
 if [ "$keep_large_vars" == "true" ]; then
   CMD="$CMD --keep_large_vars"
+  EXTRA_SBATCH_ARGS="#SBATCH --license=scratch-highio"
 fi
 
 if [ "$debug" == "true" ]; then
@@ -180,9 +184,9 @@ cat << EOF > $SLURM_SCRIPT
 #!/bin/bash
 #SBATCH --array=0-$(($NUM_TASKS-1))
 #SBATCH --time=0-0$NUM_HOURS:00:00
-#SBATCH --mem=64G
+#SBATCH --mem=$MEM_PER_TASK
 #SBATCH --cpus-per-task=6
-#SBATCH --license=scratch-highio
+$EXTRA_SBATCH_ARGS
 
 # Reproduce the list for the subfile
 my_list=(${neuron_list[@]})
