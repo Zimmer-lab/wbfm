@@ -1621,6 +1621,7 @@ def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp,
     """
 
     # Add a couple names back in
+    df_to_plot_gfp = df_to_plot_gfp.copy()
     rename_func = lambda x: f'{x} (gfp)' if x != '' else ''
     df_to_plot_gfp.loc[:, 'text'] = df_to_plot_gfp.loc[:, 'text'].apply(rename_func)
 
