@@ -858,6 +858,9 @@ def package_bayesian_df_for_plot(df, df_normalization=None, val_name='elpd_diff'
             # This has more rows than df_diff, so we need to filter
             has_enough_datapoints = has_enough_datapoints.loc[df_diff.index]
             df_diff = df_diff.loc[has_enough_datapoints, :]
+            # Print which neurons were removed
+            print(f"Removed neurons with insufficient data points: "
+                  f"{list(has_enough_datapoints.index[~has_enough_datapoints])}")
 
     # But the behavior score is the difference between the null and the nonhierarchical, which we don't directly have
     # Note that if the nonhierarchical is the best, this is still correct because that column is 0, and the null column
@@ -1670,14 +1673,15 @@ def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp,
                   line=dict(color="black", width=1, dash="dash"),
                   xref='paper',
                   yref='y')
-    # Diagonal line
-    xy_max = np.min([df_to_plot[x].max(), df_to_plot[y].max()])
-    fig.add_shape(type="line",
-                  x0=0, y0=0,  # start of the line (bottom of the plot)
-                  x1=xy_max, y1=xy_max,  # end of the line (top of the plot)
-                  line=dict(color="black", width=1, dash="dash"),
-                  xref='x',
-                  yref='y')
+    # Diagonal line, only if not plotting a relative score
+    if 'Relative' not in x and 'Relative' not in y:
+        xy_max = np.min([df_to_plot[x].max(), df_to_plot[y].max()])
+        fig.add_shape(type="line",
+                    x0=0, y0=0,  # start of the line (bottom of the plot)
+                    x1=xy_max, y1=xy_max,  # end of the line (top of the plot)
+                    line=dict(color="black", width=1, dash="dash"),
+                    xref='x',
+                    yref='y')
     fig.update_layout(legend=dict(
         yanchor="top",
         y=1.02,

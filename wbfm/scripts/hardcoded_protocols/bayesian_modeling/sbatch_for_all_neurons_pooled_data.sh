@@ -139,6 +139,12 @@ else
   LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling/logs"
 fi
 
+if [ "$residual_mode" ]; then
+  LOG_DIR="${LOG_DIR}_${residual_mode}"
+fi
+
+mkdir -p "$LOG_DIR"
+
 # I don't have access to the SLURM_ARRAY_TASK_ID variable, so I'm going to use the following workaround
 # Create a temporary file to actually dispatch
 SLURM_SCRIPT=$(mktemp /tmp/slurm_script.XXXXXX)
