@@ -1485,7 +1485,7 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
     elif residual_mode == 'cca_continuous':
         # Predict the residual, subtracting cca modes
         # Use 2 CCA modes, column name = CCA_neural_mode_{i}
-        x = _Xy[[f'CCA_neural_mode_{i}' for i in range(2)]].values
+        x = _Xy[[f'CCA_neural_mode_{i+1}' for i in range(2)]].values
         # I don't have the subtracted version, so do a linear regression to get it
         y_pred = LinearRegression().fit(x, _Xy[f'{neuron_name}']).predict(x)
         y = _Xy[f'{neuron_name}'] - y_pred
