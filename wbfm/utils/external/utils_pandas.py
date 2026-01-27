@@ -1487,15 +1487,21 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
         # Use 2 CCA modes, column name = CCA_neural_mode_{i}
         x = _Xy[[f'CCA_neural_mode_{i+1}' for i in range(2)]].values
         # I don't have the subtracted version, so do a linear regression to get it
-        y_pred = LinearRegression().fit(x, _Xy[f'{neuron_name}']).predict(x)
+        # Remove NaN values for fitting
+        mask = ~(np.isnan(x).any(axis=1) | _Xy[f'{neuron_name}'].isna())
+        y_pred = LinearRegression().fit(x[mask], _Xy[f'{neuron_name}'][mask]).predict(x)
         y = _Xy[f'{neuron_name}'] - y_pred
+        y = pd.Series(y, index=_Xy.index)
     elif residual_mode == 'discrete' or residual_mode == 'binary':
         # Predict the residual, subtracting discrete modes
         cols = default_discrete_behaviors()
         x = _Xy[cols].values
         # I don't have the subtracted version, so do a linear regression to get it
-        y_pred = LinearRegression().fit(x, _Xy[f'{neuron_name}']).predict(x)
+        # Remove NaN values for fitting
+        mask = ~(np.isnan(x).any(axis=1) | _Xy[f'{neuron_name}'].isna())
+        y_pred = LinearRegression().fit(x[mask], _Xy[f'{neuron_name}'][mask]).predict(x)
         y = _Xy[f'{neuron_name}'] - y_pred
+        y = pd.Series(y, index=_Xy.index)
     else:
         raise ValueError(f"Unknown residual mode {residual_mode}; should be None, 'pca_global', or 'pca_global_1'")
     y = (y - y.mean()) / y.std()  # z-score
