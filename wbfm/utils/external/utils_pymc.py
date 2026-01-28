@@ -1616,8 +1616,8 @@ def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, al
             # Optionally drop large variables (deterministic outputs with ~20k observations) to reduce file size
             if not keep_large_vars:
                 traces_to_save = traces.copy()
-                # Drop large deterministic variables by name (keep 'y' for log_likelihood)
-                large_vars_to_drop = ['curvature_term', 'mu', 'sigmoid_term', 'pca_term']
+                # Drop large deterministic variables by name
+                large_vars_to_drop = ['curvature_term', 'mu', 'sigmoid_term', 'pca_term', 'y']
                 vars_to_drop = [v for v in large_vars_to_drop if v in traces_to_save.posterior.data_vars]
                 
                 if vars_to_drop:
@@ -1630,6 +1630,13 @@ def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, al
                     if pp_vars_to_drop:
                         traces_to_save.posterior_predictive = traces_to_save.posterior_predictive.drop_vars(pp_vars_to_drop)
                         print(f"Dropped large variables from posterior_predictive of {model_name}: {pp_vars_to_drop}")
+                
+                # Same for log_likelihood if it exists
+                if hasattr(traces_to_save, 'log_likelihood') and traces_to_save.log_likelihood is not None:
+                    ll_vars_to_drop = [v for v in large_vars_to_drop if v in traces_to_save.log_likelihood.data_vars]
+                    if ll_vars_to_drop:
+                        traces_to_save.log_likelihood = traces_to_save.log_likelihood.drop_vars(ll_vars_to_drop)
+                        print(f"Dropped large variables from log_likelihood of {model_name}: {ll_vars_to_drop}")
             else:
                 traces_to_save = traces
             
