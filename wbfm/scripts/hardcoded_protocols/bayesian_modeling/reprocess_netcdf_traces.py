@@ -102,7 +102,9 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
                 print("Data variables after dropping large variables:")
                 print(idata_cleaned.posterior)
             output_file = output_dir / nc_file.name
-            az.to_netcdf(idata_cleaned, str(output_file))
+            temp_file = output_dir / f"{nc_file.stem}.tmp{nc_file.suffix}"
+            az.to_netcdf(idata_cleaned, str(temp_file))
+            shutil.move(str(temp_file), str(output_file))
             logger.info(f"  Saved to {output_file.name}")
             
             results['processed'] += 1
