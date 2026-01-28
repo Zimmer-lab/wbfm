@@ -1638,12 +1638,12 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
     # Drop from posterior
     if hasattr(idata_cleaned, 'posterior') and idata_cleaned.posterior is not None:
         # Debugging: rename intercept
-        print("DEBUGGING DROP LARGE VARS")
-        print(idata_cleaned.posterior)
-        idata_cleaned.posterior = idata_cleaned.posterior.rename(
-            {"intercept": "_intercept"}
-        )
-        print(idata_cleaned.posterior)
+        # print("DEBUGGING DROP LARGE VARS")
+        # print(idata_cleaned.posterior)
+        # idata_cleaned.posterior = idata_cleaned.posterior.rename(
+        #     {"intercept": "_intercept"}
+        # )
+        # print(idata_cleaned.posterior)
         vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior.data_vars]
         if vars_to_drop:
             idata_cleaned.posterior = idata_cleaned.posterior.drop_vars(vars_to_drop)
