@@ -77,7 +77,8 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
     
     for nc_file in tqdm(nc_files, desc="Processing .nc files"):
         try:
-            logger.info(f"Processing {nc_file.name}...")
+            if DEBUG:
+                logger.info(f"Processing {nc_file.name}...")
             
             # Load the trace
             idata = az.from_netcdf(str(nc_file))
@@ -105,7 +106,8 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
             temp_file = output_dir / f"{nc_file.stem}.tmp{nc_file.suffix}"
             az.to_netcdf(idata_cleaned, str(temp_file))
             shutil.move(str(temp_file), str(output_file))
-            logger.info(f"  Saved to {output_file.name}")
+            if DEBUG:
+                logger.info(f"  Saved to {output_file.name}")
             
             results['processed'] += 1
             
