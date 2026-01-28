@@ -71,6 +71,7 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
         'processed': 0,
         'failed': 0,
         'skipped': 0,
+        'total': len(nc_files),
         'failed_files': []
     }
     
@@ -91,6 +92,13 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
             idata_cleaned = drop_large_variables_from_idata(idata, large_vars_to_drop, verbose=DEBUG)
             
             # Save to output directory
+            if DEBUG:
+                print("Cleaned InferenceData structure:")
+                print(idata_cleaned)
+                print("Data variables after dropping large variables:")
+                print(idata_cleaned.posterior)
+                print(idata.posterior_predictive)
+                print(idata.log_likelihood)
             output_file = output_dir / nc_file.name
             az.to_netcdf(idata_cleaned, str(output_file))
             logger.info(f"  Saved to {output_file.name}")
@@ -99,13 +107,13 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
             
         except Exception as e:
             logger.error(f"  Failed to process {nc_file.name}: {e}")
+            results['failed'] += 1
+            results['failed_files'].append(nc_file.name)
             # Also print the line number
             if DEBUG:
                 import traceback
                 traceback.print_exc()
                 break
-            results['failed'] += 1
-            results['failed_files'].append(nc_file.name)
     
     return results
 
@@ -161,6 +169,7 @@ def main():
     print("\n" + "="*60)
     print("SUMMARY")
     print("="*60)
+    print(f"Total files found: {results['total']}")
     print(f"Processed: {results['processed']}")
     print(f"Skipped:   {results['skipped']}")
     print(f"Failed:    {results['failed']}")
