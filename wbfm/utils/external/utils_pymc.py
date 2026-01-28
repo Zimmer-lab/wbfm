@@ -1655,7 +1655,7 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None):
 
 
 def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=False):
-    # Save objects
+    # Save objects, possibly dropping large variables from traces
     if dataset_name == 'all':
         output_fname_base = f'{neuron_name}'
 
