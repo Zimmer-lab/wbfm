@@ -24,7 +24,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_drop=None):
+def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_drop=None,
+                       DEBUG=False):
     """
     Reprocess all .nc files in a directory, dropping large variables.
     
@@ -80,22 +81,6 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
             # Load the trace
             idata = az.from_netcdf(nc_file)
             
-            # Check if there are any variables to drop
-            vars_in_file = set()
-            if hasattr(idata, 'posterior') and idata.posterior is not None:
-                vars_in_file.update(idata.posterior.data_vars)
-            if hasattr(idata, 'posterior_predictive') and idata.posterior_predictive is not None:
-                vars_in_file.update(idata.posterior_predictive.data_vars)
-            if hasattr(idata, 'log_likelihood') and idata.log_likelihood is not None:
-                vars_in_file.update(idata.log_likelihood.data_vars)
-            
-            vars_to_drop_here = [v for v in large_vars_to_drop if v in vars_in_file]
-            
-            if not vars_to_drop_here:
-                logger.info(f"  Skipped (no variables to drop)")
-                results['skipped'] += 1
-                continue
-            
             # Create backup if requested
             if backup:
                 backup_file = nc_file.with_suffix('.nc.bak')
@@ -103,7 +88,7 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
                 logger.info(f"  Created backup at {backup_file.name}")
             
             # Drop variables
-            idata_cleaned = drop_large_variables_from_idata(idata, large_vars_to_drop)
+            idata_cleaned = drop_large_variables_from_idata(idata, large_vars_to_drop, verbose=DEBUG)
             
             # Save to output directory
             output_file = output_dir / nc_file.name
@@ -114,6 +99,12 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
             
         except Exception as e:
             logger.error(f"  Failed to process {nc_file.name}: {e}")
+            # Also print the line number
+            if DEBUG:
+                import traceback
+                tb = traceback.extract_tb(e.__traceback__)
+                filename, line, func, text = tb[-1]
+                logger.error(f"    Error occurred in {filename}, line {line}, in {func}")
             results['failed'] += 1
             results['failed_files'].append(nc_file.name)
     
@@ -148,6 +139,13 @@ def main():
         default=None,
         help='Variable names to drop (default: curvature_term mu sigmoid_term pca_term y)'
     )
+
+    # Add debug flag
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable debug mode with detailed error output'
+    )
     
     args = parser.parse_args()
     
@@ -156,7 +154,8 @@ def main():
         input_dir=args.input_dir,
         output_dir=args.output_dir,
         backup=args.backup,
-        large_vars_to_drop=args.vars_to_drop
+        large_vars_to_drop=args.vars_to_drop,
+        DEBUG=args.debug
     )
     
     # Print summary
