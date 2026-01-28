@@ -1659,7 +1659,8 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
     return idata_cleaned
 
 
-def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=False):
+def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=False,
+                           verbose=0):
     # Save objects, possibly dropping large variables from traces
     if dataset_name == 'all':
         output_fname_base = f'{neuron_name}'
@@ -1668,7 +1669,8 @@ def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, al
         for model_name, traces in all_traces.items():
             # Optionally drop large variables (deterministic outputs with ~20k observations) to reduce file size
             if not keep_large_vars:
-                print(f"Processing {model_name}...")
+                if verbose >= 1:
+                    print(f"Processing {model_name}...")
                 traces_to_save = drop_large_variables_from_idata(traces)
             else:
                 traces_to_save = traces

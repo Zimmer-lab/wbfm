@@ -102,9 +102,7 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
             # Also print the line number
             if DEBUG:
                 import traceback
-                tb = traceback.extract_tb(e.__traceback__)
-                filename, line, func, text = tb[-1]
-                logger.error(f"    Error occurred in {filename}, line {line}, in {func}")
+                traceback.print_exc()
             results['failed'] += 1
             results['failed_files'].append(nc_file.name)
     
