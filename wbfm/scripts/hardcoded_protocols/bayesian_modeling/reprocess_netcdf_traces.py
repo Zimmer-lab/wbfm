@@ -80,7 +80,7 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
             logger.info(f"Processing {nc_file.name}...")
             
             # Load the trace
-            idata = az.from_netcdf(nc_file)
+            idata = az.from_netcdf(str(nc_file))
             
             # Create backup if requested
             if backup:

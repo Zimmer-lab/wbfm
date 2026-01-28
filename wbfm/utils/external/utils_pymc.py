@@ -1629,6 +1629,8 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
     """
     if large_vars_to_drop is None:
         large_vars_to_drop = ['curvature_term', 'mu', 'sigmoid_term', 'pca_term', 'y']
+    if verbose >= 1:
+        print(f"Dropping large variables: {large_vars_to_drop}")
     
     idata_cleaned = idata.copy()
     vars_to_drop = []
@@ -1672,12 +1674,12 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
     
     # Try to clear potentially stale metadata
     # Reconstruct InferenceData with only non-None groups
-    idata_groups = {}
-    for group_name in ['posterior', 'posterior_predictive', 'log_likelihood', 'observed_data', 'constant_data', 'sample_stats']:
-        if hasattr(idata_cleaned, group_name) and getattr(idata_cleaned, group_name) is not None:
-            idata_groups[group_name] = getattr(idata_cleaned, group_name)
+    # idata_groups = {}
+    # for group_name in ['posterior', 'posterior_predictive', 'log_likelihood', 'observed_data', 'constant_data', 'sample_stats']:
+    #     if hasattr(idata_cleaned, group_name) and getattr(idata_cleaned, group_name) is not None:
+    #         idata_groups[group_name] = getattr(idata_cleaned, group_name)
     
-    idata_cleaned = az.InferenceData(**idata_groups)
+    # idata_cleaned = az.InferenceData(**idata_groups)
     modified_flag = len(vars_to_drop) + len(pp_vars_to_drop) + len(ll_vars_to_drop) > 0
     return idata_cleaned, modified_flag
 
