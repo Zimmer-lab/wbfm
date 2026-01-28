@@ -6,6 +6,7 @@ from typing import Tuple, Dict
 from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
+from zmq import has
 import pymc as pm
 import xarray as xr
 import arviz as az
@@ -1632,11 +1633,12 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
     idata_cleaned = idata.copy()
     
     # Drop from posterior
-    vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior.data_vars]
-    if vars_to_drop:
-        idata_cleaned.posterior = idata_cleaned.posterior.drop_vars(vars_to_drop)
-        if verbose >= 1:
-            print(f"Dropped from posterior: {vars_to_drop}")
+    if hasattr(idata_cleaned, 'posterior') and idata_cleaned.posterior is not None:
+        vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior.data_vars]
+        if vars_to_drop:
+            idata_cleaned.posterior = idata_cleaned.posterior.drop_vars(vars_to_drop)
+            if verbose >= 1:
+                print(f"Dropped from posterior: {vars_to_drop}")
     
     # Drop from posterior_predictive if it exists
     if hasattr(idata_cleaned, 'posterior_predictive') and idata_cleaned.posterior_predictive is not None:
