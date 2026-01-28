@@ -103,6 +103,7 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
             if DEBUG:
                 import traceback
                 traceback.print_exc()
+                break
             results['failed'] += 1
             results['failed_files'].append(nc_file.name)
     
