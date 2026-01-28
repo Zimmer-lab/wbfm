@@ -1659,6 +1659,11 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
             if verbose >= 1:
                 print(f"Dropped from log_likelihood: {ll_vars_to_drop}")
     
+    # Try to clear potentially stale metadata
+    idata_cleaned.posterior = idata_cleaned.posterior.copy(deep=False)
+    idata_cleaned.posterior_predictive = idata_cleaned.posterior_predictive.copy(deep=False)
+    idata_cleaned.log_likelihood = idata_cleaned.log_likelihood.copy(deep=False)
+
     modified_flag = len(vars_to_drop) + len(pp_vars_to_drop) + len(ll_vars_to_drop) > 0
     return idata_cleaned, modified_flag
 
