@@ -89,7 +89,11 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
                 logger.info(f"  Created backup at {backup_file.name}")
             
             # Drop variables
-            idata_cleaned = drop_large_variables_from_idata(idata, large_vars_to_drop, verbose=DEBUG)
+            idata_cleaned, modified_flag = drop_large_variables_from_idata(idata, large_vars_to_drop, verbose=DEBUG)
+            if not modified_flag:
+                logger.info(f"  No large variables to drop in {nc_file.name}, skipping.")
+                results['skipped'] += 1
+                continue
             
             # Save to output directory
             if DEBUG:

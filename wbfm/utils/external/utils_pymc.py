@@ -1656,7 +1656,8 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
             if verbose >= 1:
                 print(f"Dropped from log_likelihood: {ll_vars_to_drop}")
     
-    return idata_cleaned
+    modified_flag = len(vars_to_drop) + len(pp_vars_to_drop) + len(ll_vars_to_drop) > 0
+    return idata_cleaned, modified_flag
 
 
 def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=False,
@@ -1671,7 +1672,7 @@ def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, al
             if not keep_large_vars:
                 if verbose >= 1:
                     print(f"Processing {model_name}...")
-                traces_to_save = drop_large_variables_from_idata(traces)
+                traces_to_save, _ = drop_large_variables_from_idata(traces)
             else:
                 traces_to_save = traces
             
