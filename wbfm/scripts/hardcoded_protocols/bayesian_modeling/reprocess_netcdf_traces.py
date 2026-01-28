@@ -101,8 +101,8 @@ def reprocess_nc_files(input_dir, output_dir=None, backup=False, large_vars_to_d
                 print(idata_cleaned)
                 print("Data variables after dropping large variables:")
                 print(idata_cleaned.posterior)
-                print(idata.posterior_predictive)
-                print(idata.log_likelihood)
+                print(idata_cleaned.posterior_predictive)
+                print(idata_cleaned.log_likelihood)
             output_file = output_dir / nc_file.name
             az.to_netcdf(idata_cleaned, str(output_file))
             logger.info(f"  Saved to {output_file.name}")

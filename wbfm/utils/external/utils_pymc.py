@@ -1641,9 +1641,12 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
         if vars_to_drop:
             idata_cleaned.posterior = idata_cleaned.posterior.drop_vars(vars_to_drop)
             # Debugging: rename intercept
+            print("DEBUGGING DROP LARGE VARS")
+            print(idata_cleaned.posterior)
             idata_cleaned.posterior = idata_cleaned.posterior.rename(
                 {"intercept": "_intercept"}
             )
+            print(idata_cleaned.posterior)
 
             # idata_cleaned.posterior = idata_cleaned.posterior.reset_encoding()
             if verbose >= 1:
