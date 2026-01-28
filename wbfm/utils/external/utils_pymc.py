@@ -1640,6 +1640,7 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
         vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior.data_vars]
         if vars_to_drop:
             idata_cleaned.posterior = idata_cleaned.posterior.drop_vars(vars_to_drop)
+            idata_cleaned.posterior = idata_cleaned.posterior.copy(deep=False)
             if verbose >= 1:
                 print(f"Dropped from posterior: {vars_to_drop}")
     
@@ -1648,6 +1649,7 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
         pp_vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior_predictive.data_vars]
         if pp_vars_to_drop:
             idata_cleaned.posterior_predictive = idata_cleaned.posterior_predictive.drop_vars(pp_vars_to_drop)
+            idata_cleaned.posterior_predictive = idata_cleaned.posterior_predictive.copy(deep=False)
             if verbose >= 1:
                 print(f"Dropped from posterior_predictive: {pp_vars_to_drop}")
     
@@ -1656,14 +1658,12 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
         ll_vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.log_likelihood.data_vars]
         if ll_vars_to_drop:
             idata_cleaned.log_likelihood = idata_cleaned.log_likelihood.drop_vars(ll_vars_to_drop)
+            idata_cleaned.log_likelihood = idata_cleaned.log_likelihood.copy(deep=False)
             if verbose >= 1:
                 print(f"Dropped from log_likelihood: {ll_vars_to_drop}")
     
     # Try to clear potentially stale metadata
-    idata_cleaned.posterior = idata_cleaned.posterior.copy(deep=False)
-    idata_cleaned.posterior_predictive = idata_cleaned.posterior_predictive.copy(deep=False)
-    idata_cleaned.log_likelihood = idata_cleaned.log_likelihood.copy(deep=False)
-
+    
     modified_flag = len(vars_to_drop) + len(pp_vars_to_drop) + len(ll_vars_to_drop) > 0
     return idata_cleaned, modified_flag
 
