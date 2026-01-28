@@ -1606,7 +1606,7 @@ def save_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dat
     print(f"Saved all CV results for {neuron_name} in {output_dir}")
 
 
-def drop_large_variables_from_idata(idata, large_vars_to_drop=None):
+def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
     """
     Drop large deterministic variables from an ArviZ InferenceData object.
     
@@ -1635,21 +1635,24 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None):
     vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior.data_vars]
     if vars_to_drop:
         idata_cleaned.posterior = idata_cleaned.posterior.drop_vars(vars_to_drop)
-        print(f"Dropped from posterior: {vars_to_drop}")
+        if verbose >= 1:
+            print(f"Dropped from posterior: {vars_to_drop}")
     
     # Drop from posterior_predictive if it exists
     if hasattr(idata_cleaned, 'posterior_predictive') and idata_cleaned.posterior_predictive is not None:
         pp_vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior_predictive.data_vars]
         if pp_vars_to_drop:
             idata_cleaned.posterior_predictive = idata_cleaned.posterior_predictive.drop_vars(pp_vars_to_drop)
-            print(f"Dropped from posterior_predictive: {pp_vars_to_drop}")
+            if verbose >= 1:
+                print(f"Dropped from posterior_predictive: {pp_vars_to_drop}")
     
     # Drop from log_likelihood if it exists
     if hasattr(idata_cleaned, 'log_likelihood') and idata_cleaned.log_likelihood is not None:
         ll_vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.log_likelihood.data_vars]
         if ll_vars_to_drop:
             idata_cleaned.log_likelihood = idata_cleaned.log_likelihood.drop_vars(ll_vars_to_drop)
-            print(f"Dropped from log_likelihood: {ll_vars_to_drop}")
+            if verbose >= 1:
+                print(f"Dropped from log_likelihood: {ll_vars_to_drop}")
     
     return idata_cleaned
 
