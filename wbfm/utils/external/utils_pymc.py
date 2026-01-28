@@ -1606,6 +1606,54 @@ def save_cv_results(neuron_name, df_cv_compare, cv_results_dict, output_dir, dat
     print(f"Saved all CV results for {neuron_name} in {output_dir}")
 
 
+def drop_large_variables_from_idata(idata, large_vars_to_drop=None):
+    """
+    Drop large deterministic variables from an ArviZ InferenceData object.
+    
+    Removes variables from posterior, posterior_predictive, and log_likelihood groups
+    to reduce file size. Useful for traces with large deterministic outputs like
+    ~20k observation arrays (curvature_term, mu, sigmoid_term, etc.).
+    
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+        The inference data object to modify
+    large_vars_to_drop : list of str, optional
+        Variable names to drop. Default: ['curvature_term', 'mu', 'sigmoid_term', 'pca_term', 'y']
+    
+    Returns
+    -------
+    idata_cleaned : arviz.InferenceData
+        Modified copy with large variables removed
+    """
+    if large_vars_to_drop is None:
+        large_vars_to_drop = ['curvature_term', 'mu', 'sigmoid_term', 'pca_term', 'y']
+    
+    idata_cleaned = idata.copy()
+    
+    # Drop from posterior
+    vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior.data_vars]
+    if vars_to_drop:
+        idata_cleaned.posterior = idata_cleaned.posterior.drop_vars(vars_to_drop)
+        print(f"Dropped from posterior: {vars_to_drop}")
+    
+    # Drop from posterior_predictive if it exists
+    if hasattr(idata_cleaned, 'posterior_predictive') and idata_cleaned.posterior_predictive is not None:
+        pp_vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior_predictive.data_vars]
+        if pp_vars_to_drop:
+            idata_cleaned.posterior_predictive = idata_cleaned.posterior_predictive.drop_vars(pp_vars_to_drop)
+            print(f"Dropped from posterior_predictive: {pp_vars_to_drop}")
+    
+    # Drop from log_likelihood if it exists
+    if hasattr(idata_cleaned, 'log_likelihood') and idata_cleaned.log_likelihood is not None:
+        ll_vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.log_likelihood.data_vars]
+        if ll_vars_to_drop:
+            idata_cleaned.log_likelihood = idata_cleaned.log_likelihood.drop_vars(ll_vars_to_drop)
+            print(f"Dropped from log_likelihood: {ll_vars_to_drop}")
+    
+    return idata_cleaned
+
+
 def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=False):
     # Save objects
     if dataset_name == 'all':
@@ -1615,28 +1663,8 @@ def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, al
         for model_name, traces in all_traces.items():
             # Optionally drop large variables (deterministic outputs with ~20k observations) to reduce file size
             if not keep_large_vars:
-                traces_to_save = traces.copy()
-                # Drop large deterministic variables by name
-                large_vars_to_drop = ['curvature_term', 'mu', 'sigmoid_term', 'pca_term', 'y']
-                vars_to_drop = [v for v in large_vars_to_drop if v in traces_to_save.posterior.data_vars]
-                
-                if vars_to_drop:
-                    traces_to_save.posterior = traces_to_save.posterior.drop_vars(vars_to_drop)
-                    print(f"Dropped large variables from {model_name}: {vars_to_drop}")
-                
-                # Also drop from posterior_predictive if it exists
-                if hasattr(traces_to_save, 'posterior_predictive') and traces_to_save.posterior_predictive is not None:
-                    pp_vars_to_drop = [v for v in large_vars_to_drop if v in traces_to_save.posterior_predictive.data_vars]
-                    if pp_vars_to_drop:
-                        traces_to_save.posterior_predictive = traces_to_save.posterior_predictive.drop_vars(pp_vars_to_drop)
-                        print(f"Dropped large variables from posterior_predictive of {model_name}: {pp_vars_to_drop}")
-                
-                # Same for log_likelihood if it exists
-                if hasattr(traces_to_save, 'log_likelihood') and traces_to_save.log_likelihood is not None:
-                    ll_vars_to_drop = [v for v in large_vars_to_drop if v in traces_to_save.log_likelihood.data_vars]
-                    if ll_vars_to_drop:
-                        traces_to_save.log_likelihood = traces_to_save.log_likelihood.drop_vars(ll_vars_to_drop)
-                        print(f"Dropped large variables from log_likelihood of {model_name}: {ll_vars_to_drop}")
+                print(f"Processing {model_name}...")
+                traces_to_save = drop_large_variables_from_idata(traces)
             else:
                 traces_to_save = traces
             
