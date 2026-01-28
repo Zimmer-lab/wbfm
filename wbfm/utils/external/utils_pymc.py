@@ -1631,6 +1631,9 @@ def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
         large_vars_to_drop = ['curvature_term', 'mu', 'sigmoid_term', 'pca_term', 'y']
     
     idata_cleaned = idata.copy()
+    vars_to_drop = []
+    pp_vars_to_drop = []
+    ll_vars_to_drop = []
     
     # Drop from posterior
     if hasattr(idata_cleaned, 'posterior') and idata_cleaned.posterior is not None:
