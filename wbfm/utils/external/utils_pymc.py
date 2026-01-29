@@ -397,9 +397,9 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
     else:
         # Hyperprior
         hyper_pca0_amplitude = pm.Normal('hyper_pca0_amplitude', mu=0, sigma=5)
-        hyper_pca0_sigma = pm.Exponential('hyper_pca0_sigma', lam=10)
+        hyper_pca0_sigma = pm.HalfNormal('hyper_pca0_sigma', sigma=0.5)
         hyper_pca1_amplitude = pm.Normal('hyper_pca1_amplitude', mu=0, sigma=5)
-        hyper_pca1_sigma = pm.Exponential('hyper_pca1_sigma', lam=10)
+        hyper_pca1_sigma = pm.HalfNormal('hyper_pca1_sigma', sigma=0.5)
         zscore_pca0_amplitude = pm.Normal('zscore_pca0_amplitude', mu=0, sigma=1, dims=dims)
         zscore_pca1_amplitude = pm.Normal('zscore_pca1_amplitude', mu=0, sigma=1, dims=dims)
 
