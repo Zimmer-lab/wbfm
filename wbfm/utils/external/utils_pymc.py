@@ -137,13 +137,13 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
 
     with pm.Model(coords=coords) as null_model:
         # Just do a flat line (intercept)
-        intercept, sigma = build_baseline_priors()#**dim_opt)
+        intercept, sigma = build_baseline_priors(**dim_opt)
         mu = pm.Deterministic('mu', intercept)
         likelihood = build_final_likelihood(mu, sigma, y)
 
     with pm.Model(coords=coords) as nonhierarchical_model:
         # Curvature, but no sigmoid
-        intercept, sigma = build_baseline_priors()#**dim_opt)
+        intercept, sigma = build_baseline_priors(**dim_opt)
         curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
         mu = pm.Deterministic('mu', intercept + curvature_term)
@@ -151,7 +151,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
 
     with pm.Model(coords=coords) as hierarchical_pca_model:
         # Curvature multiplied by sigmoid
-        intercept, sigma = build_baseline_priors()#**dim_opt)
+        intercept, sigma = build_baseline_priors(**dim_opt)
         sigmoid_term = build_sigmoid_term_pca(pca_modes, **dim_opt)
         curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
@@ -198,18 +198,22 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     return df_compare, all_traces, all_models
 
 
-def build_baseline_priors(dims=None, dataset_name_idx=None):
+def build_baseline_priors(dims=None, dataset_name_idx=None, vary_intercept_per_trial=False):
     # Note that with dr/r50 input data, the median is subtracted out so this is nearly centered already
     if dims is None:
         intercept = pm.Normal('intercept', mu=0, sigma=1)
         sigma = pm.HalfCauchy("sigma", beta=0.02)
 
     else:
-        # Include hyperprior
-        hyper_intercept = pm.Normal('hyper_intercept', mu=0, sigma=1)
-        hyper_intercept_sigma = pm.Exponential('hyper_intercept_sigma', lam=1)
-        zscore_intercept = pm.Normal('zscore_intercept', mu=0, sigma=1, dims=dims)
-        intercept = pm.Deterministic('intercept', hyper_intercept + zscore_intercept*hyper_intercept_sigma)[dataset_name_idx]
+        if vary_intercept_per_trial:
+            # Include hyperprior
+            hyper_intercept = pm.Normal('hyper_intercept', mu=0, sigma=1)
+            hyper_intercept_sigma = pm.Exponential('hyper_intercept_sigma', lam=1)
+            zscore_intercept = pm.Normal('zscore_intercept', mu=0, sigma=1, dims=dims)
+            intercept = pm.Deterministic('intercept', hyper_intercept + zscore_intercept*hyper_intercept_sigma)[dataset_name_idx]
+        else:
+            # i.e. same as if no dims were passed
+            intercept = pm.Normal('intercept', mu=0, sigma=1)
 
         # Also vary sigma per dataset; simpler because we don't have to zscore it
         sigma = pm.HalfCauchy("sigma", beta=0.02, dims=dims)[dataset_name_idx]
@@ -217,11 +221,11 @@ def build_baseline_priors(dims=None, dataset_name_idx=None):
     return intercept, sigma
 
 
-def build_final_likelihood(mu, sigma, y, nu=100):
+def build_final_likelihood(mu, sigma, y, nu=5):
     return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
 
 
-def compute_studentt_logp(mu, sigma, y, nu=100):
+def compute_studentt_logp(mu, sigma, y, nu=5):
     """Compute log-likelihood under StudentT distribution using scipy."""
     return np.sum(stats.t.logpdf(y, df=nu, loc=mu, scale=sigma))
 
