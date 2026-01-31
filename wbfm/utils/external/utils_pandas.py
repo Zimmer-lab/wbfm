@@ -1512,7 +1512,10 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
         x_pca1 = _Xy['ventral_turn']
     else:
         raise ValueError(f"Unknown residual mode {residual_mode}; should be None, 'pca_global', or 'pca_global_1'")
-    y = (y - y.mean()) / y.std()  # z-score
+    # Standardize y per dataset
+    y = y.groupby(_Xy['dataset_name']).transform(lambda z: (z - z.mean()) / z.std())
+    # y = (y - y.mean()) / y.std()  # z-score
+
     if y.std() == 0:
         raise ValueError(f"Standard deviation of y is 0 for {neuron_name} in {dataset_name} and residual_mode {residual_mode}... "
                          f"This could be due to no data, or a bug in the residual calculation")
