@@ -1802,7 +1802,8 @@ def _load_all_traces(foldername, single_neuron=None):
     print(f"Loaded {len(all_traces)} out of {len(fnames)} neurons from {foldername}")
     return all_traces
 
-def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False):
+def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
+                       recalculate_sigmoid=True):
     from wbfm.utils.general.utils_hardcoded import role_of_neuron_dict
 
     parent_folder = get_hierarchical_modeling_dir(gfp=do_gfp)
@@ -1865,22 +1866,23 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
         all_dfs[n].append(_df.T)
 
         # Recalculate the sigmoid term
-        try:
-            idata = all_traces[n]
-            idata = reconstruct_sigmoid_term_from_trace(idata, n, Xy)
-            
-            # Variables with specific postprocessing
-            dat = az.extract(idata, group='posterior', var_names=var_names2, filter_vars='like')
-            summary = xr.Dataset(
-                {
-                    "sigmoid_term": dat.median(),
-                    "sigmoid_term_quantile": dat.quantile(0.8),
-                    "sigmoid_term_variance": dat.var(),
-                }
-            )
-            all_dfs[n].extend([_convert_0d_xarray(summary).T])
-        except AttributeError:
-            logging.warning(f"Could not reconstruct sigmoid term for neuron {n}, skipping")
+        if recalculate_sigmoid:
+            try:
+                idata = all_traces[n]
+                idata = reconstruct_sigmoid_term_from_trace(idata, n, Xy)
+                
+                # Variables with specific postprocessing
+                dat = az.extract(idata, group='posterior', var_names=var_names2, filter_vars='like')
+                summary = xr.Dataset(
+                    {
+                        "sigmoid_term": dat.median(),
+                        "sigmoid_term_quantile": dat.quantile(0.8),
+                        "sigmoid_term_variance": dat.var(),
+                    }
+                )
+                all_dfs[n].extend([_convert_0d_xarray(summary).T])
+            except AttributeError:
+                logging.warning(f"Could not reconstruct sigmoid term for neuron {n}, skipping")
         
         all_dfs[n] = pd.concat(all_dfs[n])
     
@@ -1906,7 +1908,7 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
             df_params[f'{col}_is_significant'] = sig_flag
 
     # Get radial term: combination of raw curvature amplitude and median of the sigmoid term
-    if 'sigmoid_term_quantile' in df_params.columns:
+    if recalculate_sigmoid and 'sigmoid_term_quantile' in df_params.columns:
         # df_params['r'] = np.exp(df_params['log_amplitude_mu']) * df_params['sigmoid_term_quantile'] 
         df_params['r'] = df_params['amplitude'] * df_params['sigmoid_term_quantile']
     else:
@@ -1922,7 +1924,8 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False)
     # r = df_params['log_amplitude_mu']
     df_params['text'] = np.array(df_params.index)
     df_params['text_complete'] = np.array(df_params.index)
-    df_params.loc[df_params['r'] < 0.1, 'text'] = ''
+    if 'r' in df_params.columns:
+        df_params.loc[df_params['r'] < 0.1, 'text'] = ''
 
     # Basic printing
     print("Corrected p-values for pca0_amplitude:")
