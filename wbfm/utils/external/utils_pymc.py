@@ -1873,15 +1873,18 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
     else:
         neurons_to_plot = [single_neuron]
 
-    var_names = [#"self_collision", 'amplitude_mu', 
-                #'speed', 'phase', 'dorsal', 'ventral', 
+    var_names = ['prob_flip_sign',
                 'hyper_pca0_amplitude', "hyper_pca1_amplitude",  
                 'pca0_amplitude', 'pca1_amplitude',
                 'log_amplitude_mu', 'amplitude',
                 'phase_shift', 
                 'eigenworm3_coefficient', 'eigenworm4_coefficient'
     ]
-    # var_names.extend([f'eigenworm{i+1}_coefficient' for i in range(4)])
+    # Reference values for ttests; prob_flip_sign is special
+    var_names_ref = [0.5]
+    var_names_ref.extend([0.0] * (len(var_names) - 1))
+    var_names_ref = np.array(var_names_ref)
+
     var_names2 = ["sigmoid_term"]
 
     def _convert_0d_xarray(array, suffix=''):
@@ -1904,7 +1907,7 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
         all_dfs[n].append(var_df.T)
 
         # Also calculate the bayesian p-value vs. 0 for all columns
-        prob_gt_zero = (posterior[var_names] > 0).mean()
+        prob_gt_zero = (posterior[var_names] > var_names_ref).mean()
         # Get the smaller one (or vector) and multiply by 2
         p_two_sided = 2 * xr.where(
             prob_gt_zero <= 0.5,
