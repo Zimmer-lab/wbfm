@@ -138,25 +138,22 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     with pm.Model(coords=coords) as null_model:
         # Just do a flat line (intercept)
         intercept, sigma = build_baseline_priors(**dim_opt)
-        mu = pm.Deterministic('mu', intercept)
-        likelihood = build_final_likelihood(mu, sigma, y)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept)
 
     with pm.Model(coords=coords) as nonhierarchical_model:
         # Curvature, but no sigmoid
         intercept, sigma = build_baseline_priors(**dim_opt)
         curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
-        mu = pm.Deterministic('mu', intercept + curvature_term)
-        likelihood = build_final_likelihood(mu, sigma, y)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term)
 
     with pm.Model(coords=coords) as hierarchical_pca_model:
         # Curvature multiplied by sigmoid
         intercept, sigma = build_baseline_priors(**dim_opt)
-        sigmoid_term = build_sigmoid_term_pca(pca_modes, **dim_opt)
+        sigmoid_term, prob_flip_sign = build_sigmoid_term_pca(pca_modes, **dim_opt)
         curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
-        mu = pm.Deterministic('mu', intercept + sigmoid_term * curvature_term)
-        likelihood = build_final_likelihood(mu, sigma, y)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, sigmoid_term=sigmoid_term, curvature_term=curvature_term, prob_flip_sign=prob_flip_sign)
 
     coords.update({'time': np.arange(len(y))})
 
@@ -227,8 +224,45 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
     return intercept, sigma
 
 
-def build_final_likelihood(mu, sigma, y, nu=5):
-    return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
+def build_final_likelihood(sigma, y, nu=5, 
+                           intercept=0, sigmoid_term=0, curvature_term=0, prob_flip_sign=None):
+    """
+    Build the final likelihood for the model.
+    
+    Parameters
+    ----------
+    mu : array-like
+        Mean of the Student-t distribution
+    sigma : array-like
+        Scale of the Student-t distribution
+    y : array-like
+        Observed data
+    nu : float
+        Degrees of freedom for Student-t (default: 5)
+    prob_flip_sigma : float or None
+        If None, use standard StudentT likelihood with mu.
+        If a float between 0 and 1, marginalize over sign by using a mixture
+        of mu and -mu, where prob_flip_sigma is the probability of the negative
+        component (default: None)
+    
+    Returns
+    -------
+    pm.Distribution
+        The likelihood distribution
+    """
+    mu = pm.Deterministic('mu', intercept + sigmoid_term * curvature_term)
+
+    if prob_flip_sign is None:
+        return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
+    else:
+        # Marginalize over sign: mixture of mu and -mu
+        # marginalize_sign is the weight for the positive component
+        mu_flipped = pm.Deterministic('mu_flipped', intercept + (1 - sigmoid_term) * curvature_term)
+
+        return pm.Mixture('y', w=[1.0 - prob_flip_sign, prob_flip_sign], 
+                         comp_dists=[pm.StudentT.dist(mu=mu, sigma=sigma, nu=nu),
+                                    pm.StudentT.dist(mu=mu_flipped, sigma=sigma, nu=nu)],
+                         observed=y)
 
 
 def compute_studentt_logp(mu, sigma, y, nu=5):
@@ -325,7 +359,7 @@ def reconstruct_sigmoid_term_from_trace(idata, neuron_name, Xy=None, dataset_nam
             print("Reconstructing sigmoid_term with PCA modes shape:", model_data['pca_modes'].shape)
         
         # Build the sigmoid term using the existing function
-        sigmoid_term_deterministic = build_sigmoid_term_pca(
+        sigmoid_term_deterministic, _ = build_sigmoid_term_pca(
             x_pca_data, 
             **model_data['dim_opt']
         )
@@ -389,12 +423,17 @@ def build_sigmoid_term(x, force_positive_slope=True):
 
 
 def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, dataset_name_idx=None):
-    # Sigmoid (hierarchy) term
-    # if force_positive_slope:
-    #     log_sigmoid_slope = pm.Normal('log_sigmoid_slope', mu=0, sigma=1)  # Using log-amplitude for positivity
-    #     sigmoid_slope = pm.Deterministic('sigmoid_slope', pm.math.exp(log_sigmoid_slope))
-    # else:
-    #     sigmoid_slope = pm.Normal('sigmoid_slope', mu=0, sigma=1)
+    """
+    Build sigmoid term from PCA modes with positive amplitude constraints.
+    
+    Returns
+    -------
+    sigmoid_term : pm.Deterministic
+        Sigmoid transformation of PCA term
+    prob_flip_sign : pm.Distribution or None
+        Probability to flip sign (used in marginalized likelihood).
+        Returned when dims is not None, otherwise None.
+    """
     inflection_point = pm.Normal('inflection_point', mu=0, sigma=5)
 
     # PCA modes and coefficients
@@ -404,11 +443,12 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         pca_amplitude = pm.Deterministic('pca_amplitude',
                                          hyper_pca_amplitude + zscore_pca_amplitude*hyper_pca_sigma)
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
+        prob_flip_sign = None
     else:
-        # Hyperprior
-        hyper_pca0_amplitude = pm.Normal('hyper_pca0_amplitude', mu=0, sigma=5)
+        # Hyperprior - force positivity using Exponential
+        hyper_pca0_amplitude = pm.Exponential('hyper_pca0_amplitude', lam=1.0)
         hyper_pca0_sigma = pm.HalfNormal('hyper_pca0_sigma', sigma=0.5)
-        hyper_pca1_amplitude = pm.Normal('hyper_pca1_amplitude', mu=0, sigma=5)
+        hyper_pca1_amplitude = pm.Exponential('hyper_pca1_amplitude', lam=1.0)
         hyper_pca1_sigma = pm.HalfNormal('hyper_pca1_sigma', sigma=0.5)
         zscore_pca0_amplitude = pm.Normal('zscore_pca0_amplitude', mu=0, sigma=1, dims=dims)
         zscore_pca1_amplitude = pm.Normal('zscore_pca1_amplitude', mu=0, sigma=1, dims=dims)
@@ -421,10 +461,14 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         pca_term = pm.Deterministic('pca_term',
                                     pca0_amplitude[dataset_name_idx] * x_pca_modes[:, 0] +
                                     pca1_amplitude[dataset_name_idx] * x_pca_modes[:, 1])
+        
+        # Probability to flip sign (marginalize over sign in likelihood)
+        prob_flip_sign = pm.Beta('prob_flip_sign', alpha=1, beta=1)
 
     # Put it together Sigmoid term
     sigmoid_term = pm.Deterministic('sigmoid_term', pm.math.sigmoid(pca_term - inflection_point))
-    return sigmoid_term
+    
+    return sigmoid_term, prob_flip_sign
 
 
 def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, dataset_name_idx=None,
@@ -517,7 +561,7 @@ def leave_one_trial_out_cv_from_posterior(Xy, all_traces, neuron_name):
         # 'pca_modes' and 'curvature' must be the original inputs
         
         intercept, sigma = build_baseline_priors()
-        sigmoid_term = build_sigmoid_term_pca(pca_modes, **dim_opt)
+        sigmoid_term, _ = build_sigmoid_term_pca(pca_modes, **dim_opt)
         curvature_term = build_curvature_term(curvature, 
                                             curvature_terms_to_use=curvature_terms_to_use, 
                                             **dim_opt)
@@ -689,7 +733,7 @@ def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca
                 mu_train = pm.Deterministic('mu_train', intercept + curvature_term)
             elif model_type == 'hierarchical_pca':
                 # Sigmoid times curvature (full model)
-                sigmoid_term = build_sigmoid_term_pca(X_pca_data, **dim_opt_fold)
+                sigmoid_term, _ = build_sigmoid_term_pca(X_pca_data, **dim_opt_fold)
                 curvature_term = build_curvature_term(X_curv_data, 
                                                      curvature_terms_to_use=curvature_terms_to_use,
                                                      **dim_opt_fold)
@@ -978,7 +1022,7 @@ def temporal_train_test_split(Xy, neuron_name, dataset_name='all', residual_mode
             mu = pm.Deterministic('mu', intercept + curvature_term)
         elif model_type == 'hierarchical_pca':
             # Sigmoid times curvature (full model)
-            sigmoid_term = build_sigmoid_term_pca(X_pca_data, **dim_opt_mutable)
+            sigmoid_term, _ = build_sigmoid_term_pca(X_pca_data, **dim_opt_mutable)
             curvature_term = build_curvature_term(X_curv_data, 
                                                  curvature_terms_to_use=curvature_terms_to_use,
                                                  **dim_opt_mutable)
