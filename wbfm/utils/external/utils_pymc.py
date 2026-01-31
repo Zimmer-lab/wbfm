@@ -203,7 +203,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None, vary_intercept_per_t
     # Note that with dr/r50 input data, the median is subtracted out so this is nearly centered already
     if dims is None:
         intercept = pm.Normal('intercept', mu=0, sigma=1)
-        sigma = pm.HalfCauchy("sigma", beta=0.02)
+        sigma = pm.HalfCauchy("sigma", beta=0.5)
 
     else:
         if vary_intercept_per_trial:
@@ -217,7 +217,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None, vary_intercept_per_t
             intercept = pm.Normal('intercept', mu=0, sigma=1)
 
         # Also vary sigma per dataset; simpler because we don't have to zscore it
-        sigma = pm.HalfCauchy("sigma", beta=0.02, dims=dims)[dataset_name_idx]
+        sigma = pm.HalfCauchy("sigma", beta=0.5, dims=dims)[dataset_name_idx]
 
     return intercept, sigma
 
