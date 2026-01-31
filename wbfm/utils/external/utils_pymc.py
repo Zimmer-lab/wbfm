@@ -1852,7 +1852,7 @@ def _load_all_traces(foldername, single_neuron=None):
     return all_traces
 
 def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
-                       recalculate_sigmoid=True):
+                       recalculate_sigmoid=True, verbose=0):
     from wbfm.utils.general.utils_hardcoded import role_of_neuron_dict
 
     parent_folder = get_hierarchical_modeling_dir(gfp=do_gfp)
@@ -1883,7 +1883,11 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
     # Reference values for ttests; prob_flip_sign is special
     var_names_ref = [0.5]
     var_names_ref.extend([0.0] * (len(var_names) - 1))
-    var_names_ref = np.array(var_names_ref)
+    var_names_ref = xr.DataArray(
+        var_names_ref,
+        dims=["variable"],
+        coords={"variable": var_names}
+    )
 
     var_names2 = ["sigmoid_term"]
 
@@ -1907,10 +1911,13 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
         all_dfs[n].append(var_df.T)
 
         # Also calculate the bayesian p-value vs. 0 for all columns
-        prob_gt_zero = xr.Dataset({
-            var_name: posterior[var_name].gt(ref).mean()
-            for var_name, ref in zip(var_names, var_names_ref)
-        })
+        prob_gt_zero = (posterior[var_names] > var_names_ref).mean()
+        if verbose >= 1:
+            print(f"Neuron {n} prob_gt_zero:\n{prob_gt_zero}")
+        # prob_gt_zero = xr.Dataset({
+        #     var_name: posterior[var_name].gt(ref).mean()
+        #     for var_name, ref in zip(var_names, var_names_ref)
+        # })
         # Get the smaller one (or vector) and multiply by 2
         p_two_sided = 2 * xr.where(
             prob_gt_zero <= 0.5,
