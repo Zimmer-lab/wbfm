@@ -199,20 +199,25 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     return df_compare, all_traces, all_models
 
 
-def build_baseline_priors(dims=None, dataset_name_idx=None, vary_intercept_per_trial=False):
+def build_baseline_priors(dims=None, dataset_name_idx=None, 
+                          vary_intercept_per_trial=False, vary_intercept=False):
     # Note that with dr/r50 input data, the median is subtracted out so this is nearly centered already
+    if not vary_intercept:
+        intercept = 0.0
+
     if dims is None:
-        intercept = pm.Normal('intercept', mu=0, sigma=1)
+        if vary_intercept:
+            intercept = pm.Normal('intercept', mu=0, sigma=1)
         sigma = pm.HalfCauchy("sigma", beta=0.5)
 
     else:
-        if vary_intercept_per_trial:
+        if vary_intercept_per_trial and not vary_intercept:
             # Include hyperprior
             hyper_intercept = pm.Normal('hyper_intercept', mu=0, sigma=1)
             hyper_intercept_sigma = pm.Exponential('hyper_intercept_sigma', lam=1)
             zscore_intercept = pm.Normal('zscore_intercept', mu=0, sigma=1, dims=dims)
             intercept = pm.Deterministic('intercept', hyper_intercept + zscore_intercept*hyper_intercept_sigma)[dataset_name_idx]
-        else:
+        elif not vary_intercept:
             # i.e. same as if no dims were passed
             intercept = pm.Normal('intercept', mu=0, sigma=1)
 
