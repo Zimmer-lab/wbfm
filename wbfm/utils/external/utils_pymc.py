@@ -1907,7 +1907,10 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
         all_dfs[n].append(var_df.T)
 
         # Also calculate the bayesian p-value vs. 0 for all columns
-        prob_gt_zero = (posterior[var_names] > var_names_ref).mean()
+        prob_gt_zero = xr.Dataset({
+            var_name: posterior[var_name].gt(ref).mean()
+            for var_name, ref in zip(var_names, var_names_ref)
+        })
         # Get the smaller one (or vector) and multiply by 2
         p_two_sided = 2 * xr.where(
             prob_gt_zero <= 0.5,
