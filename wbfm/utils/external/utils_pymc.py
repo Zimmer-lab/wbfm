@@ -444,7 +444,11 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
         prob_flip_sign = None
     else:
-        n_modes = x_pca_modes.shape[1]
+        try:
+            n_modes = int(x_pca_modes.shape[1])
+        except TypeError:
+            # Fallback: convert to symbolic int tensor
+            n_modes = x_pca_modes.shape[1].eval()
         pca_amplitudes = []
 
         for k in range(n_modes):
@@ -792,16 +796,20 @@ def _load_all_traces(foldername, single_neuron=None):
     print(f"Loaded {len(all_traces)} out of {len(fnames)} neurons from {foldername}")
     return all_traces
 
+
 def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
-                       recalculate_sigmoid=True, verbose=0):
+                       recalculate_sigmoid=True,
+                       all_traces=None, Xy=None, verbose=0):
     from wbfm.utils.general.utils_hardcoded import role_of_neuron_dict
 
     parent_folder = get_hierarchical_modeling_dir(gfp=do_gfp)
                 
     foldername = os.path.join(parent_folder, f'output{suffix}')
-    all_traces = _load_all_traces(foldername, single_neuron=single_neuron)
+    if all_traces is None:
+        all_traces = _load_all_traces(foldername, single_neuron=single_neuron)
 
-    Xy = pd.read_hdf(os.path.join(parent_folder, 'data.h5'))
+    if Xy is None:
+        Xy = pd.read_hdf(os.path.join(parent_folder, 'data.h5'))
 
     # foldername = os.path.join(f'{parent_folder}_gfp', f'output{suffix}')
     # all_traces_gfp = load_all_traces(foldername)
@@ -822,8 +830,8 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
                 'eigenworm3_coefficient', 'eigenworm4_coefficient'
     ]
     # Reference values for ttests; prob_flip_sign is special
-    var_names_ref = [0.5]
-    var_names_ref.extend([0.0] * (len(var_names) - 1))
+    var_names_ref = [0.5, 0.01, 0.01]  # hyper_pca0_amplitude, hyper_pca1_amplitude are strictly positive, so use a ROPE
+    var_names_ref.extend([0.0] * (len(var_names) - 3))
     var_names_ref = xr.DataArray(
         var_names_ref,
         dims=["variable"],
@@ -855,10 +863,6 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
         prob_gt_zero = (posterior[var_names] > var_names_ref).mean()
         if verbose >= 1:
             print(f"Neuron {n} prob_gt_zero:\n{prob_gt_zero}")
-        # prob_gt_zero = xr.Dataset({
-        #     var_name: posterior[var_name].gt(ref).mean()
-        #     for var_name, ref in zip(var_names, var_names_ref)
-        # })
         # Get the smaller one (or vector) and multiply by 2
         p_two_sided = 2 * xr.where(
             prob_gt_zero <= 0.5,
@@ -931,8 +935,9 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
         df_params.loc[df_params['r'] < 0.1, 'text'] = ''
 
     # Basic printing
-    print("Corrected p-values for pca0_amplitude:")
-    print(df_params[['hyper_pca0_amplitude_p_value_corrected', 'hyper_pca0_amplitude_p_value_is_significant']].sort_values('hyper_pca0_amplitude_p_value_corrected'))
+    if verbose >= 1:
+        print("Corrected p-values for pca0_amplitude:")
+        print(df_params[['hyper_pca0_amplitude_p_value_corrected', 'hyper_pca0_amplitude_p_value_is_significant']].sort_values('hyper_pca0_amplitude_p_value_corrected'))
 
     return df_params
 
