@@ -217,7 +217,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
             intercept = pm.Normal('intercept', mu=0, sigma=1)
 
         # Also vary sigma per dataset; simpler because we don't have to zscore it
-        sigma = pm.HalfCauchy("sigma", beta=0.5, dims=dims)[dataset_name_idx]
+        sigma = pm.Exponential("sigma", lam=1.0, dims=dims)[dataset_name_idx]
 
     return intercept, sigma
 
@@ -524,8 +524,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         curvature_term = pm.Deterministic('curvature_term',
                                           eigenworm1_coefficient[dataset_name_idx] * curvature[:, 0] +
                                           eigenworm2_coefficient[dataset_name_idx] * curvature[:, 1] +
-                                          np.sum([coef * curvature[:, i+2] for i, coef
-                                                  in enumerate(additional_column_dict.values())])
+                                          pm.math.sum([coef * curvature[:, i+2] for i, coef in enumerate(additional_column_dict.values())])
                                           )
     return curvature_term
 
