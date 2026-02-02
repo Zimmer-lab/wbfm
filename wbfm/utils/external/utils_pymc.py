@@ -7,6 +7,7 @@ from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
 import pymc as pm
+import pytensor.tensor as pt
 import xarray as xr
 import arviz as az
 import cloudpickle
@@ -458,7 +459,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
 
             amp = pm.Deterministic(
                 f"pca{k}_amplitude",
-                pm.math.log1p(pm.math.exp(log_amp))
+                pt.softplus(log_amp)
             )
 
             pca_amplitudes.append(amp)
