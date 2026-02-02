@@ -458,7 +458,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
 
             amp = pm.Deterministic(
                 f"pca{k}_amplitude",
-                pm.math.softplus(log_amp)
+                pm.math.log1p(pm.math.exp(log_amp))
             )
 
             pca_amplitudes.append(amp)
