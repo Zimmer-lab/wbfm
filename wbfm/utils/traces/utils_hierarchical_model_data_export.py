@@ -28,6 +28,9 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
         else:
             raise FileExistsError(f"File {output_fname} already exists; set delete_if_exists=True to overwrite"
                                   f" or skip_if_exists=True to skip")
+    else:
+        # Make sure parent directory exists
+        os.makedirs(data_dir, exist_ok=True)
 
     # Load projects from the suffix
     all_projects = load_paper_datasets(suffix)
