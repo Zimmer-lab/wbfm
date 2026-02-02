@@ -530,8 +530,8 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
     return curvature_term
 
 
-def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
-                     use_additional_eigenworms=True, keep_large_vars=False, DEBUG=False):
+def main_full_models(neuron_name=None, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
+                     use_additional_eigenworms=True, keep_large_vars=False, DEBUG=False, **dataset_kwargs):
     """
     Fit full posterior models for multiple model structures and compute LOO.
     
@@ -552,9 +552,9 @@ def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if
     if neuron_name is None:
         neuron_name = 'VB02'
 
-    print(f"Running all 3 bayesian models for {neuron_name} with do_gfp={do_gfp} and residual_mode={residual_mode} and DEBUG={DEBUG}")
+    print(f"Running all 3 bayesian models for {neuron_name} with dataset_kwargs={dataset_kwargs} and residual_mode={residual_mode} and DEBUG={DEBUG}")
 
-    data_dir = get_hierarchical_modeling_dir(do_gfp)
+    data_dir = get_hierarchical_modeling_dir(**dataset_kwargs)
     fname = os.path.join(data_dir, 'data.h5')
     if not os.path.exists(fname):
         # Try to read from backup
@@ -572,9 +572,9 @@ def main_full_models(neuron_name=None, do_gfp=False, dataset_name='all', skip_if
             if dataset_name == 'loop':
                 # Recursion error
                 continue
-            main_full_models(neuron_name, do_gfp=do_gfp, dataset_name=dataset_name, skip_if_exists=skip_if_exists,
+            main_full_models(neuron_name, dataset_name=dataset_name, skip_if_exists=skip_if_exists,
                            residual_mode=residual_mode, use_additional_eigenworms=use_additional_eigenworms, 
-                           keep_large_vars=keep_large_vars, DEBUG=DEBUG)
+                           keep_large_vars=keep_large_vars, DEBUG=DEBUG, **dataset_kwargs)
         return
 
     if dataset_name == 'all':
@@ -945,7 +945,8 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_name', type=str)
     parser.add_argument('--residual_mode', type=str, default='pca_global')
     # Boolean
-    parser.add_argument('--do_gfp', action='store_true')
+    parser.add_argument('--avb_hiscl', action='store_true')
+    parser.add_argument('--gfp', action='store_true')
     parser.add_argument('--simple_eigenworms', action='store_true')
     parser.add_argument('--keep_large_vars', action='store_true', help='Keep large deterministic variables (curvature_term, mu, etc.) in saved traces')
     parser.add_argument('--debug', action='store_true')
@@ -959,10 +960,11 @@ if __name__ == '__main__':
 
     if args.cv_comparison:
         from wbfm.utils.external.utils_pymc_cv import main_cv_comparison
-        main_cv_comparison(neuron_name=args.neuron_name, do_gfp=args.do_gfp, 
+        main_cv_comparison(neuron_name=args.neuron_name, gfp=args.gfp, 
                            residual_mode=residual_mode,
                            use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
     else:
-        main_full_models(neuron_name=args.neuron_name, do_gfp=args.do_gfp, 
+        main_full_models(neuron_name=args.neuron_name, 
                          residual_mode=residual_mode,
-                         use_additional_eigenworms=not args.simple_eigenworms, keep_large_vars=args.keep_large_vars, DEBUG=args.debug)
+                         use_additional_eigenworms=not args.simple_eigenworms, keep_large_vars=args.keep_large_vars, DEBUG=args.debug,
+                         gfp=args.gfp, avb_hiscl=args.avb_hiscl)

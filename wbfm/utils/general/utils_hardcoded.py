@@ -110,7 +110,7 @@ def get_project_parent_folder():
 
 
 def get_hierarchical_modeling_dir(gfp=False, immobilized=False, o2_stimulus=False, mutant=False,
-                                  suffix=None):
+                                  avb_hiscl=False, suffix=None):
     parent_folder = "/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/"
     base_name = "hierarchical_modeling"
     if suffix is None:
@@ -118,6 +118,8 @@ def get_hierarchical_modeling_dir(gfp=False, immobilized=False, o2_stimulus=Fals
             base_name += "_gfp"
         elif immobilized:
             base_name += "_immob"
+        elif avb_hiscl:
+            base_name += "_avb_hiscl"
         if mutant:
             base_name += "_mutant"
         if o2_stimulus:
@@ -134,7 +136,7 @@ def get_triggered_average_modeling_dir():
 
 
 def all_paper_datatype_codes():
-    return ['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant']
+    return ['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant', 'avb_hiscl']
 
 
 def load_all_data_as_dataframe():
