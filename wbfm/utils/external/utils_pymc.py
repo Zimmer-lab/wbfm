@@ -145,7 +145,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
         intercept, sigma = build_baseline_priors(**dim_opt)
         curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
-        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term, sigmoid_term=1)
 
     with pm.Model(coords=coords) as hierarchical_pca_model:
         # Curvature multiplied by sigmoid
@@ -225,7 +225,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
 
 
 def build_final_likelihood(sigma, y, nu=5, 
-                           intercept=0, sigmoid_term=0, curvature_term=0, prob_flip_sign=None):
+                           intercept=0, sigmoid_term=1, curvature_term=0, prob_flip_sign=None):
     """
     Build the final likelihood for the model.
     
