@@ -472,7 +472,7 @@ all_traces = all_traces_gcamp
 # Scatter plot of median model parameters
 from collections import defaultdict
 import xarray as xr
-from wbfm.utils.external.utils_pymc import reconstruct_sigmoid_term_from_trace
+from wbfm.utils.external.utils_pymc import reconstruct_model_term_from_trace
 
 
 var_names = [#"self_collision", 'amplitude_mu', 
@@ -514,7 +514,7 @@ for n in tqdm(neurons_to_plot):
 
     # Recalculate the sigmoid term
     idata = all_traces[n]
-    idata = reconstruct_sigmoid_term_from_trace(idata, n, Xy)
+    idata = reconstruct_model_term_from_trace(idata, n, Xy)
     
     # Variables with specific postprocessing
     dat = az.extract(idata, group='posterior', var_names=var_names2, filter_vars='like')
