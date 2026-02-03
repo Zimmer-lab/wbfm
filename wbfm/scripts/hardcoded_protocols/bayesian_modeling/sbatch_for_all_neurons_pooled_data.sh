@@ -197,7 +197,7 @@ cat << EOF > $SLURM_SCRIPT
 #SBATCH --array=0-$(($NUM_TASKS-1))
 #SBATCH --time=0-0$NUM_HOURS:00:00
 #SBATCH --mem=$MEM_PER_TASK
-#SBATCH --cpus-per-task=6
+#SBATCH --cpus-per-task=12
 $EXTRA_SBATCH_ARGS
 
 # Reproduce the list for the subfile
