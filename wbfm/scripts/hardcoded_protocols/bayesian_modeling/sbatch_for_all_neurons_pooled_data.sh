@@ -160,7 +160,7 @@ NUM_TASKS=${#neuron_list[@]}
 NUM_HOURS=18
 MEM_PER_TASK=128G
 if [ "$use_gfp" == "true" ]; then
-  CMD="$CMD --do_gfp"
+  CMD="$CMD --gfp"
   NUM_HOURS=6
   MEM_PER_TASK=32G
 elif [ "$use_avb_hiscl" == "true" ]; then
