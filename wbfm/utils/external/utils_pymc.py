@@ -667,8 +667,8 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         hyper_log_amplitude, hyper_log_sigma = 0, 1
     else:
         # Hyperprior
-        hyper_log_amplitude = pm.Normal('log_amplitude_mu', mu=0, sigma=2)
-        hyper_log_sigma = pm.Exponential('log_amplitude_sigma', lam=5)
+        hyper_log_amplitude = pm.Normal('log_amplitude_mu', mu=0, sigma=0.5)
+        hyper_log_sigma = pm.HalfNormal('log_amplitude_sigma', sigma=0.5)
     zscore_log_amplitude = pm.Normal('zscore_log_amplitude', mu=0, sigma=1, dims=dims)
     log_amplitude = pm.Deterministic('log_amplitude', hyper_log_amplitude + zscore_log_amplitude*hyper_log_sigma)
     amplitude = pm.Deterministic('amplitude', pm.math.exp(log_amplitude))
@@ -700,7 +700,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         curvature_term = pm.Deterministic('curvature_term',
                                           eigenworm1_coefficient[dataset_name_idx] * curvature[:, 0] +
                                           eigenworm2_coefficient[dataset_name_idx] * curvature[:, 1] +
-                                          pm.math.sum([coef * curvature[:, i+2] for i, coef in enumerate(additional_column_dict.values())])
+                                          pt.sum(pt.stack([coef * curvature[:, i+2] for i, coef in enumerate(additional_column_dict.values())]), axis=0)
                                           )
     return curvature_term
 
