@@ -253,8 +253,9 @@ def build_final_likelihood(sigma, y, nu=5,
         The likelihood distribution
     """
     # Build mu by combining non-None components
-    mu_val = 0
-    mu_flipped_val = 0
+    # Initialize as pytensor tensors to ensure compatibility with pm.Deterministic
+    mu_val = pt.as_tensor(0.0)
+    mu_flipped_val = pt.as_tensor(0.0)
     if intercept is not None:
         mu_val = intercept
         mu_flipped_val = intercept
