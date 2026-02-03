@@ -221,7 +221,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
             intercept = pm.Normal('intercept', mu=0, sigma=1)
 
         # Also or alternatively vary sigma per dataset; simpler because we don't have to zscore it
-        sigma = pm.Exponential("sigma", lam=1.0, dims=dims)[dataset_name_idx]
+        sigma = pm.HalfNormal("sigma", sigma=1.0, dims=dims)[dataset_name_idx]
 
     return intercept, sigma
 
