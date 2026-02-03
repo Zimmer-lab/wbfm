@@ -139,14 +139,14 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     with pm.Model(coords=coords) as null_model:
         # Just do a flat line (intercept)
         intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
-        likelihood = build_final_likelihood(sigma, y, intercept=intercept)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=None, sigmoid_term=None)
 
     with pm.Model(coords=coords) as nonhierarchical_model:
         # Curvature, but no sigmoid
         intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
         curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
-        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term, sigmoid_term=1)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term, sigmoid_term=None)
 
     with pm.Model(coords=coords) as hierarchical_pca_model:
         # Curvature multiplied by sigmoid
@@ -202,7 +202,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
     # Note that with dr/r50 input data, the median is subtracted out so this is nearly centered already
     if not vary_intercept:
         # Mean is subtracted per dataset, so it should be fine
-        intercept = 0.0
+        intercept = None
 
     if dims is None:
         if vary_intercept:
@@ -227,7 +227,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
 
 
 def build_final_likelihood(sigma, y, nu=5, 
-                           intercept=0, sigmoid_term=1, curvature_term=0, prob_flip_sign=None):
+                           intercept=None, sigmoid_term=None, curvature_term=None, prob_flip_sign=None):
     """
     Build the final likelihood for the model.
     
@@ -254,12 +254,28 @@ def build_final_likelihood(sigma, y, nu=5,
     """
     mu = pm.Deterministic('mu', intercept + sigmoid_term * curvature_term)
 
+    # Build mu by combining non-None components
+    mu_val = 0
+    mu_flipped_val = 0
+    if intercept is not None:
+        mu_val = intercept
+        mu_flipped_val = intercept
+    if sigmoid_term is not None and curvature_term is not None:
+        mu_val = mu_val + sigmoid_term * curvature_term
+        if prob_flip_sign is not None:
+            mu_flipped_val = intercept + (1 - sigmoid_term) * curvature_term
+    elif curvature_term is not None:
+        mu_val = mu_val + curvature_term
+        mu_flipped_val = mu_flipped_val + curvature_term
+    
+    mu = pm.Deterministic('mu', mu_val)
+
     if prob_flip_sign is None:
         return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
     else:
         # Marginalize over sign: mixture of mu and -mu
         # marginalize_sign is the weight for the positive component
-        mu_flipped = pm.Deterministic('mu_flipped', intercept + (1 - sigmoid_term) * curvature_term)
+        mu_flipped = pm.Deterministic('mu_flipped', mu_flipped_val)
 
         return pm.Mixture('y', w=[1.0 - prob_flip_sign, prob_flip_sign], 
                          comp_dists=[pm.StudentT.dist(mu=mu, sigma=sigma, nu=nu),
