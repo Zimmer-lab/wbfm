@@ -252,8 +252,6 @@ def build_final_likelihood(sigma, y, nu=5,
     pm.Distribution
         The likelihood distribution
     """
-    mu = pm.Deterministic('mu', intercept + sigmoid_term * curvature_term)
-
     # Build mu by combining non-None components
     mu_val = 0
     mu_flipped_val = 0
