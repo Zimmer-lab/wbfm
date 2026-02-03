@@ -447,23 +447,34 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
         prob_flip_sign = None
     else:
-        # Hyperprior - force positivity using Exponential
-        hyper_pca0_amplitude = pm.Exponential('hyper_pca0_amplitude', lam=1.0)
-        hyper_pca0_sigma = pm.HalfNormal('hyper_pca0_sigma', sigma=0.5)
-        hyper_pca1_amplitude = pm.Exponential('hyper_pca1_amplitude', lam=1.0)
-        hyper_pca1_sigma = pm.HalfNormal('hyper_pca1_sigma', sigma=0.5)
-        zscore_pca0_amplitude = pm.HalfNormal('zscore_pca0_amplitude', mu=0, sigma=1, dims=dims)
-        zscore_pca1_amplitude = pm.HalfNormal('zscore_pca1_amplitude', mu=0, sigma=1, dims=dims)
+        try:
+            n_modes = int(x_pca_modes.shape[1])
+        except TypeError:
+            # Fallback: convert to symbolic int tensor
+            n_modes = x_pca_modes.shape[1].eval()
+        pca_amplitudes = []
 
-        pca0_amplitude = pm.Deterministic('pca0_amplitude',
-                                          hyper_pca0_amplitude + zscore_pca0_amplitude*hyper_pca0_sigma)
-        pca1_amplitude = pm.Deterministic('pca1_amplitude',
-                                          hyper_pca1_amplitude + zscore_pca1_amplitude*hyper_pca1_sigma)
-        # Multiply them separately
-        pca_term = pm.Deterministic('pca_term',
-                                    pca0_amplitude[dataset_name_idx] * x_pca_modes[:, 0] +
-                                    pca1_amplitude[dataset_name_idx] * x_pca_modes[:, 1])
-        
+        for k in range(n_modes):
+            log_hyper = pm.Normal(f"log_hyper_pca{k}", 0.0, 1.0)
+            log_sigma = pm.HalfNormal(f"log_sigma_pca{k}", 0.2)
+            z = pm.Normal(f"z_pca{k}", 0.0, 1.0, dims=dims)
+
+            log_amp = pm.Deterministic(
+                f"log_pca{k}_amplitude",
+                log_hyper + z * log_sigma
+            )
+
+            amp = pm.Deterministic(
+                f"pca{k}_amplitude",
+                pm.math.exp(log_amp)
+            )
+
+            pca_amplitudes.append(amp)
+
+        pca_term = sum(
+            pca_amplitudes[k][dataset_name_idx] * x_pca_modes[:, k]
+            for k in range(n_modes)
+        )
 
         # Probability to flip sign (marginalize over sign in likelihood)
         prob_flip_sign = pm.Beta('prob_flip_sign', alpha=1, beta=1)
