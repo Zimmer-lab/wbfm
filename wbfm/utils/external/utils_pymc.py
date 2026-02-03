@@ -259,6 +259,9 @@ def build_final_likelihood(sigma, y, nu=5,
     if intercept is not None:
         mu_val = intercept
         mu_flipped_val = intercept
+    else:
+        # Initialize intercept to zero if not provided
+        intercept = pt.as_tensor(0.0)
     if sigmoid_term is not None and curvature_term is not None:
         mu_val = mu_val + sigmoid_term * curvature_term
         if prob_flip_sign is not None:
