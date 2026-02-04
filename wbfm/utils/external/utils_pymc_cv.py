@@ -1,5 +1,6 @@
 import logging
 import cloudpickle
+from scipy import stats
 import pymc as pm
 import arviz as az
 import numpy as np
@@ -10,10 +11,7 @@ from tqdm.auto import tqdm
 from wbfm.utils.external.utils_pymc import (build_baseline_priors, 
                                             build_sigmoid_term_pca, 
                                             build_curvature_term, 
-                                            build_final_likelihood,
-                                            compute_curvature_term_numpy,
-                                            compute_sigmoid_term_pca_numpy,
-                                            compute_studentt_logp)
+                                            build_final_likelihood)
 from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
 from wbfm.utils.external.utils_pandas import get_dataframe_for_single_neuron
 from pathlib import Path
@@ -198,6 +196,68 @@ def leave_one_trial_out_cv_from_posterior(Xy, all_traces, neuron_name):
     loto_result = az.loo(loto_idata, pointwise=True)
 
     return loto_result
+
+
+def compute_curvature_term_numpy(curvature, eigenworm1_coefficient, eigenworm2_coefficient,
+                                  additional_coefficients=None, curvature_terms_to_use=None):
+    """
+    Compute curvature term from numpy arrays (matching build_curvature_term logic).
+
+    Parameters
+    ----------
+    curvature : ndarray, shape (n, n_terms)
+        Curvature features
+    eigenworm1_coefficient : ndarray or scalar
+        Coefficient for eigenworm 1
+    eigenworm2_coefficient : ndarray or scalar
+        Coefficient for eigenworm 2
+    additional_coefficients : dict, optional
+        Dict mapping coefficient names to their values for additional terms
+    curvature_terms_to_use : list, optional
+        List of curvature term names
+
+    Returns
+    -------
+    curvature_term : ndarray
+        Computed curvature term
+    """
+    curvature_term = eigenworm1_coefficient * curvature[:, 0] + eigenworm2_coefficient * curvature[:, 1]
+
+    if additional_coefficients is not None and len(additional_coefficients) > 0:
+        for i, coef_val in enumerate(additional_coefficients.values()):
+            curvature_term = curvature_term + coef_val * curvature[:, i+2]
+
+    return curvature_term
+
+
+def compute_studentt_logp(mu, sigma, y, nu=5):
+    """Compute log-likelihood under StudentT distribution using scipy."""
+    return np.sum(stats.t.logpdf(y, df=nu, loc=mu, scale=sigma))
+
+
+def compute_sigmoid_term_pca_numpy(x_pca_modes, pca0_amplitude, pca1_amplitude, inflection_point):
+    """
+    Compute sigmoid term from numpy arrays (matching build_sigmoid_term_pca logic).
+
+    Parameters
+    ----------
+    x_pca_modes : ndarray, shape (n, 2)
+        PCA modes
+    pca0_amplitude : ndarray or scalar
+        PCA0 amplitude value(s)
+    pca1_amplitude : ndarray or scalar
+        PCA1 amplitude value(s)
+    inflection_point : scalar
+        Inflection point of sigmoid
+
+    Returns
+    -------
+    sigmoid_term : ndarray
+        Computed sigmoid term
+    """
+    pca_term = pca0_amplitude * x_pca_modes[:, 0] + pca1_amplitude * x_pca_modes[:, 1]
+    sigmoid_term = 1.0 / (1.0 + np.exp(-(pca_term - inflection_point)))
+    return sigmoid_term
 
 
 def grouped_cv_refitting(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',

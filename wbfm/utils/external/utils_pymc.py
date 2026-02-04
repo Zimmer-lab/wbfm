@@ -12,7 +12,6 @@ import xarray as xr
 import arviz as az
 import cloudpickle
 from matplotlib import pyplot as plt
-from scipy import stats
 from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
 from wbfm.utils.external.utils_pandas import get_dataframe_for_single_neuron
 from statsmodels.stats.multitest import multipletests
@@ -275,329 +274,6 @@ def build_final_likelihood(sigma, y, nu=5, intercept=None, sigmoid_term=None, cu
 
     mu = pm.Deterministic('mu', mu_val)
     return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
-
-
-def compute_studentt_logp(mu, sigma, y, nu=5):
-    """Compute log-likelihood under StudentT distribution using scipy."""
-    return np.sum(stats.t.logpdf(y, df=nu, loc=mu, scale=sigma))
-
-
-def compute_sigmoid_term_pca_numpy(x_pca_modes, pca0_amplitude, pca1_amplitude, inflection_point):
-    """
-    Compute sigmoid term from numpy arrays (matching build_sigmoid_term_pca logic).
-    
-    Parameters
-    ----------
-    x_pca_modes : ndarray, shape (n, 2)
-        PCA modes
-    pca0_amplitude : ndarray or scalar
-        PCA0 amplitude value(s)
-    pca1_amplitude : ndarray or scalar
-        PCA1 amplitude value(s)
-    inflection_point : scalar
-        Inflection point of sigmoid
-    
-    Returns
-    -------
-    sigmoid_term : ndarray
-        Computed sigmoid term
-    """
-    pca_term = pca0_amplitude * x_pca_modes[:, 0] + pca1_amplitude * x_pca_modes[:, 1]
-    sigmoid_term = 1.0 / (1.0 + np.exp(-(pca_term - inflection_point)))
-    return sigmoid_term
-
-
-def reconstruct_model_term_from_trace(idata, neuron_name, Xy=None, dataset_name='all', residual_mode='pca_global',
-                                      use_additional_eigenworms=True, var_names=None, DEBUG=False):
-    """
-    Reconstruct model variables from saved posterior samples using PyMC.
-    
-    Builds a PyMC model and uses pm.compute_deterministics to evaluate specified
-    variables for all posterior samples. Can reconstruct deterministics (sigmoid_term,
-    curvature_term, mu, etc.) or posterior predictive samples (y).
-    Uses the same coords as the original model.
-    
-    Parameters
-    ----------
-    idata : arviz.InferenceData
-        Saved posterior with model parameters in the posterior group. 
-        Should have coords matching the original model.
-    neuron_name : str
-        Name of the neuron to reconstruct
-    Xy : pd.DataFrame, optional
-        Full dataset. If None, will be loaded from hardcoded location using get_hierarchical_modeling_dir
-    dataset_name : str
-        Which dataset(s) to use ('all', specific dataset name, etc.)
-    residual_mode : str
-        Residual/preprocessing mode for data (default: 'pca_global')
-    use_additional_eigenworms : bool
-        Whether the model used eigenworms 2 and 3 (default: True)
-    var_names : list of str, optional
-        Variables to reconstruct. Default: ['sigmoid_term']
-        Can include deterministics like 'sigmoid_term', 'curvature_term', 'mu', 'y', etc.
-    
-    Returns
-    -------
-    idata : arviz.InferenceData
-        InferenceData with computed variables added to appropriate groups
-    
-    Examples
-    --------
-    >>> # Reconstruct sigmoid term
-    >>> idata_recon = reconstruct_model_term_from_trace(idata, neuron_name='VB02', Xy=Xy)
-    >>> quantiles = idata_recon.posterior['sigmoid_term'].quantile([0.05, 0.5, 0.95], dim=['chain', 'draw'])
-    
-    >>> # Reconstruct multiple variables
-    >>> idata_recon = reconstruct_model_term_from_trace(idata, neuron_name='VB02', Xy=Xy,
-    ...                                                    var_names=['sigmoid_term', 'curvature_term', 'mu'])
-    
-    >>> # Reconstruct final model output
-    >>> idata_recon = reconstruct_model_term_from_trace(idata, neuron_name='VB02', Xy=Xy,
-    ...                                                    var_names=['y'])
-    """
-    if var_names is None:
-        var_names = ['sigmoid_term']
-    
-    # Load data if not provided
-    if Xy is None:
-        data_dir = get_hierarchical_modeling_dir(do_gfp=False)
-        fname = os.path.join(data_dir, 'data.h5')
-        if not os.path.exists(fname):
-            logging.warning(f"Could not find data file {fname}, trying backup")
-            fname = os.path.join(data_dir, 'data_backup.h5')
-        if not os.path.exists(fname):
-            raise FileNotFoundError(f"Could not find data file {fname}")
-        Xy = pd.read_hdf(fname)
-    
-    # Initialize model data using helper function
-    model_data = initialize_hierarchical_model_data(
-        Xy, neuron_name, 
-        dataset_name=dataset_name,
-        residual_mode=residual_mode,
-        use_additional_eigenworms=use_additional_eigenworms,
-        verbose=0 if not DEBUG else 1
-    )
-    
-    # Build a fresh model with the same coords as the original
-    with pm.Model(coords=model_data['coords']) as recon_model:
-        x_pca_data = pm.Data('x_pca_data', model_data['pca_modes'])
-        curvature_data = pm.Data('curvature_data', model_data['df_model'][model_data['curvature_terms_to_use']].values)
-        y_data = pm.Data('y_data', model_data['df_model']['y'].values)
-        
-        if DEBUG:
-            print(f"Reconstructing variables {var_names}")
-            print("PCA modes shape:", model_data['pca_modes'].shape)
-        
-        # Build model components based on which variables are requested
-        if any(var in var_names for var in ['sigmoid_term', 'pca_term']):
-            sigmoid_term_deterministic = build_sigmoid_term_pca(
-                x_pca_data, 
-                **model_data['dim_opt']
-            )
-        
-        if any(var in var_names for var in ['curvature_term', 'mu', 'y']):
-            curvature_term = build_curvature_term(
-                curvature_data, 
-                curvature_terms_to_use=model_data['curvature_terms_to_use'],
-                **model_data['dim_opt']
-            )
-        
-        if 'mu' in var_names or 'y' in var_names:
-            intercept, sigma = build_baseline_priors(**model_data['dim_opt'])
-            
-            # Build the sigmoid term value to use
-            sigmoid_term_val = sigmoid_term_deterministic if 'sigmoid_term' in var_names or 'mu' in var_names else 1
-            
-            # Build likelihood for y and/or mu (likelihood creates mu as a deterministic)
-            # Get prob_flip_sign from earlier if it was created
-            pfs = prob_flip_sign if 'sigmoid_term' in var_names or 'mu' in var_names else None
-            likelihood = build_final_likelihood(sigma, y_data, intercept=intercept, 
-                                               sigmoid_term=sigmoid_term_val, 
-                                               curvature_term=curvature_term,
-                                               prob_flip_sign=pfs)
-    
-    # Use PyMC's compute_deterministics to evaluate deterministics for all posterior samples
-    deterministic_vars = [v for v in var_names if v not in ['y']]
-    
-    if deterministic_vars:
-        with recon_model:
-            idata = pm.compute_deterministics(
-                idata, 
-                var_names=deterministic_vars,
-                progressbar=False,
-                merge_dataset=True
-            )
-    
-    # For posterior predictive samples (like 'y'), use sample_posterior_predictive
-    if 'y' in var_names:
-        with recon_model:
-            idata.extend(pm.sample_posterior_predictive(
-                idata,
-                var_names=['y'],
-                random_seed=42,
-                progressbar=False
-            ))
-    
-    return idata, model_data
-
-
-def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all', residual_mode='pca_global',
-                                       use_additional_eigenworms=True, var_names=None, 
-                                       num_samples=1000, random_seed=42, DEBUG=False):
-    """
-    Sample from prior predictive distribution for model variables.
-    
-    Builds a PyMC model and samples from the joint prior (priors only, no data conditioning).
-    Useful for prior predictive checks to assess if priors are reasonable.
-    
-    Parameters
-    ----------
-    neuron_name : str
-        Name of the neuron to sample for
-    Xy : pd.DataFrame, optional
-        Full dataset. If None, will be loaded from hardcoded location using get_hierarchical_modeling_dir
-    dataset_name : str
-        Which dataset(s) to use ('all', specific dataset name, etc.)
-    residual_mode : str
-        Residual/preprocessing mode for data (default: 'pca_global')
-    use_additional_eigenworms : bool
-        Whether the model used eigenworms 2 and 3 (default: True)
-    var_names : list of str, optional
-        Variables to sample. Default: ['y']
-        Can include 'sigmoid_term', 'curvature_term', 'mu', 'y', etc.
-    num_samples : int
-        Number of prior samples to draw (default: 1000)
-    random_seed : int
-        Random seed for reproducibility
-    
-    Returns
-    -------
-    idata : arviz.InferenceData
-        InferenceData with prior samples in 'prior' and 'prior_predictive' groups
-    
-    Examples
-    --------
-    >>> # Sample prior predictive for final output
-    >>> idata_prior = sample_prior_predictive_for_neuron(neuron_name='VB02', Xy=Xy)
-    
-    >>> # Sample deterministics from prior
-    >>> idata_prior = sample_prior_predictive_for_neuron(neuron_name='VB02', Xy=Xy,
-    ...                                                   var_names=['sigmoid_term', 'curvature_term', 'y'])
-    
-    >>> # More samples for thorough prior predictive checks
-    >>> idata_prior = sample_prior_predictive_for_neuron(neuron_name='VB02', Xy=Xy, num_samples=5000)
-    """
-    # if var_names is None:
-    #     var_names = ['y']
-    
-    # Load data if not provided
-    if Xy is None:
-        data_dir = get_hierarchical_modeling_dir(do_gfp=False)
-        fname = os.path.join(data_dir, 'data.h5')
-        if not os.path.exists(fname):
-            logging.warning(f"Could not find data file {fname}, trying backup")
-            fname = os.path.join(data_dir, 'data_backup.h5')
-        if not os.path.exists(fname):
-            raise FileNotFoundError(f"Could not find data file {fname}")
-        Xy = pd.read_hdf(fname)
-    
-    # Initialize model data using helper function
-    model_data = initialize_hierarchical_model_data(
-        Xy, neuron_name, 
-        dataset_name=dataset_name,
-        residual_mode=residual_mode,
-        use_additional_eigenworms=use_additional_eigenworms,
-        verbose=0 if not DEBUG else 1
-    )
-
-    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=False)
-    
-    # Build a fresh model with the same coords as the original
-    with pm.Model(coords=model_data['coords']) as prior_model:
-        x_pca_data = pm.Data('x_pca_data', model_data['pca_modes'])
-        curvature_data = pm.Data('curvature_data', model_data['df_model'][model_data['curvature_terms_to_use']].values)
-        y_data = pm.Data('y_data', model_data['df_model']['y'].values)
-        
-        if DEBUG:
-            print(f"Sampling prior predictive for variables {var_names}")
-            print("PCA modes shape:", model_data['pca_modes'].shape)
-        
-        # Always build the full hierarchical model, regardless of var_names
-        # var_names is only used for filtering what to sample
-        sigmoid_term_deterministic, prob_flip_sign = build_sigmoid_term_pca(
-            x_pca_data, 
-            **model_data['dim_opt']
-        )
-        
-        curvature_term = build_curvature_term(
-            curvature_data, 
-            curvature_terms_to_use=model_data['curvature_terms_to_use'],
-            **model_data['dim_opt']
-        )
-        
-        intercept, sigma = build_baseline_priors(**model_data['dim_opt'], **baseline_opt)
-        
-        # Build the full likelihood with all terms
-        likelihood = build_final_likelihood(sigma, y_data, intercept=intercept, 
-                                           sigmoid_term=sigmoid_term_deterministic, 
-                                           curvature_term=curvature_term,
-                                           prob_flip_sign=prob_flip_sign)
-    
-    # Sample from prior predictive
-    with prior_model:
-        idata = pm.sample_prior_predictive(
-            random_seed=random_seed,
-            var_names=var_names,
-            draws=num_samples,
-        )
-    
-    return idata, model_data
-
-
-def compute_curvature_term_numpy(curvature, eigenworm1_coefficient, eigenworm2_coefficient, 
-                                  additional_coefficients=None, curvature_terms_to_use=None):
-    """
-    Compute curvature term from numpy arrays (matching build_curvature_term logic).
-    
-    Parameters
-    ----------
-    curvature : ndarray, shape (n, n_terms)
-        Curvature features
-    eigenworm1_coefficient : ndarray or scalar
-        Coefficient for eigenworm 1
-    eigenworm2_coefficient : ndarray or scalar
-        Coefficient for eigenworm 2
-    additional_coefficients : dict, optional
-        Dict mapping coefficient names to their values for additional terms
-    curvature_terms_to_use : list, optional
-        List of curvature term names
-    
-    Returns
-    -------
-    curvature_term : ndarray
-        Computed curvature term
-    """
-    curvature_term = eigenworm1_coefficient * curvature[:, 0] + eigenworm2_coefficient * curvature[:, 1]
-    
-    if additional_coefficients is not None and len(additional_coefficients) > 0:
-        for i, coef_val in enumerate(additional_coefficients.values()):
-            curvature_term = curvature_term + coef_val * curvature[:, i+2]
-    
-    return curvature_term
-
-
-def build_sigmoid_term(x, force_positive_slope=True):
-    # NOT USED
-    # Sigmoid (hierarchy) term
-    if force_positive_slope:
-        log_sigmoid_slope = pm.Normal('log_sigmoid_slope', mu=0, sigma=1)  # Using log-amplitude for positivity
-        sigmoid_slope = pm.Deterministic('sigmoid_slope', pm.math.exp(log_sigmoid_slope))
-    else:
-        sigmoid_slope = pm.Normal('sigmoid_slope', mu=0, sigma=1)
-    inflection_point = pm.Normal('inflection_point', mu=0, sigma=2)
-    # Sigmoid term
-    sigmoid_term = pm.Deterministic('sigmoid_term', pm.math.sigmoid(sigmoid_slope * (x - inflection_point)))
-    return sigmoid_term
 
 
 def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, dataset_name_idx=None):
@@ -908,6 +584,256 @@ def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, al
     plt.savefig(os.path.join(output_dir, f'{output_fname_base}_model_comparison.png'))
     plt.close()
     print(f"Saved all objects for {neuron_name} in {output_dir}")
+
+
+
+def reconstruct_model_term_from_trace(idata, neuron_name, Xy=None, dataset_name='all', residual_mode='pca_global',
+                                      use_additional_eigenworms=True, var_names=None, DEBUG=False):
+    """
+    Reconstruct model variables from saved posterior samples using PyMC.
+    
+    Builds a PyMC model and uses pm.compute_deterministics to evaluate specified
+    variables for all posterior samples. Can reconstruct deterministics (sigmoid_term,
+    curvature_term, mu, etc.) or posterior predictive samples (y).
+    Uses the same coords as the original model.
+    
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+        Saved posterior with model parameters in the posterior group. 
+        Should have coords matching the original model.
+    neuron_name : str
+        Name of the neuron to reconstruct
+    Xy : pd.DataFrame, optional
+        Full dataset. If None, will be loaded from hardcoded location using get_hierarchical_modeling_dir
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data (default: 'pca_global')
+    use_additional_eigenworms : bool
+        Whether the model used eigenworms 2 and 3 (default: True)
+    var_names : list of str, optional
+        Variables to reconstruct. Default: ['sigmoid_term']
+        Can include deterministics like 'sigmoid_term', 'curvature_term', 'mu', 'y', etc.
+    
+    Returns
+    -------
+    idata : arviz.InferenceData
+        InferenceData with computed variables added to appropriate groups
+    
+    Examples
+    --------
+    >>> # Reconstruct sigmoid term
+    >>> idata_recon = reconstruct_model_term_from_trace(idata, neuron_name='VB02', Xy=Xy)
+    >>> quantiles = idata_recon.posterior['sigmoid_term'].quantile([0.05, 0.5, 0.95], dim=['chain', 'draw'])
+    
+    >>> # Reconstruct multiple variables
+    >>> idata_recon = reconstruct_model_term_from_trace(idata, neuron_name='VB02', Xy=Xy,
+    ...                                                    var_names=['sigmoid_term', 'curvature_term', 'mu'])
+    
+    >>> # Reconstruct final model output
+    >>> idata_recon = reconstruct_model_term_from_trace(idata, neuron_name='VB02', Xy=Xy,
+    ...                                                    var_names=['y'])
+    """
+    if var_names is None:
+        var_names = ['sigmoid_term']
+    
+    # Load data if not provided
+    if Xy is None:
+        data_dir = get_hierarchical_modeling_dir(do_gfp=False)
+        fname = os.path.join(data_dir, 'data.h5')
+        if not os.path.exists(fname):
+            logging.warning(f"Could not find data file {fname}, trying backup")
+            fname = os.path.join(data_dir, 'data_backup.h5')
+        if not os.path.exists(fname):
+            raise FileNotFoundError(f"Could not find data file {fname}")
+        Xy = pd.read_hdf(fname)
+    
+    # Initialize model data using helper function
+    model_data = initialize_hierarchical_model_data(
+        Xy, neuron_name, 
+        dataset_name=dataset_name,
+        residual_mode=residual_mode,
+        use_additional_eigenworms=use_additional_eigenworms,
+        verbose=0 if not DEBUG else 1
+    )
+    
+    # Build a fresh model with the same coords as the original
+    with pm.Model(coords=model_data['coords']) as recon_model:
+        x_pca_data = pm.Data('x_pca_data', model_data['pca_modes'])
+        curvature_data = pm.Data('curvature_data', model_data['df_model'][model_data['curvature_terms_to_use']].values)
+        y_data = pm.Data('y_data', model_data['df_model']['y'].values)
+        
+        if DEBUG:
+            print(f"Reconstructing variables {var_names}")
+            print("PCA modes shape:", model_data['pca_modes'].shape)
+        
+        # Build model components based on which variables are requested
+        sigmoid_term_deterministic, beta = None, None
+        if any(var in var_names for var in ['sigmoid_term', 'pca_term']):
+            sigmoid_term_deterministic, beta = build_sigmoid_term_pca(
+                x_pca_data, 
+                **model_data['dim_opt']
+            )
+        
+        curvature_term, gamma = None, None
+        if any(var in var_names for var in ['curvature_term', 'mu', 'y']):
+            curvature_term, gamma, _ = build_curvature_term(
+                curvature_data, 
+                curvature_terms_to_use=model_data['curvature_terms_to_use'],
+                **model_data['dim_opt']
+            )
+        
+        likelihood = None
+        if 'mu' in var_names or 'y' in var_names:
+            intercept, sigma = build_baseline_priors(**model_data['dim_opt'])
+            
+            # Build the sigmoid term value to use
+            sigmoid_term_val = sigmoid_term_deterministic if sigmoid_term_deterministic is not None else None
+            
+            # Build likelihood for y and/or mu (likelihood creates mu as a deterministic)
+            likelihood = build_final_likelihood(sigma, y_data, intercept=intercept, 
+                                               sigmoid_term=sigmoid_term_val, 
+                                               curvature_term=curvature_term,
+                                               gamma=gamma, beta=beta)
+    
+    # Use PyMC's compute_deterministics to evaluate deterministics for all posterior samples
+    deterministic_vars = [v for v in var_names if v not in ['y']]
+    
+    if deterministic_vars:
+        with recon_model:
+            idata = pm.compute_deterministics(
+                idata, 
+                var_names=deterministic_vars,
+                progressbar=False,
+                merge_dataset=True
+            )
+    
+    # For posterior predictive samples (like 'y'), use sample_posterior_predictive
+    if 'y' in var_names:
+        with recon_model:
+            idata.extend(pm.sample_posterior_predictive(
+                idata,
+                var_names=['y'],
+                random_seed=42,
+                progressbar=False
+            ))
+    
+    return idata, model_data
+
+
+def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all', residual_mode='pca_global',
+                                       use_additional_eigenworms=True, var_names=None, 
+                                       num_samples=1000, random_seed=42, DEBUG=False):
+    """
+    Sample from prior predictive distribution for model variables.
+    
+    Builds a PyMC model and samples from the joint prior (priors only, no data conditioning).
+    Useful for prior predictive checks to assess if priors are reasonable.
+    
+    Parameters
+    ----------
+    neuron_name : str
+        Name of the neuron to sample for
+    Xy : pd.DataFrame, optional
+        Full dataset. If None, will be loaded from hardcoded location using get_hierarchical_modeling_dir
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data (default: 'pca_global')
+    use_additional_eigenworms : bool
+        Whether the model used eigenworms 2 and 3 (default: True)
+    var_names : list of str, optional
+        Variables to sample. Default: ['y']
+        Can include 'sigmoid_term', 'curvature_term', 'mu', 'y', etc.
+    num_samples : int
+        Number of prior samples to draw (default: 1000)
+    random_seed : int
+        Random seed for reproducibility
+    
+    Returns
+    -------
+    idata : arviz.InferenceData
+        InferenceData with prior samples in 'prior' and 'prior_predictive' groups
+    
+    Examples
+    --------
+    >>> # Sample prior predictive for final output
+    >>> idata_prior = sample_prior_predictive_for_neuron(neuron_name='VB02', Xy=Xy)
+    
+    >>> # Sample deterministics from prior
+    >>> idata_prior = sample_prior_predictive_for_neuron(neuron_name='VB02', Xy=Xy,
+    ...                                                   var_names=['sigmoid_term', 'curvature_term', 'y'])
+    
+    >>> # More samples for thorough prior predictive checks
+    >>> idata_prior = sample_prior_predictive_for_neuron(neuron_name='VB02', Xy=Xy, num_samples=5000)
+    """
+    # if var_names is None:
+    #     var_names = ['y']
+    
+    # Load data if not provided
+    if Xy is None:
+        data_dir = get_hierarchical_modeling_dir(do_gfp=False)
+        fname = os.path.join(data_dir, 'data.h5')
+        if not os.path.exists(fname):
+            logging.warning(f"Could not find data file {fname}, trying backup")
+            fname = os.path.join(data_dir, 'data_backup.h5')
+        if not os.path.exists(fname):
+            raise FileNotFoundError(f"Could not find data file {fname}")
+        Xy = pd.read_hdf(fname)
+    
+    # Initialize model data using helper function
+    model_data = initialize_hierarchical_model_data(
+        Xy, neuron_name, 
+        dataset_name=dataset_name,
+        residual_mode=residual_mode,
+        use_additional_eigenworms=use_additional_eigenworms,
+        verbose=0 if not DEBUG else 1
+    )
+
+    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=False)
+    
+    # Build a fresh model with the same coords as the original
+    with pm.Model(coords=model_data['coords']) as prior_model:
+        x_pca_data = pm.Data('x_pca_data', model_data['pca_modes'])
+        curvature_data = pm.Data('curvature_data', model_data['df_model'][model_data['curvature_terms_to_use']].values)
+        y_data = pm.Data('y_data', model_data['df_model']['y'].values)
+        
+        if DEBUG:
+            print(f"Sampling prior predictive for variables {var_names}")
+            print("PCA modes shape:", model_data['pca_modes'].shape)
+        
+        # Always build the full hierarchical model, regardless of var_names
+        # var_names is only used for filtering what to sample
+        sigmoid_term_deterministic, prob_flip_sign = build_sigmoid_term_pca(
+            x_pca_data, 
+            **model_data['dim_opt']
+        )
+        
+        curvature_term = build_curvature_term(
+            curvature_data, 
+            curvature_terms_to_use=model_data['curvature_terms_to_use'],
+            **model_data['dim_opt']
+        )
+        
+        intercept, sigma = build_baseline_priors(**model_data['dim_opt'], **baseline_opt)
+        
+        # Build the full likelihood with all terms
+        likelihood = build_final_likelihood(sigma, y_data, intercept=intercept, 
+                                           sigmoid_term=sigmoid_term_deterministic, 
+                                           curvature_term=curvature_term,
+                                           prob_flip_sign=prob_flip_sign)
+    
+    # Sample from prior predictive
+    with prior_model:
+        idata = pm.sample_prior_predictive(
+            random_seed=random_seed,
+            var_names=var_names,
+            draws=num_samples,
+        )
+    
+    return idata, model_data
+
 
 
 ##
