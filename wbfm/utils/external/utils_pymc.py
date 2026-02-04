@@ -657,7 +657,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         )
 
     # Put it together Sigmoid term
-    sigmoid_term = pm.Deterministic('sigmoid_term', pm.math.tanh(pca_term - inflection_point))
+    sigmoid_term = pm.Deterministic('sigmoid_term', pt.tanh(pca_term - inflection_point))
 
     # Standardize to allow interpretation of coefficient (beta) as the expected change in sigmoid_term for a 1 unit change in curvature_term
     beta = pm.Normal('beta', mu=0, sigma=1)
@@ -717,7 +717,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
                                           )
 
     # Standardize and then add a positive coefficient gamma to allow interpretation of the effect size, and comparison to beta (from the sigmoid term)
-    curvature_term = (curvature_term - pm.math.mean(curvature_term)) / (pm.math.std(curvature_term) + 1e-3)
+    curvature_term = (curvature_term - pm.math.mean(curvature_term)) / (pt.std(curvature_term) + 1e-3)
     gamma = pm.HalfNormal('gamma', sigma=1)
 
     # Helper variable: the total amplitude of the eigenworm1/2 polar coordinates
