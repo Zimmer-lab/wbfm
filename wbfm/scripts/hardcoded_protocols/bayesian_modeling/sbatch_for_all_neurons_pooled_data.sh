@@ -4,8 +4,9 @@
 
 # Function to display a help message
 function show_help {
-  echo "Usage: $0 [-g] [-r] [-c] [-h] <gfp>"
+  echo "Usage: $0 [-g] [-a] [-r] [-c] [-h] <gfp>"
   echo "  -g: Use GFP data"
+  echo "  -a: Use AVB hiscl data"
   echo "  -s: Use simple eigenworms (1 and 2 only)"
   echo "  -r: Trace mode; should be one of 'None', 'pca_global', 'pca_global_1', 'cca_continuous', 'discrete'; default is pca_global"
   echo "  -c: Run temporal-split CV comparison instead of full model fitting"
@@ -16,15 +17,17 @@ function show_help {
 
 # Get all user flags
 use_gfp="false"
+use_avb_hiscl="false"
 use_raw_trace="false"
 debug="false"
 simple_eigenworms="false"
 cv_comparison="false"
 keep_large_vars="false"
-while getopts gsr:dckh flag
+while getopts gasr:dckh flag
 do
     case "${flag}" in
         g) use_gfp="true";;
+        a) use_avb_hiscl="true";;
         s) simple_eigenworms="true";;
         r) residual_mode=${OPTARG};;
         d) debug="true";;
@@ -135,6 +138,8 @@ CMD="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/utils/external/u
 # Changes if running on gfp
 if [ "$use_gfp" == "true" ]; then
   LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/logs"
+elif [ "$use_avb_hiscl" == "true" ]; then
+  LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_avb_hiscl/logs"
 else
   LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling/logs"
 fi
@@ -152,13 +157,14 @@ NUM_TASKS=${#neuron_list[@]}
 
 # Set of option-specific variables
 # gfp datasets are much faster to run
+NUM_HOURS=18
+MEM_PER_TASK=128G
 if [ "$use_gfp" == "true" ]; then
-  CMD="$CMD --do_gfp"
+  CMD="$CMD --gfp"
   NUM_HOURS=6
   MEM_PER_TASK=32G
-else
-  NUM_HOURS=18
-  MEM_PER_TASK=128G
+elif [ "$use_avb_hiscl" == "true" ]; then
+  CMD="$CMD --avb_hiscl"
 fi
 
 if [ "$simple_eigenworms" == "true" ]; then
@@ -191,7 +197,7 @@ cat << EOF > $SLURM_SCRIPT
 #SBATCH --array=0-$(($NUM_TASKS-1))
 #SBATCH --time=0-0$NUM_HOURS:00:00
 #SBATCH --mem=$MEM_PER_TASK
-#SBATCH --cpus-per-task=6
+#SBATCH --cpus-per-task=12
 $EXTRA_SBATCH_ARGS
 
 # Reproduce the list for the subfile

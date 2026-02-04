@@ -310,7 +310,7 @@ class WormFullVideoPosture:
                 raise NoBehaviorAnnotationsError("(curvature)")
             else:
                 # Regnerate processing steps
-                logging.warning(f"No smoothed curvature file found; recreating from raw curvature")
+                logging.warning(f"No smoothed curvature file found at location {self.filename_curvature}; recreating from raw curvature ({self.filename_curvature_backup})")
                 raw_data_config_fname = self.project_config.get_raw_data_config().absolute_self_path
                 df = _regenerate_smoothed_curvature_file(df, raw_data_config_fname)
 

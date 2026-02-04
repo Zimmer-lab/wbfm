@@ -110,7 +110,7 @@ def get_project_parent_folder():
 
 
 def get_hierarchical_modeling_dir(gfp=False, immobilized=False, o2_stimulus=False, mutant=False,
-                                  suffix=None):
+                                  avb_hiscl=False, suffix=None):
     parent_folder = "/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/"
     base_name = "hierarchical_modeling"
     if suffix is None:
@@ -118,6 +118,8 @@ def get_hierarchical_modeling_dir(gfp=False, immobilized=False, o2_stimulus=Fals
             base_name += "_gfp"
         elif immobilized:
             base_name += "_immob"
+        elif avb_hiscl:
+            base_name += "_avb_hiscl"
         if mutant:
             base_name += "_mutant"
         if o2_stimulus:
@@ -134,7 +136,7 @@ def get_triggered_average_modeling_dir():
 
 
 def all_paper_datatype_codes():
-    return ['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant']
+    return ['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant', 'avb_hiscl']
 
 
 def load_all_data_as_dataframe():
@@ -249,6 +251,11 @@ def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/488_505_488'
     elif data_type == 'no_light_control_fm':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/not_light_control'
+    elif data_type == 'avb_hiscl':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/zihaozhai/WBFM/project/AVBhiscl_all/histamin'
+    elif data_type == 'avb_hiscl_control':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/zihaozhai/WBFM/project/AVBhiscl_all/control'
+
     else:
         raise NotImplementedError(f"Data type {data_type} not recognized for paper datasets")
 

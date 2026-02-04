@@ -1495,7 +1495,9 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
 
         # Overwrite x_pca0 and x_pca1 with the cca modes
         x_pca0 = _Xy[f'CCA_neural_mode_1']
+        x_pca0 = (x_pca0 - x_pca0.mean()) / x_pca0.std()  # z-score
         x_pca1 = _Xy[f'CCA_neural_mode_2']
+        x_pca1 = (x_pca1 - x_pca1.mean()) / x_pca1.std()  # z-score
     elif residual_mode == 'discrete' or residual_mode == 'binary':
         # Predict the residual, subtracting discrete modes
         cols = default_discrete_behaviors()

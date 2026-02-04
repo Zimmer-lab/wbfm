@@ -341,6 +341,8 @@ def build_cross_dataset_eigenworms(all_projects: Dict[str, ProjectData], i_eigen
     df_eigenworms = pd.DataFrame(df_eigenworms, columns=[f'eigenworm{i}' for i in range(n_components)])
     df_eigenworms['local_time'] = df_curvature['local_time']
     df_eigenworms['dataset_name'] = df_curvature['dataset_name']
+    # Z-score per dataset (currently z-scored for all datasets together)
+    df_eigenworms = df_eigenworms.groupby('dataset_name').apply(lambda x: (x - x.mean()) / x.std())
     return df_eigenworms
 
 
