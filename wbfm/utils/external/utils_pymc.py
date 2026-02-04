@@ -636,23 +636,27 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         except TypeError:
             # Fallback: convert to symbolic int tensor
             n_modes = x_pca_modes.shape[1].eval()
-        pca_amplitudes = []
 
-        for k in range(n_modes):
-            log_hyper = pm.Normal(f"log_hyper_pca{k}", 0.0, 1.0)
-            log_sigma = pm.HalfNormal(f"log_sigma_pca{k}", 0.2)
-            z = pm.Normal(f"z_pca{k}", 0.0, 1.0, dims=dims)
+        # Force only the first mode to be positive, because that's the one that we've anchored across datasets
+        log_hyper = pm.Normal(f"log_hyper_pca0", 0.0, 1.0)
+        log_sigma = pm.HalfNormal(f"log_sigma_pca0", 0.2)
+        z = pm.Normal(f"z_pca0", 0.0, 1.0, dims=dims)
 
-            log_amp = pm.Deterministic(
-                f"log_pca{k}_amplitude",
-                log_hyper + z * log_sigma
-            )
+        log_amp = pm.Deterministic(
+            f"log_pca0_amplitude",
+            log_hyper + z * log_sigma
+        )
 
-            amp = pm.Deterministic(
-                f"pca{k}_amplitude",
-                pm.math.exp(log_amp)
-            )
+        amp = pm.Deterministic(
+            f"pca0_amplitude",
+            pm.math.exp(log_amp)
+        )
 
+        pca_amplitudes = [amp]
+        
+        # Other modes are unconstrained
+        for k in range(1, n_modes):
+            amp = pm.Normal(f"pca{k}_amplitude", mu=0, sigma=1, dims=dims)
             pca_amplitudes.append(amp)
 
         pca_term = sum(
@@ -1010,14 +1014,14 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
         neurons_to_plot = [single_neuron]
 
     var_names = ['prob_flip_sign',
-                'hyper_pca0_amplitude', "hyper_pca1_amplitude",  
+                #'hyper_pca0_amplitude', "hyper_pca1_amplitude",  
                 'pca0_amplitude', 'pca1_amplitude',
                 'log_amplitude_mu', 'amplitude',
                 'phase_shift', 
                 'eigenworm3_coefficient', 'eigenworm4_coefficient'
     ]
     # Reference values for ttests; prob_flip_sign is special
-    var_names_ref = [0.5, 0.01, 0.01]  # hyper_pca0_amplitude, hyper_pca1_amplitude are strictly positive, so use a ROPE
+    var_names_ref = [0.5, 0.01, 0.01]  # pca amplitudes are strictly positive, so use a ROPE
     var_names_ref.extend([0.0] * (len(var_names) - 3))
     var_names_ref = xr.DataArray(
         var_names_ref,
