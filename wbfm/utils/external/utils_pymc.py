@@ -134,7 +134,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     dim_opt = model_data['dim_opt']
     curvature_terms_to_use = model_data['curvature_terms_to_use']
 
-    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=False)
+    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=True)
 
     with pm.Model(coords=coords) as null_model:
         # Just do a flat line (intercept)
@@ -144,17 +144,22 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     with pm.Model(coords=coords) as nonhierarchical_model:
         # Curvature, but no sigmoid
         intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
-        curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
+        curvature_term, gamma, _ = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
-        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term, sigmoid_term=None)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term, sigmoid_term=None,
+                                            gamma=gamma)
 
     with pm.Model(coords=coords) as hierarchical_pca_model:
         # Curvature multiplied by sigmoid
         intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
-        sigmoid_term, prob_flip_sign = build_sigmoid_term_pca(pca_modes, **dim_opt)
-        curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
+        sigmoid_term, beta = build_sigmoid_term_pca(pca_modes, **dim_opt)
+        curvature_term, gamma, total_eigenworm12_amplitude = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
-        likelihood = build_final_likelihood(sigma, y, intercept=intercept, sigmoid_term=sigmoid_term, curvature_term=curvature_term, prob_flip_sign=prob_flip_sign)
+        # Helper variable: total amplitude of eigenworms12 after modulation by curvature_term, to help interpret the overall effect size of the hierarchy
+        modulated_eigenworm12_amplitude = pm.Deterministic('modulated_eigenworm12_amplitude', total_eigenworm12_amplitude * beta)
+
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, sigmoid_term=sigmoid_term, curvature_term=curvature_term,
+                                            gamma=gamma, beta=beta)
 
     coords.update({'time': np.arange(len(y))})
 
@@ -226,8 +231,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
     return intercept, sigma
 
 
-def build_final_likelihood(sigma, y, nu=5, 
-                           intercept=None, sigmoid_term=None, curvature_term=None, prob_flip_sign=None):
+def build_final_likelihood(sigma, y, nu=5, intercept=None, sigmoid_term=None, curvature_term=None, gamma=None, beta=None):
     """
     Build the final likelihood for the model.
     
@@ -255,34 +259,22 @@ def build_final_likelihood(sigma, y, nu=5,
     # Build mu by combining non-None components
     # Initialize as pytensor tensors to ensure compatibility with pm.Deterministic
     mu_val = pt.as_tensor(0.0)
-    mu_flipped_val = pt.as_tensor(0.0)
     if intercept is not None:
         mu_val = intercept
-        mu_flipped_val = intercept
     else:
         # Initialize intercept to zero if not provided
         intercept = pt.as_tensor(0.0)
-    if sigmoid_term is not None and curvature_term is not None:
-        mu_val = mu_val + sigmoid_term * curvature_term
-        if prob_flip_sign is not None:
-            mu_flipped_val = intercept + (1 - sigmoid_term) * curvature_term
-    elif curvature_term is not None:
-        mu_val = mu_val + curvature_term
-        mu_flipped_val = mu_flipped_val + curvature_term
     
+    # First, behavior only
+    if curvature_term is not None:
+        mu_val = mu_val + gamma * curvature_term
+
+    # Full model (add nonlinearity)
+    if sigmoid_term is not None and curvature_term is not None:
+        mu_val = mu_val + beta * sigmoid_term * curvature_term
+
     mu = pm.Deterministic('mu', mu_val)
-
-    if prob_flip_sign is None:
-        return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
-    else:
-        # Marginalize over sign: mixture of mu and -mu
-        # marginalize_sign is the weight for the positive component
-        mu_flipped = pm.Deterministic('mu_flipped', mu_flipped_val)
-
-        return pm.Mixture('y', w=[1.0 - prob_flip_sign, prob_flip_sign], 
-                         comp_dists=[pm.StudentT.dist(mu=mu, sigma=sigma, nu=nu),
-                                    pm.StudentT.dist(mu=mu_flipped, sigma=sigma, nu=nu)],
-                         observed=y)
+    return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
 
 
 def compute_studentt_logp(mu, sigma, y, nu=5):
@@ -398,7 +390,7 @@ def reconstruct_model_term_from_trace(idata, neuron_name, Xy=None, dataset_name=
         
         # Build model components based on which variables are requested
         if any(var in var_names for var in ['sigmoid_term', 'pca_term']):
-            sigmoid_term_deterministic, prob_flip_sign = build_sigmoid_term_pca(
+            sigmoid_term_deterministic = build_sigmoid_term_pca(
                 x_pca_data, 
                 **model_data['dim_opt']
             )
@@ -664,13 +656,14 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
             for k in range(n_modes)
         )
 
-        # Probability to flip sign (marginalize over sign in likelihood)
-        prob_flip_sign = pm.Beta('prob_flip_sign', alpha=1, beta=1)
-
     # Put it together Sigmoid term
-    sigmoid_term = pm.Deterministic('sigmoid_term', pm.math.sigmoid(pca_term - inflection_point))
+    sigmoid_term = pm.Deterministic('sigmoid_term', pm.math.tanh(pca_term - inflection_point))
+
+    # Standardize to allow interpretation of coefficient (beta) as the expected change in sigmoid_term for a 1 unit change in curvature_term
+    beta = pm.Normal('beta', mu=0, sigma=1)
+    sigmoid_term = sigmoid_term - pm.math.mean(sigmoid_term)
     
-    return sigmoid_term, prob_flip_sign
+    return sigmoid_term, beta
 
 
 def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, dataset_name_idx=None,
@@ -722,7 +715,15 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
                                           eigenworm2_coefficient[dataset_name_idx] * curvature[:, 1] +
                                           pt.sum(pt.stack([coef * curvature[:, i+2] for i, coef in enumerate(additional_column_dict.values())]), axis=0)
                                           )
-    return curvature_term
+
+    # Standardize and then add a positive coefficient gamma to allow interpretation of the effect size, and comparison to beta (from the sigmoid term)
+    curvature_term = (curvature_term - pm.math.mean(curvature_term)) / (pm.math.std(curvature_term) + 1e-3)
+    gamma = pm.HalfNormal('gamma', sigma=1)
+
+    # Helper variable: the total amplitude of the eigenworm1/2 polar coordinates
+    total_eigenworm12_amplitude = pm.Deterministic('total_eigenworm12_amplitude', amplitude * gamma)
+
+    return curvature_term, gamma, total_eigenworm12_amplitude
 
 
 def main_full_models(neuron_name=None, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
