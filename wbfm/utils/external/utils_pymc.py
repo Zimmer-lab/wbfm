@@ -355,12 +355,16 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
     if dims is None:
         hyper_log_amplitude, hyper_log_sigma = 0, 1
     else:
-        # Hyperprior
+        # Hyperprior for overall amplitude
         hyper_log_amplitude = pm.Normal('log_amplitude_mu', mu=0, sigma=0.5)
         hyper_log_sigma = pm.HalfNormal('log_amplitude_sigma', sigma=0.5)
     zscore_log_amplitude = pm.Normal('zscore_log_amplitude', mu=0, sigma=1, dims=dims)
     log_amplitude = pm.Deterministic('log_amplitude', hyper_log_amplitude + zscore_log_amplitude*hyper_log_sigma)
-    amplitude = pm.Deterministic('amplitude', pm.math.exp(log_amplitude))
+    gamma = pm.Deterministic('gamma', pm.math.exp(log_amplitude))
+
+    # The overall gamma is hierarchical, so just make the amplitude a regular positive variable
+    amplitude = pm.HalfNormal('amplitude', sigma=1)
+
     # There is a positive and negative solution, so choose the positive one for the first term
     eigenworm1_coefficient = pm.Deterministic('eigenworm1_coefficient', amplitude * pm.math.cos(phase_shift))
     eigenworm2_coefficient = pm.Deterministic('eigenworm2_coefficient', -amplitude * pm.math.sin(phase_shift))
@@ -394,7 +398,6 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
 
     # Standardize and then add a positive coefficient gamma to allow interpretation of the effect size, and comparison to beta (from the sigmoid term)
     curvature_term = (curvature_term - pm.math.mean(curvature_term)) / (pt.std(curvature_term) + 1e-3)
-    gamma = pm.HalfNormal('gamma', sigma=1)
 
     # Helper variable: the total amplitude of the eigenworm1/2 polar coordinates
     total_eigenworm12_amplitude = pm.Deterministic('total_eigenworm12_amplitude', amplitude * gamma)
