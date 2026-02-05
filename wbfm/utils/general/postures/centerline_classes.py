@@ -310,8 +310,8 @@ class WormFullVideoPosture:
                 raise NoBehaviorAnnotationsError("(curvature)")
             else:
                 # Regnerate processing steps
-                logging.warning(f"No smoothed curvature file found at location {self.filename_curvature}; recreating from raw curvature ({self.filename_curvature_backup})")
                 raw_data_config_fname = self.project_config.get_raw_data_config().absolute_self_path
+                logging.warning(f"No smoothed curvature file found at location {self.filename_curvature}; recreating from raw curvature ({self.filename_curvature_backup}) and raw data config ({raw_data_config_fname})")
                 df = _regenerate_smoothed_curvature_file(df, raw_data_config_fname)
 
         # Remove the first column, which is the frame number
@@ -440,16 +440,11 @@ class WormFullVideoPosture:
     @cached_property
     def _raw_pause(self) -> Optional[pd.Series]:
         # Ulises does not really believe in this one
-        if self.curvature() is None:
+        try:
+            if self.worm_speed(fluorescence_fps=False) is None:
+                return None
+        except (FileNotFoundError, NoBehaviorAnnotationsError):
             return None
-
-        # Hardcoded thresholds for what "slow" body curvature is
-        # df_freq = self.hilbert_frequency(fluorescence_fps=False)
-        # df_pause = df_freq.T
-        # df_pause[df_pause.abs() > 0.05] = 0
-        # df_pause[df_pause.abs() > 0] = 1
-        # _raw_vector = df_pause.iloc[5:10].mean()
-        # _raw_vector = _raw_vector > 0.25
 
         # Simpler: just a threshold on the speed
         _raw_vector = self.worm_speed(fluorescence_fps=False, signed=False, strong_smoothing=True) < 0.01
@@ -2833,6 +2828,7 @@ def calculate_dataframe_for_export(worm):
     df = pd.concat([curvature, trajectory, df_beh], axis=1, keys=['Curvature', 'Trajectory', 'Behavior'])
 
     return df
+
 
 def _regenerate_smoothed_curvature_file(df_raw: Union[str, Path],
                                         raw_data_config_fname: Union[str, Path],):
