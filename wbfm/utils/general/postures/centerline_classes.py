@@ -197,7 +197,7 @@ class WormFullVideoPosture:
         try:
             return len(self._raw_stage_position)
         except NoBehaviorAnnotationsError as e:
-            if self.has_full_kymograph and self._raw_centerlineX is not None:
+            if self._raw_centerlineX is not None:
                 return len(self._raw_centerlineX)
             else:
                 raise e
