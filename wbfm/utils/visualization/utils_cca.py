@@ -41,7 +41,7 @@ class CCAPlotter:
     # Preprocessing options. Goal: more interpretable CCA weights
     preprocess_traces_using_pca: bool = True
     truncate_traces_to_n_components: int = None  # Not used if preprocess_traces_using_pca is False
-    preprocess_behavior_using_pca: bool = True
+    preprocess_behavior_using_pca: bool = False
     truncate_behavior_to_n_components: int = None  # Not used if preprocess_behavior_using_pca is False
     _df_traces_truncated: pd.DataFrame = None
     _df_beh_truncated: pd.DataFrame = None
@@ -142,6 +142,10 @@ class CCAPlotter:
         else:
             raise NotImplementedError("Sparse CCA not implemented")
         
+        if anchor_modes_with_defined_behaviors and self.preprocess_behavior_using_pca:
+            logging.warning("Anchoring modes with defined behaviors will not work when behavior PCA preprocessing is used; skipping")
+            anchor_modes_with_defined_behaviors = False
+        
         if anchor_modes_with_defined_behaviors:
             # Given known information about what the first and second modes should be, flip the modes if needed
             anchor_col = 'signed_middle_body_speed' if not binary_behaviors else 'rev'
@@ -157,15 +161,16 @@ class CCAPlotter:
                 cca.y_weights_[:, 0] *= -1
             
             # Second mode should be ventral turning
-            anchor_col = 'ventral_only_body_curvature' if not binary_behaviors else 'ventral_turn'
-            second_mode_beh_weights = cca.y_weights_[:, 1]
-            anchor_idx = Y.columns.get_loc(anchor_col)
-            # We want both to be positively weighted this time
-            if second_mode_beh_weights[anchor_idx] < 0:
-                X_r[:, 1] *= -1
-                Y_r[:, 1] *= -1
-                cca.x_weights_[:, 1] *= -1
-                cca.y_weights_[:, 1] *= -1
+            if n_components > 1:
+                anchor_col = 'ventral_only_body_curvature' if not binary_behaviors else 'ventral_turn'
+                second_mode_beh_weights = cca.y_weights_[:, 1]
+                anchor_idx = Y.columns.get_loc(anchor_col)
+                # We want both to be positively weighted this time
+                if second_mode_beh_weights[anchor_idx] < 0:
+                    X_r[:, 1] *= -1
+                    Y_r[:, 1] *= -1
+                    cca.x_weights_[:, 1] *= -1
+                    cca.y_weights_[:, 1] *= -1
         
         if return_dataframes:
             # Basically just set up the indices to be the same as the input dataframes
