@@ -369,7 +369,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
     log_amplitude = pm.Deterministic('log_amplitude', hyper_log_amplitude + zscore_log_amplitude*hyper_log_sigma)
     gamma = pm.Deterministic('gamma', pm.math.exp(log_amplitude))[dataset_name_idx] if dims is not None else pm.Deterministic('gamma', pm.math.exp(log_amplitude))
 
-    # The overall gamma is hierarchical, so just make the amplitude a regular positive variable
+    # The overall gamma is hierarchical, so just make the eigenworm12 amplitude a regular positive variable
     amplitude = pm.HalfNormal('amplitude', sigma=1)
 
     # There is a positive and negative solution, so choose the positive one for the first term
@@ -953,7 +953,7 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
     var_names = [#'prob_flip_sign',
                 #'hyper_pca0_amplitude', "hyper_pca1_amplitude",  
                 'pca0_amplitude', 'pca1_amplitude',
-                'beta', 'gamma',
+                'hyper_beta', 'gamma', 'total_eigenworm12_amplitude',
                 'log_amplitude_mu', 'amplitude',
                 'phase_shift', 
                 'eigenworm3_coefficient', 'eigenworm4_coefficient'
