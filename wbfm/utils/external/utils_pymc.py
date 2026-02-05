@@ -913,7 +913,7 @@ def _load_all_traces(foldername, single_neuron=None):
     if single_neuron is not None:
         fnames = [single_neuron]
     all_traces = {}
-    for neuron in tqdm(fnames):
+    for neuron in tqdm(fnames, desc=f"Loading traces from {foldername}"):
         trace_fname = os.path.join(foldername, f'{neuron}_hierarchical_pca_trace.nc')
         if os.path.exists(trace_fname):
             try:
@@ -976,7 +976,7 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
         })
 
     all_dfs = {}
-    for n in tqdm(neurons_to_plot):
+    for n in tqdm(neurons_to_plot, desc="Processing neurons for Bayesian t-tests"):
         # Original set of variables
         posterior = az.extract(all_traces[n], group='posterior', var_names=var_names, filter_vars='like')
         median_ds = posterior[var_names].median()
