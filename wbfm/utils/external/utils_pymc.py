@@ -298,6 +298,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
                                          hyper_pca_amplitude + zscore_pca_amplitude*hyper_pca_sigma)
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
         prob_flip_sign = None
+        beta = pm.Normal('beta', mu=0, sigma=1)
     else:
         try:
             n_modes = int(x_pca_modes.shape[1])
@@ -331,18 +332,24 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
             pca_amplitudes[k][dataset_name_idx] * x_pca_modes[:, k]
             for k in range(n_modes)
         )
+        
+        # Hierarchical beta
+        hyper_beta = pm.Normal('hyper_beta', mu=0, sigma=1)
+        hyper_beta_sigma = pm.Exponential('hyper_beta_sigma', lam=1)
+        z_beta = pm.Normal('z_beta', mu=0, sigma=1, dims=dims)
+        beta = pm.Deterministic('beta', hyper_beta + z_beta*hyper_beta_sigma)[dataset_name_idx]
 
     # Put it together Sigmoid term
     sigmoid_term = pm.Deterministic('sigmoid_term', pt.tanh(pca_term - inflection_point))
 
     # Standardize to allow interpretation of coefficient (beta) as the expected change in sigmoid_term for a 1 unit change in curvature_term
-    beta = pm.Normal('beta', mu=0, sigma=1)
     sigmoid_term = sigmoid_term - pm.math.mean(sigmoid_term)
     
     return sigmoid_term, beta
 
 
 def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, dataset_name_idx=None,
+
                          DEBUG=False):
     if curvature_terms_to_use is None:
         assert curvature.shape[1] == 4, f"Default curvature terms are for 4 eigenworms, found {curvature.shape[1]}"
@@ -360,7 +367,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         hyper_log_sigma = pm.HalfNormal('log_amplitude_sigma', sigma=0.5)
     zscore_log_amplitude = pm.Normal('zscore_log_amplitude', mu=0, sigma=1, dims=dims)
     log_amplitude = pm.Deterministic('log_amplitude', hyper_log_amplitude + zscore_log_amplitude*hyper_log_sigma)
-    gamma = pm.Deterministic('gamma', pm.math.exp(log_amplitude))
+    gamma = pm.Deterministic('gamma', pm.math.exp(log_amplitude))[dataset_name_idx] if dims is not None else pm.Deterministic('gamma', pm.math.exp(log_amplitude))
 
     # The overall gamma is hierarchical, so just make the amplitude a regular positive variable
     amplitude = pm.HalfNormal('amplitude', sigma=1)
