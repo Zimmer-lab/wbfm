@@ -940,16 +940,17 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
     else:
         neurons_to_plot = [single_neuron]
 
-    var_names = ['prob_flip_sign',
+    var_names = [#'prob_flip_sign',
                 #'hyper_pca0_amplitude', "hyper_pca1_amplitude",  
                 'pca0_amplitude', 'pca1_amplitude',
+                'beta', 'gamma',
                 'log_amplitude_mu', 'amplitude',
                 'phase_shift', 
                 'eigenworm3_coefficient', 'eigenworm4_coefficient'
     ]
     # Reference values for ttests; prob_flip_sign is special
-    var_names_ref = [0.5, 0.01, 0.01]  # pca amplitudes are strictly positive, so use a ROPE
-    var_names_ref.extend([0.0] * (len(var_names) - 3))
+    var_names_ref = [0.01]  # pca amplitudes are strictly positive, so use a ROPE
+    var_names_ref.extend([0.0] * (len(var_names) - len(var_names_ref)))
     var_names_ref = xr.DataArray(
         var_names_ref,
         dims=["variable"],
