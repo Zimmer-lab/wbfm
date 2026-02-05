@@ -384,7 +384,7 @@ def build_cca_time_series_from_multiple_projects(all_projects: Dict[str, Project
     """
     # Options in the paper (continuous behaviors)
     beh_kwargs = dict(additional_behaviors=[f"eigenworm{i}" for i in range(4)])
-    cca_opt = dict(truncate_traces_to_n_components=3, preprocess_behavior_using_pca=True, trace_kwargs=trace_kwargs,
+    cca_opt = dict(truncate_traces_to_n_components=3, preprocess_behavior_using_pca=False, trace_kwargs=trace_kwargs,
                    beh_kwargs=beh_kwargs)
 
     # Calculate for all projects

@@ -61,7 +61,7 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
         # Recalculate multi-dataset eigenworms
         df_eigenworms = build_cross_dataset_eigenworms(all_projects)
 
-        # Also calculate CCA modes as done in the paper
+        # Also calculate  modes as done in the paper
         df_all_cca = build_cca_time_series_from_multiple_projects(all_projects, use_paper_options=True)[0]
         df_all_cca.rename(columns={i: f'pca_{i}' for i in range(4)}, inplace=True)
         # Reset the local time column to be integer indices
