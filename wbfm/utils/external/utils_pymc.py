@@ -398,8 +398,8 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
     else:
         # Multiply them separately, but do not subindex by dataset for other terms
         curvature_term = pm.Deterministic('curvature_term',
-                                          eigenworm1_coefficient[dataset_name_idx] * curvature[:, 0] +
-                                          eigenworm2_coefficient[dataset_name_idx] * curvature[:, 1] +
+                                          eigenworm1_coefficient * curvature[:, 0] +
+                                          eigenworm2_coefficient * curvature[:, 1] +
                                           pt.sum(pt.stack([coef * curvature[:, i+2] for i, coef in enumerate(additional_column_dict.values())]), axis=0)
                                           )
 
@@ -815,12 +815,12 @@ def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all',
         
         # Always build the full hierarchical model, regardless of var_names
         # var_names is only used for filtering what to sample
-        sigmoid_term_deterministic, prob_flip_sign = build_sigmoid_term_pca(
+        sigmoid_term_deterministic, beta = build_sigmoid_term_pca(
             x_pca_data, 
             **model_data['dim_opt']
         )
         
-        curvature_term = build_curvature_term(
+        curvature_term, gamma, _ = build_curvature_term(
             curvature_data, 
             curvature_terms_to_use=model_data['curvature_terms_to_use'],
             **model_data['dim_opt']
@@ -832,7 +832,7 @@ def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all',
         likelihood = build_final_likelihood(sigma, y_data, intercept=intercept, 
                                            sigmoid_term=sigmoid_term_deterministic, 
                                            curvature_term=curvature_term,
-                                           prob_flip_sign=prob_flip_sign)
+                                           gamma=gamma, beta=beta)
     
     # Sample from prior predictive
     with prior_model:
