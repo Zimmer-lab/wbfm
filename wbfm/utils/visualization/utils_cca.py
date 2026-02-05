@@ -144,7 +144,7 @@ class CCAPlotter:
         
         if anchor_modes_with_defined_behaviors:
             # Given known information about what the first and second modes should be, flip the modes if needed
-            anchor_col = 'speed' if not binary_behaviors else 'rev'
+            anchor_col = 'signed_middle_body_speed' if not binary_behaviors else 'rev'
             # First mode should be forward movement (speed)
             first_mode_beh_weights = cca.y_weights_[:, 0]
             anchor_idx = Y.columns.get_loc(anchor_col)
