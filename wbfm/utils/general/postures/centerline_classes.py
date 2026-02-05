@@ -56,6 +56,7 @@ class WormFullVideoPosture:
 
     filename_curvature: str = None
     filename_curvature_backup: str = None
+    filename_curvature_equidistant: str = None
     filename_x: str = None
     filename_y: str = None
     filename_beh_annotation: str = None
@@ -309,10 +310,20 @@ class WormFullVideoPosture:
             if df is None:
                 raise NoBehaviorAnnotationsError("(curvature)")
             else:
-                # Regnerate processing steps
-                raw_data_config_fname = self.project_config.get_raw_data_config().absolute_self_path
-                logging.warning(f"No smoothed curvature file found at location {self.filename_curvature}; recreating from raw curvature ({self.filename_curvature_backup}) and raw data config ({raw_data_config_fname})")
-                df = _regenerate_smoothed_curvature_file(df, raw_data_config_fname)
+                try:
+                    # Regnerate processing steps
+                    raw_data_config_fname = self.project_config.get_raw_data_config().absolute_self_path
+                    logging.warning(f"No smoothed curvature file found at location {self.filename_curvature}; recreating from raw curvature ({self.filename_curvature_backup}) and raw data config ({raw_data_config_fname})")
+                    df = _regenerate_smoothed_curvature_file(df, raw_data_config_fname)
+                except FileNotFoundError:
+                    logging.warning(f"Could not find raw data config file at location {raw_data_config_fname}; cannot regenerate smoothed curvature file")
+                    pass
+
+        if df is None:
+            # Finally, try the equidistant curvature file
+            df = read_if_exists(self.filename_curvature_equidistant, reader=pd.read_csv, header=None)
+            if df is not None:
+                logging.warning(f"Using equidistant curvature file at location {self.filename_curvature_equidistant} as fallback. Note that this is different from the paper!")
 
         # Remove the first column, which is the frame number
         df = df.iloc[:, 1:]
@@ -1983,6 +1994,8 @@ class WormFullVideoPosture:
                 all_files['filename_curvature'] = str(file)
             elif file.name.endswith('skeleton_spline_K.csv'):
                 all_files['filename_curvature_backup'] = str(file)
+            elif file.name.endswith('equi_dist_segment_2D_smoothed_signed.csv'):
+                all_files['filename_curvature_equidistant'] = str(file)
             elif file.name.endswith('skeleton_spline_X_coords_avg.csv') or \
                     (file.name.endswith('skeleton_spline_X_coords.csv') and all_files['filename_x'] is None):
                 all_files['filename_x'] = str(file)
