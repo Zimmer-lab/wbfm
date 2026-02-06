@@ -810,7 +810,7 @@ def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all',
             **model_data['dim_opt']
         )
         
-        curvature_term, gamma, _ = build_curvature_term(
+        curvature_term, gamma = build_curvature_term(
             curvature_data, 
             curvature_terms_to_use=model_data['curvature_terms_to_use'],
             **model_data['dim_opt']
