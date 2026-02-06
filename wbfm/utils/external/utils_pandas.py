@@ -1465,15 +1465,19 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
         _Xy = Xy
     if curvature_terms is None:
         curvature_terms = ['eigenworm0', 'eigenworm1', 'eigenworm2', 'eigenworm3']
-    # First, extract data, z-score, and drop na values
+
+    def _z_score(z):
+        return (z - z.mean()) / z.std()
+
+    # First, extract data, z-score PER DATASET, and drop na values
     # Allow gating based on the global component of the neuron itself (not used)
     x = _Xy[f'{neuron_name}_manifold']
-    x = (x - x.mean()) / x.std()  # z-score
+    x = x.groupby(_Xy['dataset_name']).transform(_z_score)
     # Alternative: include the pca modes (currently used)
     x_pca0 = _Xy[f'pca_0']
-    x_pca0 = (x_pca0 - x_pca0.mean()) / x_pca0.std()  # z-score
+    x_pca0 = x_pca0.groupby(_Xy['dataset_name']).transform(_z_score)
     x_pca1 = _Xy[f'pca_1']
-    x_pca1 = (x_pca1 - x_pca1.mean()) / x_pca1.std()  # z-score
+    x_pca1 = x_pca1.groupby(_Xy['dataset_name']).transform(_z_score)
     if residual_mode == 'pca_global' or residual_mode == 'pca_global_2':
         # Predict the residual, subtracting 2 pca modes
         y = _Xy[f'{neuron_name}'] - _Xy[f'{neuron_name}_manifold']
@@ -1495,9 +1499,9 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
 
         # Overwrite x_pca0 and x_pca1 with the cca modes
         x_pca0 = _Xy[f'CCA_neural_mode_1']
-        x_pca0 = (x_pca0 - x_pca0.mean()) / x_pca0.std()  # z-score
+        x_pca0 = x_pca0.groupby(_Xy['dataset_name']).transform(_z_score)
         x_pca1 = _Xy[f'CCA_neural_mode_2']
-        x_pca1 = (x_pca1 - x_pca1.mean()) / x_pca1.std()  # z-score
+        x_pca1 = x_pca1.groupby(_Xy['dataset_name']).transform(_z_score)
     elif residual_mode == 'discrete' or residual_mode == 'binary':
         # Predict the residual, subtracting discrete modes
         cols = default_discrete_behaviors()
@@ -1515,15 +1519,15 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
     else:
         raise ValueError(f"Unknown residual mode {residual_mode}; should be None, 'pca_global', or 'pca_global_1'")
     # Standardize y per dataset
-    y = y.groupby(_Xy['dataset_name']).transform(lambda z: (z - z.mean()) / z.std())
-    # y = (y - y.mean()) / y.std()  # z-score
+    y = y.groupby(_Xy['dataset_name']).transform(_z_score)
 
     if y.std() == 0:
         raise ValueError(f"Standard deviation of y is 0 for {neuron_name} in {dataset_name} and residual_mode {residual_mode}... "
                          f"This could be due to no data, or a bug in the residual calculation")
-    # Interesting covariate
+    # Interesting covariate; standardize per dataset
     curvature = _Xy[curvature_terms]
-    curvature = (curvature - curvature.mean()) / curvature.std()  # z-score
+    curvature = curvature.groupby(_Xy['dataset_name']).transform(_z_score)
+    
     # State
     rev = _Xy['rev'].astype(str)
     # Package as dataframe again, and drop na values
