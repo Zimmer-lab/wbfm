@@ -399,9 +399,6 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
                                           pt.sum(pt.stack([coef * curvature[:, i+2] for i, coef in enumerate(additional_column_dict.values())]), axis=0)
                                           )
 
-    # Standardize and then add a positive coefficient gamma to allow interpretation of the effect size, and comparison to beta (from the sigmoid term)
-    curvature_term = (curvature_term - pm.math.mean(curvature_term)) / (pt.std(curvature_term) + 1e-3)
-
     return curvature_term, gamma
 
 
