@@ -174,7 +174,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     # base_names_to_sample = {'y', 'sigmoid_term', 'curvature_term', 'phase_shift', 'sigmoid_slope'}
     for name, model in all_models.items():
         with model:
-            opt = dict(draws=1000, tune=1000, random_seed=rng, target_accept=0.96)
+            opt = dict(draws=1500, tune=3000, random_seed=rng, target_accept=0.98)
             if DEBUG:
                 opt['draws'] = 10
                 opt['tune'] = 10
