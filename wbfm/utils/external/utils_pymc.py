@@ -297,7 +297,6 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         pca_amplitude = pm.Deterministic('pca_amplitude',
                                          hyper_pca_amplitude + zscore_pca_amplitude*hyper_pca_sigma)
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
-        prob_flip_sign = None
         beta = pm.Normal('beta', mu=0, sigma=1)
     else:
         try:
@@ -369,12 +368,9 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
     log_amplitude = pm.Deterministic('log_amplitude', hyper_log_amplitude + zscore_log_amplitude*hyper_log_sigma)
     gamma = pm.Deterministic('gamma', pm.math.exp(log_amplitude))[dataset_name_idx] if dims is not None else pm.Deterministic('gamma', pm.math.exp(log_amplitude))
 
-    # The overall gamma is hierarchical, so just make the eigenworm12 amplitude a regular positive variable
-    amplitude = pm.HalfNormal('amplitude', sigma=1)
-
     # There is a positive and negative solution, so choose the positive one for the first term
-    eigenworm1_coefficient = pm.Deterministic('eigenworm1_coefficient', amplitude * pm.math.cos(phase_shift))
-    eigenworm2_coefficient = pm.Deterministic('eigenworm2_coefficient', -amplitude * pm.math.sin(phase_shift))
+    eigenworm1_coefficient = pm.Deterministic('eigenworm1_coefficient', pm.math.cos(phase_shift))
+    eigenworm2_coefficient = pm.Deterministic('eigenworm2_coefficient', - pm.math.sin(phase_shift))
     # The rest are not part of the sine/cosine pair, but we aren't sure how many there are
     additional_column_dict = {}
     if len(curvature_terms_to_use) > 2:
@@ -952,9 +948,10 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
 
     var_names = [#'prob_flip_sign',
                 #'hyper_pca0_amplitude', "hyper_pca1_amplitude",  
-                'pca0_amplitude', 'pca1_amplitude',
-                'hyper_beta', 'gamma', 'total_eigenworm12_amplitude',
-                'log_amplitude_mu', 'amplitude',
+                'log_hyper_pca0', 'pca1_amplitude',
+                'hyper_beta', #'gamma', 
+                # 'total_eigenworm12_amplitude',
+                'log_amplitude_mu', #'amplitude',
                 'phase_shift', 
                 'eigenworm3_coefficient', 'eigenworm4_coefficient'
     ]
@@ -1045,11 +1042,11 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
 
     # Get radial term: combination of raw curvature amplitude and median of the sigmoid term
     if recalculate_sigmoid and 'sigmoid_term_quantile' in df_params.columns:
-        # df_params['r'] = np.exp(df_params['log_amplitude_mu']) * df_params['sigmoid_term_quantile'] 
-        df_params['r'] = df_params['amplitude'] * df_params['sigmoid_term_quantile']
+        df_params['r'] = np.exp(df_params['log_amplitude_mu']) * df_params['sigmoid_term_quantile'] 
+        # df_params['r'] = df_params['amplitude'] * df_params['sigmoid_term_quantile']
     else:
         logging.warning("sigmoid_term_quantile not found in df_params; using amplitude only for 'r'") 
-        df_params['r'] = df_params['amplitude']
+        df_params['r'] = np.exp(df_params['log_amplitude_mu'])
     if 'Relative Hierarchy Score' in df_params.columns:
         df_params['size'] = df_params['Relative Hierarchy Score'] + 1  # Add a minimum size
     else:
