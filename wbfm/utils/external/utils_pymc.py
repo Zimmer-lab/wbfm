@@ -276,11 +276,10 @@ def build_final_likelihood(sigma, y, nu=5, intercept=None, sigmoid_term=None, cu
     if sigmoid_term is not None and curvature_term is not None:
         mu_val = mu_val + beta * sigmoid_term * curvature_term
 
-    mu = pm.Deterministic('mu', mu_val)
-    return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
+    return pm.StudentT('y', mu=mu_val, sigma=sigma, nu=nu, observed=y)
 
 
-def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, dataset_name_idx=None):
+def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
     """
     Build sigmoid term from PCA modes with positive amplitude constraints.
     
@@ -288,9 +287,6 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
     -------
     sigmoid_term : pm.Deterministic
         Sigmoid transformation of PCA term
-    prob_flip_sign : pm.Distribution or None
-        Probability to flip sign (used in marginalized likelihood).
-        Returned when dims is not None, otherwise None.
     """
     inflection_point = pm.Normal('inflection_point', mu=0, sigma=5)
 
@@ -310,8 +306,8 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
             n_modes = x_pca_modes.shape[1].eval()
 
         # Force only the first mode to be positive, because that's the one that we've anchored across datasets
-        log_hyper = pm.Normal(f"log_hyper_pca0", 0.0, 1.0)
-        log_sigma = pm.HalfNormal(f"log_sigma_pca0", 0.2)
+        log_hyper = pm.Normal(f"log_hyper_pca0", mu=0.0, sigma=0.3)
+        log_sigma = pm.HalfNormal(f"log_sigma_pca0", sigma=0.2)
         z = pm.Normal(f"z_pca0", 0.0, 1.0, dims=dims)
 
         log_amp = pm.Deterministic(
@@ -328,7 +324,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         
         # Other modes are unconstrained
         for k in range(1, n_modes):
-            amp = pm.Normal(f"pca{k}_amplitude", mu=0, sigma=1, dims=dims)
+            amp = pm.Normal(f"pca{k}_amplitude", mu=0, sigma=0.5, dims=dims)
             pca_amplitudes.append(amp)
 
         pca_term = sum(
@@ -338,7 +334,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         
         # Hierarchical beta
         hyper_beta = pm.Normal('hyper_beta', mu=0, sigma=1)
-        hyper_beta_sigma = pm.Exponential('hyper_beta_sigma', lam=1)
+        hyper_beta_sigma = pm.HalfNormal('hyper_beta_sigma', sigma=0.5)
         z_beta = pm.Normal('z_beta', mu=0, sigma=1, dims=dims)
         beta = pm.Deterministic('beta', hyper_beta + z_beta*hyper_beta_sigma)[dataset_name_idx]
 
