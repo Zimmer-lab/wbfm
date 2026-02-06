@@ -288,7 +288,7 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
     sigmoid_term : pm.Deterministic
         Sigmoid transformation of PCA term
     """
-    inflection_point = pm.Normal('inflection_point', mu=0, sigma=5)
+    inflection_point = pm.Normal('inflection_point', mu=0, sigma=1)
 
     # PCA modes and coefficients
     if dims is None:
