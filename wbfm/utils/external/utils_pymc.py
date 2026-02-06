@@ -133,7 +133,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     dim_opt = model_data['dim_opt']
     curvature_terms_to_use = model_data['curvature_terms_to_use']
 
-    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=True)
+    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=True, vary_sigma_per_dataset=False)
 
     with pm.Model(coords=coords) as null_model:
         # Just do a flat line (intercept)
@@ -202,6 +202,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
 
 
 def build_baseline_priors(dims=None, dataset_name_idx=None, 
+                          vary_sigma_per_dataset=True,
                           vary_intercept_per_trial=False, vary_intercept=False):
     # Note that with dr/r50 input data, the median is subtracted out so this is nearly centered already
     if not vary_intercept:
@@ -211,7 +212,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
     if dims is None:
         if vary_intercept:
             intercept = pm.Normal('intercept', mu=0, sigma=1)
-        sigma = pm.HalfCauchy("sigma", beta=0.5)
+        sigma = pm.HalfNormal("sigma", sigma=1.0)
 
     else:
         if vary_intercept_per_trial:
@@ -225,7 +226,10 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
             intercept = pm.Normal('intercept', mu=0, sigma=1)
 
         # Also or alternatively vary sigma per dataset; simpler because we don't have to zscore it
-        sigma = pm.HalfNormal("sigma", sigma=1.0, dims=dims)[dataset_name_idx]
+        if vary_sigma_per_dataset:
+            sigma = pm.HalfNormal("sigma", sigma=1.0, dims=dims)[dataset_name_idx]
+        else:
+            sigma = pm.HalfNormal("sigma", sigma=1.0)
 
     return intercept, sigma
 
