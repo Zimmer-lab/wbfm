@@ -143,7 +143,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     with pm.Model(coords=coords) as nonhierarchical_model:
         # Curvature, but no sigmoid
         intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
-        curvature_term, gamma, _ = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
+        curvature_term, gamma = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
         likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term, sigmoid_term=None,
                                             gamma=gamma)
@@ -152,10 +152,10 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
         # Curvature multiplied by sigmoid
         intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
         sigmoid_term, beta = build_sigmoid_term_pca(pca_modes, **dim_opt)
-        curvature_term, gamma, total_eigenworm12_amplitude = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
+        curvature_term, gamma = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
         # Helper variable: total amplitude of eigenworms12 after modulation by curvature_term, to help interpret the overall effect size of the hierarchy
-        modulated_eigenworm12_amplitude = pm.Deterministic('modulated_eigenworm12_amplitude', total_eigenworm12_amplitude * beta)
+        modulated_eigenworm12_amplitude = pm.Deterministic('modulated_eigenworm12_amplitude', gamma * beta)
 
         likelihood = build_final_likelihood(sigma, y, intercept=intercept, sigmoid_term=sigmoid_term, curvature_term=curvature_term,
                                             gamma=gamma, beta=beta)
@@ -402,10 +402,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
     # Standardize and then add a positive coefficient gamma to allow interpretation of the effect size, and comparison to beta (from the sigmoid term)
     curvature_term = (curvature_term - pm.math.mean(curvature_term)) / (pt.std(curvature_term) + 1e-3)
 
-    # Helper variable: the total amplitude of the eigenworm1/2 polar coordinates
-    total_eigenworm12_amplitude = pm.Deterministic('total_eigenworm12_amplitude', amplitude * gamma)
-
-    return curvature_term, gamma, total_eigenworm12_amplitude
+    return curvature_term, gamma
 
 
 def main_full_models(neuron_name=None, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
