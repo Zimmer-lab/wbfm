@@ -360,7 +360,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         print(f"Using curvature terms {curvature_terms_to_use}")
     # Alternative: sample directly from the phase shift and amplitude, then convert into coefficients
     # This assumes that eigenworms 1 and 2 are approximately a sine and cosine wave, and puts it into polar coordinates
-    phase_shift = pm.VonMises('phi', mu=0.0, kappa=0.0)
+    phase_shift = pm.VonMises('phi', mu=0.0, kappa=1e-3)  # Essentially uniform prior over phase shifts (0 gives error)
     if dims is None:
         hyper_log_amplitude, hyper_log_sigma = 0, 1
     else:
