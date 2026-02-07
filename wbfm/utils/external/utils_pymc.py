@@ -279,7 +279,10 @@ def build_final_likelihood(sigma, y, nu=5, intercept=None, sigmoid_term=None, cu
     if sigmoid_term is not None and curvature_term is not None:
         mu_val = mu_val + beta * sigmoid_term * curvature_term
 
-    return pm.StudentT('y', mu=mu_val, sigma=sigma, nu=nu, observed=y)
+    # For backwards compatibility
+    mu = pm.Deterministic('mu', mu_val)
+
+    return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
 
 
 def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
