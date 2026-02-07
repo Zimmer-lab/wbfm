@@ -155,7 +155,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
         curvature_term, gamma = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
         # Diagnostic: how correlated are the terms?
-        pm.Deterministic('correlation_sigmoid_curvature', pm.math.corr(sigmoid_term, curvature_term))
+        # pm.Deterministic('correlation_sigmoid_curvature', pt._orr(sigmoid_term, curvature_term))
 
         # Helper variable: total amplitude of eigenworms12 after modulation by curvature_term, to help interpret the overall effect size of the hierarchy
         modulated_eigenworm12_amplitude = pm.Deterministic('modulated_eigenworm12_amplitude', gamma * beta)
@@ -1063,6 +1063,17 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
         print(df_params[['hyper_pca0_amplitude_p_value_corrected', 'hyper_pca0_amplitude_p_value_is_significant']].sort_values('hyper_pca0_amplitude_p_value_corrected'))
 
     return df_params
+
+
+def pt_corr(x, y):
+    x_centered = x - pt.mean(x)
+    y_centered = y - pt.mean(y)
+
+    cov = pt.mean(x_centered * y_centered)
+    std_x = pt.sqrt(pt.mean(x_centered**2))
+    std_y = pt.sqrt(pt.mean(y_centered**2))
+
+    return cov / (std_x * std_y)
 
 
 if __name__ == '__main__':
