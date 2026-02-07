@@ -1465,15 +1465,16 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
         _Xy = Xy
     if curvature_terms is None:
         curvature_terms = ['eigenworm0', 'eigenworm1', 'eigenworm2', 'eigenworm3']
-    # First, extract data, z-score, and drop na values
+
+    def _z_score(z):
+        return (z - z.mean()) / z.std()
+
+    # First, extract data without z-scoring yet (will z-score after dropna to preserve the property)
     # Allow gating based on the global component of the neuron itself (not used)
     x = _Xy[f'{neuron_name}_manifold']
-    x = (x - x.mean()) / x.std()  # z-score
     # Alternative: include the pca modes (currently used)
     x_pca0 = _Xy[f'pca_0']
-    x_pca0 = (x_pca0 - x_pca0.mean()) / x_pca0.std()  # z-score
     x_pca1 = _Xy[f'pca_1']
-    x_pca1 = (x_pca1 - x_pca1.mean()) / x_pca1.std()  # z-score
     if residual_mode == 'pca_global' or residual_mode == 'pca_global_2':
         # Predict the residual, subtracting 2 pca modes
         y = _Xy[f'{neuron_name}'] - _Xy[f'{neuron_name}_manifold']
@@ -1493,11 +1494,9 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
         y = _Xy[f'{neuron_name}'] - y_pred
         y = pd.Series(y, index=_Xy.index)
 
-        # Overwrite x_pca0 and x_pca1 with the cca modes
+        # Overwrite x_pca0 and x_pca1 with the cca modes (will z-score after dropna)
         x_pca0 = _Xy[f'CCA_neural_mode_1']
-        x_pca0 = (x_pca0 - x_pca0.mean()) / x_pca0.std()  # z-score
         x_pca1 = _Xy[f'CCA_neural_mode_2']
-        x_pca1 = (x_pca1 - x_pca1.mean()) / x_pca1.std()  # z-score
     elif residual_mode == 'discrete' or residual_mode == 'binary':
         # Predict the residual, subtracting discrete modes
         cols = default_discrete_behaviors()
@@ -1514,21 +1513,16 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
         x_pca1 = _Xy['ventral_turn']
     else:
         raise ValueError(f"Unknown residual mode {residual_mode}; should be None, 'pca_global', or 'pca_global_1'")
-    # Standardize y per dataset
-    y = y.groupby(_Xy['dataset_name']).transform(lambda z: (z - z.mean()) / z.std())
-    # y = (y - y.mean()) / y.std()  # z-score
 
-    if y.std() == 0:
-        raise ValueError(f"Standard deviation of y is 0 for {neuron_name} in {dataset_name} and residual_mode {residual_mode}... "
-                         f"This could be due to no data, or a bug in the residual calculation")
-    # Interesting covariate
+    # Covariate: get without z-scoring yet
     curvature = _Xy[curvature_terms]
-    curvature = (curvature - curvature.mean()) / curvature.std()  # z-score
+    
     # State
     rev = _Xy['rev'].astype(str)
-    # Package as dataframe again, and drop na values
+    
+    # Package as dataframe and drop na values BEFORE z-scoring
     all_dfs = [pd.DataFrame({'y': y, 'x': x, 
-                             'x_pca0': x_pca0, 'x_pca1': x_pca1,  # These will actually be used, even if they are not always pca modes
+                             'x_pca0': x_pca0, 'x_pca1': x_pca1,
                              'dataset_name': _Xy['dataset_name'], 'rev': rev}),
                pd.DataFrame(curvature)]
     if additional_columns is not None:
@@ -1537,6 +1531,16 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
     if verbose >= 1:
         print(f"Number of non-nan values per column: {df_model.count()}")
     df_model = df_model.dropna()
+    
+    # z-score per dataset AFTER dropping NaNs to preserve the property
+    cols_to_zscore = ['y', 'x', 'x_pca0', 'x_pca1'] + curvature_terms
+    for col in cols_to_zscore:
+        if col in df_model.columns:
+            df_model[col] = df_model.groupby('dataset_name')[col].transform(_z_score)
+    
+    if df_model['y'].std() == 0:
+        raise ValueError(f"Standard deviation of y is 0 for {neuron_name} in {dataset_name} and residual_mode {residual_mode}... "
+                         f"This could be due to no data, or a bug in the residual calculation")
     if verbose >= 1:
         print(f"Loaded {df_model.shape[0]} samples for {neuron_name} in {dataset_name}")
     return df_model

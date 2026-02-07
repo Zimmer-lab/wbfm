@@ -133,7 +133,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     dim_opt = model_data['dim_opt']
     curvature_terms_to_use = model_data['curvature_terms_to_use']
 
-    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=True)
+    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=False, vary_sigma_per_dataset=False)
 
     with pm.Model(coords=coords) as null_model:
         # Just do a flat line (intercept)
@@ -143,7 +143,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     with pm.Model(coords=coords) as nonhierarchical_model:
         # Curvature, but no sigmoid
         intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
-        curvature_term, gamma, _ = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
+        curvature_term, gamma = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
         likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term, sigmoid_term=None,
                                             gamma=gamma)
@@ -152,10 +152,13 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
         # Curvature multiplied by sigmoid
         intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
         sigmoid_term, beta = build_sigmoid_term_pca(pca_modes, **dim_opt)
-        curvature_term, gamma, total_eigenworm12_amplitude = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
+        curvature_term, gamma = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
+
+        # Diagnostic: how correlated are the terms?
+        pm.Deterministic('correlation_sigmoid_curvature', pm.math.corr(sigmoid_term, curvature_term))
 
         # Helper variable: total amplitude of eigenworms12 after modulation by curvature_term, to help interpret the overall effect size of the hierarchy
-        modulated_eigenworm12_amplitude = pm.Deterministic('modulated_eigenworm12_amplitude', total_eigenworm12_amplitude * beta)
+        modulated_eigenworm12_amplitude = pm.Deterministic('modulated_eigenworm12_amplitude', gamma * beta)
 
         likelihood = build_final_likelihood(sigma, y, intercept=intercept, sigmoid_term=sigmoid_term, curvature_term=curvature_term,
                                             gamma=gamma, beta=beta)
@@ -171,7 +174,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     # base_names_to_sample = {'y', 'sigmoid_term', 'curvature_term', 'phase_shift', 'sigmoid_slope'}
     for name, model in all_models.items():
         with model:
-            opt = dict(draws=1000, tune=1000, random_seed=rng, target_accept=0.96)
+            opt = dict(draws=1500, tune=3000, random_seed=rng, target_accept=0.98)
             if DEBUG:
                 opt['draws'] = 10
                 opt['tune'] = 10
@@ -202,6 +205,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
 
 
 def build_baseline_priors(dims=None, dataset_name_idx=None, 
+                          vary_sigma_per_dataset=True,
                           vary_intercept_per_trial=False, vary_intercept=False):
     # Note that with dr/r50 input data, the median is subtracted out so this is nearly centered already
     if not vary_intercept:
@@ -211,7 +215,7 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
     if dims is None:
         if vary_intercept:
             intercept = pm.Normal('intercept', mu=0, sigma=1)
-        sigma = pm.HalfCauchy("sigma", beta=0.5)
+        sigma = pm.HalfNormal("sigma", sigma=1.0)
 
     else:
         if vary_intercept_per_trial:
@@ -225,7 +229,10 @@ def build_baseline_priors(dims=None, dataset_name_idx=None,
             intercept = pm.Normal('intercept', mu=0, sigma=1)
 
         # Also or alternatively vary sigma per dataset; simpler because we don't have to zscore it
-        sigma = pm.HalfNormal("sigma", sigma=1.0, dims=dims)[dataset_name_idx]
+        if vary_sigma_per_dataset:
+            sigma = pm.HalfNormal("sigma", sigma=1.0, dims=dims)[dataset_name_idx]
+        else:
+            sigma = pm.HalfNormal("sigma", sigma=1.0)
 
     return intercept, sigma
 
@@ -272,11 +279,10 @@ def build_final_likelihood(sigma, y, nu=5, intercept=None, sigmoid_term=None, cu
     if sigmoid_term is not None and curvature_term is not None:
         mu_val = mu_val + beta * sigmoid_term * curvature_term
 
-    mu = pm.Deterministic('mu', mu_val)
-    return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
+    return pm.StudentT('y', mu=mu_val, sigma=sigma, nu=nu, observed=y)
 
 
-def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, dataset_name_idx=None):
+def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
     """
     Build sigmoid term from PCA modes with positive amplitude constraints.
     
@@ -284,11 +290,8 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
     -------
     sigmoid_term : pm.Deterministic
         Sigmoid transformation of PCA term
-    prob_flip_sign : pm.Distribution or None
-        Probability to flip sign (used in marginalized likelihood).
-        Returned when dims is not None, otherwise None.
     """
-    inflection_point = pm.Normal('inflection_point', mu=0, sigma=5)
+    inflection_point = pm.Normal('inflection_point', mu=0, sigma=1)
 
     # PCA modes and coefficients
     if dims is None:
@@ -297,7 +300,6 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         pca_amplitude = pm.Deterministic('pca_amplitude',
                                          hyper_pca_amplitude + zscore_pca_amplitude*hyper_pca_sigma)
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
-        prob_flip_sign = None
         beta = pm.Normal('beta', mu=0, sigma=1)
     else:
         try:
@@ -307,8 +309,8 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
             n_modes = x_pca_modes.shape[1].eval()
 
         # Force only the first mode to be positive, because that's the one that we've anchored across datasets
-        log_hyper = pm.Normal(f"log_hyper_pca0", 0.0, 1.0)
-        log_sigma = pm.HalfNormal(f"log_sigma_pca0", 0.2)
+        log_hyper = pm.Normal(f"log_hyper_pca0", mu=0.0, sigma=0.3)
+        log_sigma = pm.HalfNormal(f"log_sigma_pca0", sigma=0.2)
         z = pm.Normal(f"z_pca0", 0.0, 1.0, dims=dims)
 
         log_amp = pm.Deterministic(
@@ -325,7 +327,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         
         # Other modes are unconstrained
         for k in range(1, n_modes):
-            amp = pm.Normal(f"pca{k}_amplitude", mu=0, sigma=1, dims=dims)
+            amp = pm.Normal(f"pca{k}_amplitude", mu=0, sigma=0.5, dims=dims)
             pca_amplitudes.append(amp)
 
         pca_term = sum(
@@ -335,7 +337,7 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         
         # Hierarchical beta
         hyper_beta = pm.Normal('hyper_beta', mu=0, sigma=1)
-        hyper_beta_sigma = pm.Exponential('hyper_beta_sigma', lam=1)
+        hyper_beta_sigma = pm.HalfNormal('hyper_beta_sigma', sigma=0.5)
         z_beta = pm.Normal('z_beta', mu=0, sigma=1, dims=dims)
         beta = pm.Deterministic('beta', hyper_beta + z_beta*hyper_beta_sigma)[dataset_name_idx]
 
@@ -358,7 +360,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         print(f"Using curvature terms {curvature_terms_to_use}")
     # Alternative: sample directly from the phase shift and amplitude, then convert into coefficients
     # This assumes that eigenworms 1 and 2 are approximately a sine and cosine wave, and puts it into polar coordinates
-    phase_shift = pm.Uniform('phase_shift', lower=-np.pi, upper=np.pi, transform=pm.distributions.transforms.circular)
+    phase_shift = pm.VonMises('phi', mu=0.0, kappa=0.0)
     if dims is None:
         hyper_log_amplitude, hyper_log_sigma = 0, 1
     else:
@@ -369,12 +371,9 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
     log_amplitude = pm.Deterministic('log_amplitude', hyper_log_amplitude + zscore_log_amplitude*hyper_log_sigma)
     gamma = pm.Deterministic('gamma', pm.math.exp(log_amplitude))[dataset_name_idx] if dims is not None else pm.Deterministic('gamma', pm.math.exp(log_amplitude))
 
-    # The overall gamma is hierarchical, so just make the eigenworm12 amplitude a regular positive variable
-    amplitude = pm.HalfNormal('amplitude', sigma=1)
-
     # There is a positive and negative solution, so choose the positive one for the first term
-    eigenworm1_coefficient = pm.Deterministic('eigenworm1_coefficient', amplitude * pm.math.cos(phase_shift))
-    eigenworm2_coefficient = pm.Deterministic('eigenworm2_coefficient', -amplitude * pm.math.sin(phase_shift))
+    eigenworm1_coefficient = pm.Deterministic('eigenworm1_coefficient', pm.math.cos(phase_shift))
+    eigenworm2_coefficient = pm.Deterministic('eigenworm2_coefficient', - pm.math.sin(phase_shift))
     # The rest are not part of the sine/cosine pair, but we aren't sure how many there are
     additional_column_dict = {}
     if len(curvature_terms_to_use) > 2:
@@ -403,13 +402,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
                                           pt.sum(pt.stack([coef * curvature[:, i+2] for i, coef in enumerate(additional_column_dict.values())]), axis=0)
                                           )
 
-    # Standardize and then add a positive coefficient gamma to allow interpretation of the effect size, and comparison to beta (from the sigmoid term)
-    curvature_term = (curvature_term - pm.math.mean(curvature_term)) / (pt.std(curvature_term) + 1e-3)
-
-    # Helper variable: the total amplitude of the eigenworm1/2 polar coordinates
-    total_eigenworm12_amplitude = pm.Deterministic('total_eigenworm12_amplitude', amplitude * gamma)
-
-    return curvature_term, gamma, total_eigenworm12_amplitude
+    return curvature_term, gamma
 
 
 def main_full_models(neuron_name=None, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
@@ -820,7 +813,7 @@ def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all',
             **model_data['dim_opt']
         )
         
-        curvature_term, gamma, _ = build_curvature_term(
+        curvature_term, gamma = build_curvature_term(
             curvature_data, 
             curvature_terms_to_use=model_data['curvature_terms_to_use'],
             **model_data['dim_opt']
@@ -952,9 +945,10 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
 
     var_names = [#'prob_flip_sign',
                 #'hyper_pca0_amplitude', "hyper_pca1_amplitude",  
-                'pca0_amplitude', 'pca1_amplitude',
-                'hyper_beta', 'gamma', 'total_eigenworm12_amplitude',
-                'log_amplitude_mu', 'amplitude',
+                'log_hyper_pca0', 'pca1_amplitude',
+                'hyper_beta', #'gamma', 
+                # 'total_eigenworm12_amplitude',
+                'log_amplitude_mu', #'amplitude',
                 'phase_shift', 
                 'eigenworm3_coefficient', 'eigenworm4_coefficient'
     ]
@@ -1045,11 +1039,11 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
 
     # Get radial term: combination of raw curvature amplitude and median of the sigmoid term
     if recalculate_sigmoid and 'sigmoid_term_quantile' in df_params.columns:
-        # df_params['r'] = np.exp(df_params['log_amplitude_mu']) * df_params['sigmoid_term_quantile'] 
-        df_params['r'] = df_params['amplitude'] * df_params['sigmoid_term_quantile']
+        df_params['r'] = np.exp(df_params['log_amplitude_mu']) * df_params['sigmoid_term_quantile'] 
+        # df_params['r'] = df_params['amplitude'] * df_params['sigmoid_term_quantile']
     else:
         logging.warning("sigmoid_term_quantile not found in df_params; using amplitude only for 'r'") 
-        df_params['r'] = df_params['amplitude']
+        df_params['r'] = np.exp(df_params['log_amplitude_mu'])
     if 'Relative Hierarchy Score' in df_params.columns:
         df_params['size'] = df_params['Relative Hierarchy Score'] + 1  # Add a minimum size
     else:
