@@ -952,7 +952,7 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
                 'hyper_beta', #'gamma', 
                 # 'total_eigenworm12_amplitude',
                 'log_amplitude_mu', #'amplitude',
-                'phase_shift', 
+                'phi', 
                 'eigenworm3_coefficient', 'eigenworm4_coefficient'
     ]
     # Reference values for ttests; prob_flip_sign is special
