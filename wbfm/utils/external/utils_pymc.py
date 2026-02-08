@@ -339,8 +339,8 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
         )
         
         # Hierarchical beta
-        hyper_beta = pm.Normal('hyper_beta', mu=0, sigma=1)
-        hyper_beta_sigma = pm.HalfNormal('hyper_beta_sigma', sigma=0.5)
+        hyper_beta = pm.Normal('hyper_beta', mu=0, sigma=0.5)
+        hyper_beta_sigma = pm.HalfNormal('hyper_beta_sigma', sigma=0.2)
         z_beta = pm.Normal('z_beta', mu=0, sigma=1, dims=dims)
         beta = pm.Deterministic('beta', hyper_beta + z_beta*hyper_beta_sigma)[dataset_name_idx]
 
