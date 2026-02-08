@@ -363,7 +363,7 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         print(f"Using curvature terms {curvature_terms_to_use}")
     # Alternative: sample directly from the phase shift and amplitude, then convert into coefficients
     # This assumes that eigenworms 1 and 2 are approximately a sine and cosine wave, and puts it into polar coordinates
-    phase_shift = pm.VonMises('phi', mu=0.0, kappa=1e-3)  # Essentially uniform prior over phase shifts (0 gives error)
+    phase_shift = pm.VonMises('phase_shift', mu=0.0, kappa=1e-3)  # Essentially uniform prior over phase shifts (0 gives error)
     if dims is None:
         hyper_log_amplitude, hyper_log_sigma = 0, 1
     else:
@@ -952,7 +952,7 @@ def do_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
                 'hyper_beta', #'gamma', 
                 # 'total_eigenworm12_amplitude',
                 'log_amplitude_mu', #'amplitude',
-                'phi', 
+                'phase_shift', 
                 'eigenworm3_coefficient', 'eigenworm4_coefficient'
     ]
     # Reference values for ttests; prob_flip_sign is special
