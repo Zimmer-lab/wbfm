@@ -133,7 +133,7 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     dim_opt = model_data['dim_opt']
     curvature_terms_to_use = model_data['curvature_terms_to_use']
 
-    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=False, vary_sigma_per_dataset=False)
+    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=False, vary_sigma_per_dataset=True)
 
     with pm.Model(coords=coords) as null_model:
         # Just do a flat line (intercept)
