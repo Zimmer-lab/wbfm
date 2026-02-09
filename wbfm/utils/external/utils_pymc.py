@@ -296,7 +296,6 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
     sigmoid_term : pm.Deterministic
         Sigmoid transformation of PCA term
     """
-    inflection_point = pm.Normal('inflection_point', mu=0, sigma=1)
 
     # PCA modes and coefficients
     if dims is None:
@@ -306,7 +305,14 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
                                          hyper_pca_amplitude + zscore_pca_amplitude*hyper_pca_sigma)
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
         beta = pm.Normal('beta', mu=0, sigma=1)
+        inflection = pm.Normal('inflection', 0.0, 1.0)
     else:
+        # Tight prior on inflection in normalized units, and make hierarchical
+        inf_mu = pm.Normal('inflection_mu', 0.0, 1.0)
+        inf_sigma = pm.HalfNormal('inflection_sigma', 0.5)
+        z_inf = pm.Normal('z_inflection', 0.0, 1.0, dims=dims)
+        inflection = pm.Deterministic('inflection', inf_mu + inf_sigma * z_inf)[dataset_name_idx]
+        
         try:
             n_modes = int(x_pca_modes.shape[1])
         except TypeError:
@@ -346,11 +352,22 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
         z_beta = pm.Normal('z_beta', mu=0, sigma=1, dims=dims)
         beta = pm.Deterministic('beta', hyper_beta + z_beta*hyper_beta_sigma)[dataset_name_idx]
 
-    # Put it together Sigmoid term
-    sigmoid_term = pm.Deterministic('sigmoid_term', pt.tanh(pca_term - inflection_point))
+    # Put it together to create the per-time-point Sigmoid term
+
+    # Preprocessing point: separate scale into a separate variable, to reduce the chance that the model will saturate early
+    pca_centered = pca_term - pm.math.mean(pca_term)
+    pca_scaled = pca_centered / pt.std(pca_centered)
+
+    k = pm.HalfNormal('sigmoid_slope', sigma=1.0)  # or pm.LogNormal('sigmoid_slope', 0.0, 0.5)
+    sigmoid_term = pm.Deterministic('sigmoid_term', pt.sigmoid(k * pca_scaled - inflection))
+
+    # standardize s for the interaction term too
+    # s_centered = s_raw - pm.math.mean(s_raw)
+    # s_std = s_centered / pt.std(s_centered)
+    # sigmoid_term = pm.Deterministic('sigmoid_term', s_std)
 
     # Standardize to allow interpretation of coefficient (beta) as the expected change in sigmoid_term for a 1 unit change in curvature_term
-    sigmoid_term = sigmoid_term - pm.math.mean(sigmoid_term)
+    # sigmoid_term = sigmoid_term - pm.math.mean(sigmoid_term)
     
     return sigmoid_term, beta
 
