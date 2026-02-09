@@ -91,7 +91,7 @@ def initialize_hierarchical_model_data(Xy, neuron_name, dataset_name='all', resi
 
 
 def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residual_mode='pca_global',
-                        sample_posterior=True, use_additional_behaviors=False,
+                        sample_posterior=True, sample_large_variables=False, use_additional_behaviors=False,
                         use_additional_eigenworms=True,
                         dryrun=False, DEBUG=False) -> Tuple[pd.DataFrame, Dict, Dict]:
     """
@@ -183,11 +183,13 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
                               chains=10, return_inferencedata=True, idata_kwargs={"log_likelihood": True},
                               cores=10)
             if sample_posterior:
-                posterior_keys = list(trace.posterior.keys())
-                # var_names = base_names_to_sample.intersection(posterior_keys)
-                # Keep only those that have 'term' in it, because those are the time series
-                posterior_keys = [key for key in posterior_keys if 'term' in key]
-                posterior_keys.extend(['y', 'mu'])
+                if sample_large_variables:
+                    posterior_keys = list(trace.posterior.keys())
+                    # Keep only those that have 'term' in it, because those are the time series
+                    posterior_keys = [key for key in posterior_keys if 'term' in key]
+                    posterior_keys.extend(['y', 'mu'])
+                else:
+                    posterior_keys = ['y']
                 print(f"Sampling posterior predictive for {name}: {posterior_keys}")
                 trace.extend(pm.sample_posterior_predictive(trace, random_seed=rng, progressbar=False,
                                                             var_names=posterior_keys))
@@ -469,7 +471,7 @@ def main_full_models(neuron_name=None, dataset_name='all', skip_if_exists=True, 
 
     # Fit models
     df_compare, all_traces, all_models = fit_multiple_models(Xy, neuron_name, dataset_name=dataset_name,
-                                                             residual_mode=residual_mode,
+                                                             residual_mode=residual_mode, sample_large_variables=keep_large_vars,
                                                              use_additional_eigenworms=use_additional_eigenworms,
                                                              DEBUG=DEBUG)
 
