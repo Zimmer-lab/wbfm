@@ -76,12 +76,12 @@ def calculate_paper_model_comparisons(suffix='_pca_global', single_neuron=None, 
     df_to_plot['Size'] = 1
 
     # Calculate categories and text for plotting first panel
-    df_to_plot, _df, text, y_max_gfp, x_max_gfp = calculate_bayesian_model_categories(x_column, y_column, df_to_plot_gfp, df_to_plot_gcamp, 
+    df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_bayesian_model_categories(x_column, y_column, df_to_plot_gfp, df_to_plot_gcamp, 
                                                                                       remove_names_of_ns=remove_names_of_ns)
 
     df_to_plot.reset_index(inplace=True, drop=True)  # Already set as a column (neuron_name)
 
-    return df_to_plot, _df, text, y_max_gfp, x_max_gfp
+    return df_to_plot, _df, y_max_gfp, x_max_gfp
 
 
 def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp=False,
@@ -206,10 +206,10 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
     df_params['Neuron Type'] = pd.Series(df_params.index).map(role_of_neuron_dict(include_ventral_dorsal=True)).values
 
     # r = df_params['log_amplitude_mu']
-    df_params['text'] = np.array(df_params.index)
+    df_params['text_polar'] = np.array(df_params.index)
     df_params['text_complete'] = np.array(df_params.index)
     if 'r' in df_params.columns:
-        df_params.loc[df_params['r'] < 0.1, 'text'] = ''
+        df_params.loc[df_params['r'] < 0.1, 'text_polar'] = ''
 
     # Basic printing
     if verbose >= 1:
@@ -232,13 +232,13 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None):
 
     """
 
-    df_to_plot, _df, text, y_max_gfp, x_max_gfp = calculate_paper_model_comparisons(suffix=suffix, single_neuron=single_neuron)
+    df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_paper_model_comparisons(suffix=suffix, single_neuron=single_neuron)
 
     df_params_gcamp = calculate_bayesian_ttests(suffix=suffix, single_neuron=single_neuron, do_gfp=False,
                                                 recalculate_sigmoid=False, var_names=None,
                                                 all_traces=None, Xy=None, verbose=0)
     
     # Combine the model comparison data with the parameter data for plotting
-    df_params = df_params_gcamp.merge(df_to_plot, on=['datatype', 'neuron_name'], how='left')
+    df_params = df_params_gcamp.merge(df_to_plot, on=['datatype', 'neuron_name'], how='outer')
 
     return df_params, y_max_gfp, x_max_gfp

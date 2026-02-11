@@ -1645,24 +1645,26 @@ def calculate_bayesian_model_categories(x, y, df_to_plot_gfp, df_to_plot_gcamp, 
     df_to_plot_gcamp['Category'] = df_to_plot_gcamp.apply(categorize_row, axis=1)
     df_to_plot['Category'] = df_to_plot.apply(categorize_row, axis=1)
     _df = df_to_plot[df_to_plot.index.isin(neurons_with_confident_ids())]
-    text = _df['text'].copy()
+
+    df_to_plot['text_raw'] = df_to_plot['text']
     if remove_names_of_ns:
-        text[_df[y] <= y_max_gfp] = ''
+        df_to_plot.loc[df_to_plot[y] <= y_max_gfp, 'text'] = ''
     
-    return df_to_plot, _df, text, y_max_gfp, x_max_gfp
+    return df_to_plot, _df, y_max_gfp, x_max_gfp
 
 
-def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp, 
+def plot_bayesian_model_comparison(x, y, df_to_plot=None, y_max_gfp=None, df_to_plot_gfp=None, df_to_plot_gcamp=None, 
                                    output_folder=None, remove_names_of_ns=True, display_text=True, to_show=True, **kwargs):
     """
     Plot Bayesian model comparison with GFP thresholds indicated.
     """
 
-    df_to_plot, _df, text, y_max_gfp, x_max_gfp = calculate_bayesian_model_categories(x, y, df_to_plot_gfp, df_to_plot_gcamp,remove_names_of_ns=remove_names_of_ns)
+    if df_to_plot is None or y_max_gfp is None:
+        df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_bayesian_model_categories(x, y, df_to_plot_gfp, df_to_plot_gcamp,remove_names_of_ns=remove_names_of_ns)
     
-    fig = px.scatter(_df, 
+    fig = px.scatter(df_to_plot, 
                      y=y, x=x, #range_x=[-2, 60],
-                     text=text if display_text else None, 
+                     text=df_to_plot['text'] if display_text else None, 
                      color='Dataset Type',
                      color_discrete_map=plotly_paper_color_discrete_map(), 
                      size_max=10,
@@ -1717,4 +1719,4 @@ def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp,
     if to_show:
         fig.show()
     
-    return fig, _df, text
+    return fig, df_to_plot
