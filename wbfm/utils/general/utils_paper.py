@@ -91,7 +91,7 @@ def plotly_paper_color_discrete_map():
                  'No oscillations': base_cmap[7], 'No Behavior or Hierarchy': base_cmap[7],  # Same as gfp
                  'Hierarchy only': base_cmap[0],  # Same as raw
                  'Behavior only': base_cmap[1],  # Similar to raw, but brighter (teal)
-                 'Hierarchical Behavior': base_cmap[3],  # New: orange
+                 'Hierarchical Behavior': base_cmap[3], 'Hierarchy': base_cmap[3], # New: orange
                  # PCA and CCA, which are a different colormap
                  'PCA': pca_cmap[4],
                  'CCA': pca_cmap[3], 'Continuous': pca_cmap[3],
@@ -1642,9 +1642,19 @@ def calculate_bayesian_model_categories(x, y, df_to_plot_gfp, df_to_plot_gcamp, 
             return 'No Behavior or Hierarchy'
 
     # Apply function to create new column
-    df_to_plot_gcamp['Category'] = df_to_plot_gcamp.apply(categorize_row, axis=1)
-    df_to_plot['Category'] = df_to_plot.apply(categorize_row, axis=1)
+    df_to_plot_gcamp['Category_raw'] = df_to_plot_gcamp.apply(categorize_row, axis=1)
+    df_to_plot['Category_raw'] = df_to_plot.apply(categorize_row, axis=1)
     _df = df_to_plot[df_to_plot.index.isin(neurons_with_confident_ids())]
+
+    # Final categories: combine 'Hierarchy only' and 'Hierarchical Behavior' into 'Hierarchy', and split GFP into 'GFP' category
+    def simplify_category(row):
+        if row['Dataset Type'] == 'gfp':
+            return 'GFP'
+        elif row['Category_raw'] in ['Hierarchical Behavior', 'Hierarchy only']:
+            return 'Hierarchy'
+        else:
+            return row['Category_raw']
+    df_to_plot['Category'] = df_to_plot.apply(simplify_category, axis=1)
 
     df_to_plot['text_raw'] = df_to_plot['text']
     if remove_names_of_ns:

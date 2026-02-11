@@ -700,7 +700,7 @@ def reconstruct_model_term_from_trace(idata, neuron_name, Xy=None, dataset_name=
         
         curvature_term, gamma = None, None
         if any(var in var_names for var in ['curvature_term', 'mu', 'y']):
-            curvature_term, gamma, _ = build_curvature_term(
+            curvature_term, gamma = build_curvature_term(
                 curvature_data, 
                 curvature_terms_to_use=model_data['curvature_terms_to_use'],
                 **model_data['dim_opt']
@@ -738,7 +738,7 @@ def reconstruct_model_term_from_trace(idata, neuron_name, Xy=None, dataset_name=
                 idata,
                 var_names=['y'],
                 random_seed=42,
-                progressbar=False
+                progressbar=True
             ))
     
     return idata, model_data
