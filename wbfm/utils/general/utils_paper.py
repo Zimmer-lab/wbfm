@@ -1617,12 +1617,7 @@ def calc_p_values_for_pca_weights(wbfm_weights: pd.DataFrame, immob_weights: pd.
     return df_both, df_significant_diff, df_4states_counts
 
 
-def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp, 
-                                   output_folder=None, remove_names_of_ns=True, display_text=True, to_show=True, **kwargs):
-    """
-    Plot Bayesian model comparison with GFP thresholds indicated.
-    """
-
+def calculate_bayesian_model_categories(x, y, df_to_plot_gfp, df_to_plot_gcamp, remove_names_of_ns=True):
     # Add a couple names back in
     df_to_plot_gfp = df_to_plot_gfp.copy()
     rename_func = lambda x: f'{x} (gfp)' if x != '' else ''
@@ -1653,6 +1648,17 @@ def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp,
     text = _df['text'].copy()
     if remove_names_of_ns:
         text[_df[y] <= y_max_gfp] = ''
+    
+    return df_to_plot, _df, text, y_max_gfp, x_max_gfp
+
+
+def plot_bayesian_model_comparison(x, y, df_to_plot_gfp, df_to_plot_gcamp, 
+                                   output_folder=None, remove_names_of_ns=True, display_text=True, to_show=True, **kwargs):
+    """
+    Plot Bayesian model comparison with GFP thresholds indicated.
+    """
+
+    df_to_plot, _df, text, y_max_gfp, x_max_gfp = calculate_bayesian_model_categories(x, y, df_to_plot_gfp, df_to_plot_gcamp,remove_names_of_ns=remove_names_of_ns)
     
     fig = px.scatter(_df, 
                      y=y, x=x, #range_x=[-2, 60],
