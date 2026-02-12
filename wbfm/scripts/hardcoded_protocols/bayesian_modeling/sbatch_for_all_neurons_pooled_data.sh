@@ -158,11 +158,11 @@ NUM_TASKS=${#neuron_list[@]}
 # Set of option-specific variables
 # gfp datasets are much faster to run
 NUM_HOURS=18
-MEM_PER_TASK=128G
+MEM_PER_TASK=32G
 if [ "$use_gfp" == "true" ]; then
   CMD="$CMD --gfp"
   NUM_HOURS=6
-  MEM_PER_TASK=32G
+  MEM_PER_TASK=16G
 elif [ "$use_avb_hiscl" == "true" ]; then
   CMD="$CMD --avb_hiscl"
 fi
