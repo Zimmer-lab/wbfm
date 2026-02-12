@@ -345,7 +345,7 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
 
         # L2 norm across modes, per dataset entry
         eps = 1e-6
-        norm = pm.Deterministic('pca_norm', pm.math.sqrt(pm.math.sum(pt.square(A), axis=0) + eps))
+        norm = pm.math.sqrt(pm.math.sum(pt.square(A), axis=0) + eps)
 
         # Unit-sphere projection (per dataset)
         pca_amplitudes_normalized = pm.Deterministic("pca_amplitudes_normalized", A / norm)
@@ -418,18 +418,18 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
                 print(f"Adding {coef_name} to the model")
             additional_column_dict[coef_name] = pm.Normal(coef_name, mu=0, sigma=1, dims=None)
 
-    if dims is None:
-        all_cols = [eigenworm1_coefficient, eigenworm2_coefficient]
-        all_cols.extend(list(additional_column_dict.values()))  # Don't need to worry about the order
-        coefficients_vec = pm.Deterministic('coefficients_vec', pm.math.stack(all_cols))
-        curvature_term = pm.Deterministic('curvature_term', pm.math.dot(curvature, coefficients_vec))
-    else:
-        # Multiply them separately, but do not subindex by dataset for other terms
-        curvature_term = pm.Deterministic('curvature_term',
-                                          eigenworm1_coefficient * curvature[:, 0] +
-                                          eigenworm2_coefficient * curvature[:, 1] +
-                                          pt.sum(pt.stack([coef * curvature[:, i+2] for i, coef in enumerate(additional_column_dict.values())]), axis=0)
-                                          )
+    # Final list of all coefficients
+    all_cols = [eigenworm1_coefficient, eigenworm2_coefficient]
+    all_cols.extend(list(additional_column_dict.values()))  # Don't need to worry about the order
+    coefficients_vec = pm.math.stack(all_cols)
+    # L2 norm across modes (nothing varies by dataset here)
+    eps = 1e-6
+    norm = pm.math.sqrt(pm.math.sum(pt.square(coefficients_vec), axis=0) + eps)
+
+    # Unit-sphere projection
+    coefficients_vec_normalized = pm.Deterministic("eigenworm_amplitudes_normalized", coefficients_vec / norm)
+    
+    curvature_term = pm.Deterministic('curvature_term', pm.math.dot(curvature, coefficients_vec_normalized))
 
     return curvature_term, gamma
 
