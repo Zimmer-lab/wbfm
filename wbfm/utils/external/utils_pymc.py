@@ -151,12 +151,6 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
         sigmoid_term, beta = build_sigmoid_term_pca(pca_modes, **dim_opt)
         curvature_term, gamma = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
-        # Diagnostic: how correlated are the terms?
-        # pm.Deterministic('correlation_sigmoid_curvature', pt._orr(sigmoid_term, curvature_term))
-
-        # Helper variable: total amplitude of eigenworms12 after modulation by curvature_term, to help interpret the overall effect size of the hierarchy
-        modulated_eigenworm12_amplitude = pm.Deterministic('modulated_eigenworm12_amplitude', gamma * beta)
-
         likelihood = build_final_likelihood(sigma, y, intercept=intercept, sigmoid_term=sigmoid_term, curvature_term=curvature_term,
                                             gamma=gamma, beta=beta)
 
