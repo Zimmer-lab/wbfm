@@ -360,11 +360,10 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
 
     # Put it together to create the per-time-point Sigmoid term
     k = pm.HalfNormal('sigmoid_slope', sigma=1.0)  # or pm.LogNormal('sigmoid_slope', 0.0, 0.5)
-    # sigmoid_term = pt.sigmoid(k * pca_term - inflection))
+    sigmoid_term = pm.Deterministic('sigmoid_term', pt.sigmoid(k * pca_term - inflection))
 
     # Rescale the sigmoid to be 0-1 (per dataset), to disallow flat solutions
-    sigmoid_term = pm.Deterministic('sigmoid_term', 
-                                    normalize_by_group(pt.sigmoid(k * pca_term - inflection), group_indices=dataset_name_idx))
+    # sigmoid_term = normalize_by_group(sigmoid_term, group_indices=dataset_name_idx)
     
     return sigmoid_term, beta
 
@@ -411,15 +410,15 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
     # Final list of all coefficients
     all_cols = [eigenworm1_coefficient, eigenworm2_coefficient]
     all_cols.extend(list(additional_column_dict.values()))  # Don't need to worry about the order
-    coefficients_vec = pm.math.stack(all_cols)
-    # L2 norm across modes (nothing varies by dataset here)
-    eps = 1e-6
-    norm = pm.math.sqrt(pm.math.sum(pt.square(coefficients_vec), axis=0) + eps)
+    coefficients_vec = pm.Deterministic("eigenworm_amplitudes", pm.math.stack(all_cols))
+    # # L2 norm across modes (nothing varies by dataset here)
+    # eps = 1e-6
+    # norm = pm.math.sqrt(pm.math.sum(pt.square(coefficients_vec), axis=0) + eps)
 
-    # Unit-sphere projection
-    coefficients_vec_normalized = pm.Deterministic("eigenworm_amplitudes_normalized", coefficients_vec / norm)
+    # # Unit-sphere projection
+    # coefficients_vec = coefficients_vec / norm
     
-    curvature_term = pm.Deterministic('curvature_term', pm.math.dot(curvature, coefficients_vec_normalized))
+    curvature_term = pm.Deterministic('curvature_term', pm.math.dot(curvature, coefficients_vec))
 
     return curvature_term, gamma
 
