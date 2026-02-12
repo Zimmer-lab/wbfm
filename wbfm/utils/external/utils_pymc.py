@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pymc as pm
 import pytensor.tensor as pt
+import pytensor
 import arviz as az
 import cloudpickle
 from matplotlib import pyplot as plt
@@ -358,17 +359,12 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
         beta = pm.Deterministic('beta', hyper_beta + z_beta*hyper_beta_sigma)[dataset_name_idx]
 
     # Put it together to create the per-time-point Sigmoid term
-
-    # Preprocessing point: separate scale into a separate variable, to reduce the chance that the model will saturate early
-    # pca_centered = pca_term - pm.math.mean(pca_term)
-    # pca_scaled = pca_centered / pt.std(pca_centered)
-
     k = pm.HalfNormal('sigmoid_slope', sigma=1.0)  # or pm.LogNormal('sigmoid_slope', 0.0, 0.5)
-    sigmoid_term = pm.Deterministic('sigmoid_term', pt.sigmoid(k * pca_term - inflection))
+    # sigmoid_term = pt.sigmoid(k * pca_term - inflection))
 
-    # Rescale the sigmoid to be 0-1, to disallow flat solutions
-    # sigmoid_term = sigmoid_term - pt.min(sigmoid_term)
-    # sigmoid_term = sigmoid_term / (pt.max(sigmoid_term) + 1e-6)
+    # Rescale the sigmoid to be 0-1 (per dataset), to disallow flat solutions
+    sigmoid_term = pm.Deterministic('sigmoid_term', 
+                                    normalize_by_group(pt.sigmoid(k * pca_term - inflection), group_indices=dataset_name_idx))
     
     return sigmoid_term, beta
 
@@ -932,6 +928,44 @@ def pt_corr(x, y):
     std_y = pt.sqrt(pt.mean(y_centered**2))
 
     return cov / (std_x * std_y)
+
+
+def normalize_by_group(values, group_indices, n_groups=None):
+    """
+    Vectorized group normalization for PyMC.
+    
+    Parameters:
+    -----------
+    values : tensor
+        Values to normalize
+    group_indices : tensor
+        Group assignments (integers starting from 0)
+    n_groups : int, optional
+        Number of groups (if known, helps with static shapes)
+    """
+    if n_groups is None:
+        n_groups = pt.max(group_indices) + 1
+    
+    # Create one-hot encoding of groups
+    group_range = pt.arange(n_groups)
+    masks = pt.eq(group_indices[:, None], group_range[None, :])  # shape: (n_values, n_groups)
+    
+    # Compute min/max per group using masked operations
+    # Use a large value for min, small for max where mask is False
+    masked_vals_for_min = pt.where(masks, values[:, None], 1e10)
+    masked_vals_for_max = pt.where(masks, values[:, None], -1e10)
+    
+    group_mins = pt.min(masked_vals_for_min, axis=0)  # shape: (n_groups,)
+    group_maxs = pt.max(masked_vals_for_max, axis=0)  # shape: (n_groups,)
+    
+    # Broadcast back to original shape
+    mins_expanded = group_mins[group_indices]
+    maxs_expanded = group_maxs[group_indices]
+    
+    # Normalize
+    normalized = (values - mins_expanded) / (maxs_expanded - mins_expanded + 1e-3)
+    
+    return normalized
 
 
 if __name__ == '__main__':
