@@ -161,7 +161,7 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
         if recalculate_sigmoid:
             try:
                 idata = all_traces[n]
-                idata = reconstruct_model_term_from_trace(idata, n, Xy)
+                idata = reconstruct_model_term_from_trace(idata.posterior, n, Xy, var_names=['sigmoid_term'])
 
                 # Variables with specific postprocessing
                 dat = az.extract(idata, group='posterior', var_names=var_names2, filter_vars='like')
@@ -226,7 +226,7 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
     return df_params
 
 
-def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None):
+def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, recalculate_sigmoid=False):
     """
     Use above functions to calculate all data needed for the Bayesian model comparison and t-tests
 
@@ -235,7 +235,7 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None):
     df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_paper_model_comparisons(suffix=suffix, single_neuron=single_neuron)
 
     df_params_gcamp = calculate_bayesian_ttests(suffix=suffix, single_neuron=single_neuron, do_gfp=False,
-                                                recalculate_sigmoid=False, var_names=None,
+                                                recalculate_sigmoid=recalculate_sigmoid, var_names=None,
                                                 all_traces=None, Xy=None, verbose=0)
     
     # Combine the model comparison data with the parameter data for plotting

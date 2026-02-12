@@ -304,9 +304,10 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
         beta = pm.Normal('beta', mu=0, sigma=1)
         inflection = pm.Normal('inflection', 0.0, 1.0)
     else:
-        # Tight prior on inflection in normalized units, and make hierarchical
-        inf_mu = pm.Normal('inflection_mu', 0.0, 1.0)
-        inf_sigma = pm.HalfNormal('inflection_sigma', 0.5)
+        # Tight prior on inflection (to prevent flat solutions) in normalized units, and make hierarchical
+        # Note that the pca modes are z-scored, so the inflection point should be around 0 in those units
+        inf_mu = pm.Normal('inflection_mu', 0.0, 0.1)
+        inf_sigma = pm.HalfNormal('inflection_sigma', 0.1)
         z_inf = pm.Normal('z_inflection', 0.0, 1.0, dims=dims)
         inflection = pm.Deterministic('inflection', inf_mu + inf_sigma * z_inf)[dataset_name_idx]
         
@@ -338,10 +339,23 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
             amp = pm.Normal(f"pca{k}_amplitude", mu=0, sigma=0.5, dims=dims)
             pca_amplitudes.append(amp)
 
-        pca_term = sum(
-            pca_amplitudes[k][dataset_name_idx] * x_pca_modes[:, k]
-            for k in range(n_modes)
-        )
+        # Project coefficients to a hypersphere to avoid scaling issues (and avoid z-scoring that leaks mean/std info across CV folds)
+        # Stack modes: shape (n_modes, ...dims...)
+        A = pm.math.stack(pca_amplitudes, axis=0)
+
+        # L2 norm across modes, per dataset entry
+        eps = 1e-6
+        norm = pm.math.sqrt(pm.math.sum(pt.square(A), axis=0) + eps)
+
+        # Unit-sphere projection (per dataset)
+        pca_amplitudes_normalized = pm.Deterministic("pca_amplitudes_normalized", A / norm)
+
+        pca_term = pm.Deterministic('pca_term', pm.math.sum(pt.dot(x_pca_modes, pca_amplitudes_normalized[:, dataset_name_idx]), axis=1))
+
+        # pca_term = sum(
+        #     pca_amplitudes_normalized[k][dataset_name_idx] * x_pca_modes[:, k]
+        #     for k in range(n_modes)
+        # )
         
         # Hierarchical beta
         hyper_beta = pm.Normal('hyper_beta', mu=0, sigma=0.5)
@@ -352,19 +366,15 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
     # Put it together to create the per-time-point Sigmoid term
 
     # Preprocessing point: separate scale into a separate variable, to reduce the chance that the model will saturate early
-    pca_centered = pca_term - pm.math.mean(pca_term)
-    pca_scaled = pca_centered / pt.std(pca_centered)
+    # pca_centered = pca_term - pm.math.mean(pca_term)
+    # pca_scaled = pca_centered / pt.std(pca_centered)
 
     k = pm.HalfNormal('sigmoid_slope', sigma=1.0)  # or pm.LogNormal('sigmoid_slope', 0.0, 0.5)
-    sigmoid_term = pm.Deterministic('sigmoid_term', pt.sigmoid(k * pca_scaled - inflection))
+    sigmoid_term = pm.Deterministic('sigmoid_term', pt.sigmoid(k * pca_term - inflection))
 
-    # standardize s for the interaction term too
-    # s_centered = s_raw - pm.math.mean(s_raw)
-    # s_std = s_centered / pt.std(s_centered)
-    # sigmoid_term = pm.Deterministic('sigmoid_term', s_std)
-
-    # Standardize to allow interpretation of coefficient (beta) as the expected change in sigmoid_term for a 1 unit change in curvature_term
-    # sigmoid_term = sigmoid_term - pm.math.mean(sigmoid_term)
+    # Rescale the sigmoid to be 0-1, to disallow flat solutions
+    # sigmoid_term = sigmoid_term - pt.min(sigmoid_term)
+    # sigmoid_term = sigmoid_term / (pt.max(sigmoid_term) + 1e-6)
     
     return sigmoid_term, beta
 
@@ -827,7 +837,7 @@ def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all',
         
         # Always build the full hierarchical model, regardless of var_names
         # var_names is only used for filtering what to sample
-        sigmoid_term_deterministic, beta = build_sigmoid_term_pca(
+        sigmoid_term, beta = build_sigmoid_term_pca(
             x_pca_data, 
             **model_data['dim_opt']
         )
@@ -842,7 +852,7 @@ def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all',
         
         # Build the full likelihood with all terms
         likelihood = build_final_likelihood(sigma, y_data, intercept=intercept, 
-                                           sigmoid_term=sigmoid_term_deterministic, 
+                                           sigmoid_term=sigmoid_term, 
                                            curvature_term=curvature_term,
                                            gamma=gamma, beta=beta)
     
@@ -854,7 +864,7 @@ def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all',
             draws=num_samples,
         )
     
-    return idata, model_data
+    return idata, model_data, prior_model
 
 
 
