@@ -345,17 +345,17 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
 
         # L2 norm across modes, per dataset entry
         eps = 1e-6
-        norm = pm.math.sqrt(pm.math.sum(pt.square(A), axis=0) + eps)
+        norm = pm.Deterministic('pca_norm', pm.math.sqrt(pm.math.sum(pt.square(A), axis=0) + eps))
 
         # Unit-sphere projection (per dataset)
         pca_amplitudes_normalized = pm.Deterministic("pca_amplitudes_normalized", A / norm)
 
-        pca_term = pm.Deterministic('pca_term', pm.math.sum(pt.dot(x_pca_modes, pca_amplitudes_normalized[:, dataset_name_idx]), axis=1))
+        # pca_term = pm.Deterministic('pca_term', pt.dot(x_pca_modes, pca_amplitudes_normalized[:, dataset_name_idx]))
 
-        # pca_term = sum(
-        #     pca_amplitudes_normalized[k][dataset_name_idx] * x_pca_modes[:, k]
-        #     for k in range(n_modes)
-        # )
+        pca_term = pm.Deterministic('pca_term', sum(
+            pca_amplitudes_normalized[k][dataset_name_idx] * x_pca_modes[:, k]
+            for k in range(n_modes)
+        ))
         
         # Hierarchical beta
         hyper_beta = pm.Normal('hyper_beta', mu=0, sigma=0.5)
