@@ -302,7 +302,7 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
         # Tight prior on inflection (to prevent flat solutions) in normalized units, and make hierarchical
         # Note that the pca modes are z-scored, so the inflection point should be around 0 in those units
         inf_mu = pm.Normal('inflection_mu', 0.0, 0.1)
-        inf_sigma = pm.HalfNormal('inflection_sigma', 0.1)
+        inf_sigma = pm.HalfNormal('inflection_sigma', 0.01)
         z_inf = pm.Normal('z_inflection', 0.0, 1.0, dims=dims)
         inflection = pm.Deterministic('inflection', inf_mu + inf_sigma * z_inf)[dataset_name_idx]
         
@@ -359,8 +359,8 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
         beta = pm.Deterministic('beta', hyper_beta + z_beta*hyper_beta_sigma)[dataset_name_idx]
 
     # Put it together to create the per-time-point Sigmoid term
-    k = pm.HalfNormal('sigmoid_slope', sigma=1.0)  # or pm.LogNormal('sigmoid_slope', 0.0, 0.5)
-    sigmoid_term = pm.Deterministic('sigmoid_term', pt.sigmoid(k * pca_term - inflection))
+    # Do not allow the slope to vary, because it is barely identifiable and can lead to flat solutions
+    sigmoid_term = pm.Deterministic('sigmoid_term', pt.sigmoid(pca_term - inflection))
 
     # Rescale the sigmoid to be 0-1 (per dataset), to disallow flat solutions
     # sigmoid_term = normalize_by_group(sigmoid_term, group_indices=dataset_name_idx)
