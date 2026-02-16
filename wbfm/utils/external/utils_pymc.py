@@ -321,7 +321,7 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
             z = pm.Normal(f"z_pca{k}", 0.0, 1.0, dims=dims)
 
             amp = pm.Deterministic(
-                f"pca0_amplitude",
+                f"pca{k}_amplitude",
                 hyper_pca + z * sigma_pca
             )
 
