@@ -161,7 +161,7 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
         if recalculate_sigmoid:
             try:
                 idata = all_traces[n]
-                idata = reconstruct_model_term_from_trace(idata.posterior, n, Xy, var_names=['sigmoid_term'])
+                idata, _ = reconstruct_model_term_from_trace(idata.posterior, n, Xy, var_names=['sigmoid_term'])
 
                 # Variables with specific postprocessing
                 dat = az.extract(idata, group='posterior', var_names=var_names2, filter_vars='like')

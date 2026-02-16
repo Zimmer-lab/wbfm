@@ -838,13 +838,21 @@ def package_bayesian_df_for_plot(df, df_normalization=None, val_name='elpd_diff'
     df_diff = df.pivot(columns='model_type', index='neuron_name', values=val_name)
     
     if normalize_by_dse:
+        # Copy the raw diff dataframe columns before normalizing
+        df_diff_raw = df_diff.copy()
+        df_diff_raw.columns = [f"{col}_raw" for col in df_diff_raw.columns]
         # This normalizes by the standard error, i.e. converts it to a z-score like metric
         df_diff = df_diff / df.pivot(columns='model_type', index='neuron_name', values='dse')
+
+        df_diff = pd.concat([df_diff, df_diff_raw], axis=1)  # Add raw columns back in
 
     # Here each score is 'offset', such that the best model is 0, and the others are worse by the relevant amount
     # For example, if hierarchical_pca is rank 0 (should be), then the column 'nonhierarchical' is the improvement
     df_diff['Relative Hierarchy Score'] = df_diff['nonhierarchical']  # Check for order issues later
     df_diff['Hierarchy Score'] = df_diff['null']
+    if normalize_by_dse:
+        df_diff['Relative Hierarchy Score (raw)'] = df_diff_raw['nonhierarchical_raw']
+        df_diff['Hierarchy Score (raw)'] = df_diff_raw['null_raw']
 
     # Alternative: take the actual log likelihood, normalized by the number of data points
     if df_normalization is not None:
@@ -853,6 +861,7 @@ def package_bayesian_df_for_plot(df, df_normalization=None, val_name='elpd_diff'
         # Add suffix to make it obvious these are processed columns
         df_elpd.columns = [f"{col}_normalized" for col in df_elpd.columns]
         df_diff = pd.concat([df_diff, df_elpd], axis=1)
+
         if min_num_datapoints > 0:
             has_enough_datapoints = df_normalization.count() > min_num_datapoints
             # This has more rows than df_diff, so we need to filter
@@ -867,6 +876,9 @@ def package_bayesian_df_for_plot(df, df_normalization=None, val_name='elpd_diff'
     # is exactly what we want
     df_diff['nonhierarchical'].fillna(0, inplace=True)
     df_diff['Behavior Score'] = df_diff['null'] - df_diff['nonhierarchical']
+    if normalize_by_dse:
+        df_diff['nonhierarchical_raw'].fillna(0, inplace=True)
+        df_diff['Behavior Score (raw)'] = df_diff_raw['null_raw'] - df_diff_raw['nonhierarchical_raw']
 
     # If any neurons have 'hierarchical_pca' with a rank > 0, then the hierarchy score is 0
     # This is because the hierarchical_pca model should always be the best unless there is overfitting
@@ -877,6 +889,9 @@ def package_bayesian_df_for_plot(df, df_normalization=None, val_name='elpd_diff'
     idx_of_non_first_hierarchy_models = idx_of_non_first_hierarchy_models[idx_of_non_first_hierarchy_models.isin(df_diff.index)]
     df_diff.loc[idx_of_non_first_hierarchy_models, 'Hierarchy Score'] = 0
     df_diff.loc[idx_of_non_first_hierarchy_models, 'Relative Hierarchy Score'] = 0
+    if normalize_by_dse:
+        df_diff.loc[idx_of_non_first_hierarchy_models, 'Hierarchy Score (raw)'] = 0
+        df_diff.loc[idx_of_non_first_hierarchy_models, 'Relative Hierarchy Score (raw)'] = 0
     if DEBUG:
         print(f"Neurons with non-best hierarchical_pca models: {idx_of_non_first_hierarchy_models}")
 
@@ -888,6 +903,8 @@ def package_bayesian_df_for_plot(df, df_normalization=None, val_name='elpd_diff'
     # We may have dropped some rows from df_diff, so ensure the index is still valid
     idx_of_first_null_models = idx_of_first_null_models[idx_of_first_null_models.isin(df_diff.index)]
     df_diff.loc[idx_of_first_null_models, 'Behavior Score'] = 0  # The hierarchy is already set to 0
+    if normalize_by_dse:
+        df_diff.loc[idx_of_first_null_models, 'Behavior Score (raw)'] = 0
     if DEBUG:
         print(f"Neurons with null models as the best: {idx_of_first_null_models}")
 
