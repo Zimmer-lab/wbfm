@@ -346,10 +346,10 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
         ))
         
         # Hierarchical beta; constrain to be positive to avoid fighting with gamma
-        hyper_beta = pm.Normal('hyper_beta', mu=0, sigma=0.5)
-        hyper_beta_sigma = pm.HalfNormal('hyper_beta_sigma', sigma=0.2)
-        z_beta = pm.Normal('z_beta', mu=0, sigma=1, dims=dims)
-        beta = pm.Deterministic('beta', pm.math.exp(hyper_beta + z_beta*hyper_beta_sigma))[dataset_name_idx]
+        log_hyper_beta = pm.Normal('log_hyper_beta', mu=0, sigma=0.5)
+        log_hyper_beta_sigma = pm.HalfNormal('log_hyper_beta_sigma', sigma=0.2)
+        log_z_beta = pm.Normal('log_z_beta', mu=0, sigma=1, dims=dims)
+        beta = pm.Deterministic('beta', pm.math.exp(log_hyper_beta + log_z_beta*log_hyper_beta_sigma))[dataset_name_idx]
 
     # Put it together to create the per-time-point Sigmoid term
     # Do not allow the slope to vary, because it is barely identifiable and can lead to flat solutions
