@@ -312,26 +312,19 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
             # Fallback: convert to symbolic int tensor
             n_modes = x_pca_modes.shape[1].eval()
 
-        # Force only the first mode to be positive, because that's the one that we've anchored across datasets
-        log_hyper = pm.Normal(f"log_hyper_pca0", mu=0.0, sigma=0.3)
-        log_sigma = pm.HalfNormal(f"log_sigma_pca0", sigma=0.2)
-        z = pm.Normal(f"z_pca0", 0.0, 1.0, dims=dims)
-
-        log_amp = pm.Deterministic(
-            f"log_pca0_amplitude",
-            log_hyper + z * log_sigma
-        )
-
-        amp = pm.Deterministic(
-            f"pca0_amplitude",
-            pm.math.exp(log_amp)
-        )
-
-        pca_amplitudes = [amp]
+        pca_amplitudes = []
         
-        # Other modes are unconstrained
-        for k in range(1, n_modes):
-            amp = pm.Normal(f"pca{k}_amplitude", mu=0, sigma=0.5, dims=dims)
+        # Sign is unconstrained for all modes
+        for k in range(n_modes):
+            hyper_pca = pm.Normal(f"hyper_pca{k}", mu=0.0, sigma=0.3)
+            sigma_pca = pm.HalfNormal(f"sigma_pca{k}", sigma=0.2)
+            z = pm.Normal(f"z_pca{k}", 0.0, 1.0, dims=dims)
+
+            amp = pm.Deterministic(
+                f"pca0_amplitude",
+                hyper_pca + z * sigma_pca
+            )
+
             pca_amplitudes.append(amp)
 
         # Project coefficients to a hypersphere to avoid scaling issues (and avoid z-scoring that leaks mean/std info across CV folds)
@@ -352,11 +345,11 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
             for k in range(n_modes)
         ))
         
-        # Hierarchical beta
+        # Hierarchical beta; constrain to be positive to avoid fighting with gamma
         hyper_beta = pm.Normal('hyper_beta', mu=0, sigma=0.5)
         hyper_beta_sigma = pm.HalfNormal('hyper_beta_sigma', sigma=0.2)
         z_beta = pm.Normal('z_beta', mu=0, sigma=1, dims=dims)
-        beta = pm.Deterministic('beta', hyper_beta + z_beta*hyper_beta_sigma)[dataset_name_idx]
+        beta = pm.Deterministic('beta', pm.math.exp(hyper_beta + z_beta*hyper_beta_sigma))[dataset_name_idx]
 
     # Put it together to create the per-time-point Sigmoid term
     # Do not allow the slope to vary, because it is barely identifiable and can lead to flat solutions
