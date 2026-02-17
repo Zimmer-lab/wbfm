@@ -188,8 +188,8 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
     for col in df_params.columns:
         if '_p_value' in col:
             sig_flag, p_value_corrected, *_ = multipletests(df_params[col].values.squeeze(), method='fdr_bh', alpha=0.05)
-            df_params[f'{col}_corrected'] = p_value_corrected
-            df_params[f'{col}_is_significant'] = sig_flag
+            df_params[f'{col}_corrected_total'] = p_value_corrected
+            df_params[f'{col}_is_significant_total'] = sig_flag
 
     # Get radial term: combination of raw curvature amplitude and median of the sigmoid term
     if recalculate_sigmoid and 'sigmoid_term_quantile' in df_params.columns:
@@ -197,7 +197,7 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
         # df_params['r'] = df_params['amplitude'] * df_params['sigmoid_term_quantile']
     else:
         logging.warning("sigmoid_term_quantile not found in df_params; using amplitude only for 'r'")
-        df_params['r'] = np.exp(df_params['log_amplitude_mu'])
+        df_params['r'] = np.exp(df_params['log_hyper_beta']) + np.exp(df_params['log_amplitude_mu'])
     if 'Relative Hierarchy Score' in df_params.columns:
         df_params['size'] = df_params['Relative Hierarchy Score'] + 1  # Add a minimum size
     else:
@@ -212,9 +212,9 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
         df_params.loc[df_params['r'] < 0.1, 'text_polar'] = ''
 
     # Basic printing
-    if verbose >= 1:
-        print("Corrected p-values for pca0_amplitude:")
-        print(df_params[['hyper_pca0_amplitude_p_value_corrected', 'hyper_pca0_amplitude_p_value_is_significant']].sort_values('hyper_pca0_amplitude_p_value_corrected'))
+    # if verbose >= 1:
+    #     print("Corrected p-values for pca0_amplitude:")
+    #     print(df_params[['hyper_pca0_amplitude_p_value_corrected', 'hyper_pca0_amplitude_p_value_is_significant']].sort_values('hyper_pca0_amplitude_p_value_corrected'))
 
     if do_gfp:
         df_params = df_params.assign(datatype='Freely Moving (GFP, residual)')
@@ -240,5 +240,32 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
     
     # Combine the model comparison data with the parameter data for plotting
     df_params = df_params_gcamp.merge(df_to_plot, on=['datatype', 'neuron_name'], how='outer')
+
+    idx = df_params['Category'] == 'Hierarchy'
+    _df = df_params.loc[idx]
+
+    new_columns = {}
+    for col in df_params_gcamp.columns:
+        try:
+            sig_flag, p_value_corrected, *_ = multipletests(
+                _df[col].values.squeeze(),
+                method='fdr_bh',
+                alpha=0.05
+            )
+
+            # Prepare full-length arrays
+            corrected = np.full(len(df_params), np.nan)
+            corrected[idx] = p_value_corrected
+
+            significant = np.zeros(len(df_params), dtype=bool)
+            significant[idx] = sig_flag
+
+            new_columns[f'{col}_corrected'] = corrected
+            new_columns[f'{col}_is_significant'] = significant
+
+        except (TypeError, AttributeError, KeyError):
+            # Likely non-numeric column or not present
+            pass
+    df_params = pd.concat([df_params, pd.DataFrame(new_columns, index=df_params.index)], axis=1)
 
     return df_params, y_max_gfp, x_max_gfp
