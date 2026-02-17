@@ -108,8 +108,8 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
         neurons_to_plot = [single_neuron]
 
     if var_names is None:
-        var_names = ['log_hyper_pca0', 'log_sigma_pca0', 'pca1_amplitude',
-                    'hyper_beta', 'hyper_beta_sigma',
+        var_names = ['hyper_pca0', 'sigma_pca0', 'hyper_pca1', 'sigma_pca1',
+                    'log_hyper_beta', 'log_hyper_beta_sigma',
                     'log_amplitude_mu', 'log_amplitude_sigma',
                     'phase_shift',
                     'eigenworm3_coefficient', 'eigenworm4_coefficient'
