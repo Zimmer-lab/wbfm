@@ -188,8 +188,8 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
     for col in df_params.columns:
         if '_p_value' in col:
             sig_flag, p_value_corrected, *_ = multipletests(df_params[col].values.squeeze(), method='fdr_bh', alpha=0.05)
-            df_params[f'{col}_corrected_total'] = p_value_corrected
-            df_params[f'{col}_is_significant_total'] = sig_flag
+            df_params[f'{col}_corrected'] = p_value_corrected
+            df_params[f'{col}_is_significant'] = sig_flag
 
     # Get radial term: combination of raw curvature amplitude and median of the sigmoid term
     if recalculate_sigmoid and 'sigmoid_term_quantile' in df_params.columns:
@@ -240,32 +240,5 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
     
     # Combine the model comparison data with the parameter data for plotting
     df_params = df_params_gcamp.merge(df_to_plot, on=['datatype', 'neuron_name'], how='outer')
-
-    idx = df_params['Category'] == 'Hierarchy'
-    _df = df_params.loc[idx]
-
-    new_columns = {}
-    for col in df_params_gcamp.columns:
-        try:
-            sig_flag, p_value_corrected, *_ = multipletests(
-                _df[col].values.squeeze(),
-                method='fdr_bh',
-                alpha=0.05
-            )
-
-            # Prepare full-length arrays
-            corrected = np.full(len(df_params), np.nan)
-            corrected[idx] = p_value_corrected
-
-            significant = np.zeros(len(df_params), dtype=bool)
-            significant[idx] = sig_flag
-
-            new_columns[f'{col}_corrected'] = corrected
-            new_columns[f'{col}_is_significant'] = significant
-
-        except (TypeError, AttributeError, KeyError):
-            # Likely non-numeric column or not present
-            pass
-    df_params = pd.concat([df_params, pd.DataFrame(new_columns, index=df_params.index)], axis=1)
 
     return df_params, y_max_gfp, x_max_gfp
