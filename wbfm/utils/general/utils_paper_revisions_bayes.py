@@ -252,10 +252,12 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
         for param in params_to_extract:
             if param in params_to_extract:
                 all_params.setdefault(param, {})[neuron] = trace.posterior[param].values.flatten()
+    # Make into a tall dataframe for plotly plotting
     df_params_full = pd.DataFrame({
-        param: pd.Series(neuron_values) for param, neuron_values in all_params.items()
+        'neuron_name': np.concatenate([list(neuron_dict.keys()) for neuron_dict in all_params.values()]),
+        'parameter': np.concatenate([[param] * len(neuron_dict) for param, neuron_dict in all_params.items()]),
+        'value': np.concatenate([neuron_dict.values() for neuron_dict in all_params.values()])
     })
-
     # Combine the model comparison data with the parameter data for plotting
     df_params = df_params_gcamp.merge(df_to_plot, on=['datatype', 'neuron_name'], how='outer')
 
