@@ -79,7 +79,7 @@ def calculate_paper_model_comparisons(suffix='_pca_global', single_neuron=None, 
     df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_bayesian_model_categories(x_column, y_column, df_to_plot_gfp, df_to_plot_gcamp, 
                                                                                       remove_names_of_ns=remove_names_of_ns)
 
-    df_to_plot.reset_index(inplace=True, drop=True)  # Already set as a column (neuron_name)
+    df_to_plot = df_to_plot.reset_index(drop=True)  # Already set as a column (neuron_name)
 
     return df_to_plot, _df, y_max_gfp, x_max_gfp
 
@@ -232,13 +232,31 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
 
     """
 
+    # Model comparisons
     df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_paper_model_comparisons(suffix=suffix, single_neuron=single_neuron)
+
+    # Parameter values and t-tests
+    parent_folder = get_hierarchical_modeling_dir(gfp=False)
+    foldername = os.path.join(parent_folder, f'output{suffix}')
+    all_traces = _load_all_traces(foldername, single_neuron=single_neuron)
 
     df_params_gcamp = calculate_bayesian_ttests(suffix=suffix, single_neuron=single_neuron, do_gfp=False,
                                                 recalculate_sigmoid=recalculate_sigmoid, var_names=None,
-                                                all_traces=None, Xy=None, verbose=0)
+                                                all_traces=all_traces, Xy=None, verbose=0)
     
+    # Full distributions of some parameters
+    params_to_extract = ['eigenworm3_coefficient', 'eigenworm4_coefficient']
+    all_params = {}
+    for neuron, trace in all_traces.items():
+        # posterior = az.extract(trace, group='posterior', var_names=params_to_extract, filter_vars='like')
+        for param in params_to_extract:
+            if param in params_to_extract:
+                all_params.setdefault(param, {})[neuron] = trace.posterior[param].values.flatten()
+    df_params_full = pd.DataFrame({
+        param: pd.Series(neuron_values) for param, neuron_values in all_params.items()
+    })
+
     # Combine the model comparison data with the parameter data for plotting
     df_params = df_params_gcamp.merge(df_to_plot, on=['datatype', 'neuron_name'], how='outer')
 
-    return df_params, y_max_gfp, x_max_gfp
+    return df_params, df_params_full, y_max_gfp, x_max_gfp

@@ -874,10 +874,10 @@ def package_bayesian_df_for_plot(df, df_normalization=None, val_name='elpd_diff'
     # But the behavior score is the difference between the null and the nonhierarchical, which we don't directly have
     # Note that if the nonhierarchical is the best, this is still correct because that column is 0, and the null column
     # is exactly what we want
-    df_diff['nonhierarchical'].fillna(0, inplace=True)
+    df_diff['nonhierarchical'] = df_diff['nonhierarchical'].fillna(0)
     df_diff['Behavior Score'] = df_diff['null'] - df_diff['nonhierarchical']
     if normalize_by_dse:
-        df_diff['nonhierarchical_raw'].fillna(0, inplace=True)
+        df_diff['nonhierarchical_raw'] = df_diff['nonhierarchical_raw'].fillna(0)
         df_diff['Behavior Score (raw)'] = df_diff_raw['null_raw'] - df_diff_raw['nonhierarchical_raw']
 
     # If any neurons have 'hierarchical_pca' with a rank > 0, then the hierarchy score is 0
