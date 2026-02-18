@@ -1,9 +1,11 @@
+from collections import defaultdict
 from pathlib import Path
 import arviz as az
 import numpy as np
 import pandas as pd
 from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
+from traitlets import default
 
 from wbfm.utils.external.utils_pymc import reconstruct_model_term_from_trace
 from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
@@ -245,19 +247,26 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
                                                 all_traces=all_traces, Xy=None, verbose=0)
     
     # Full distributions of some parameters
-    params_to_extract = ['eigenworm3_coefficient', 'eigenworm4_coefficient']
-    all_params = {}
+    params_to_extract = ['eigenworm3_coefficient', 'eigenworm4_coefficient', 'phase_shift']
+    all_dfs = []
     for neuron, trace in all_traces.items():
+        all_vals = []
+        neuron_names = []
+        param_names = []
         # posterior = az.extract(trace, group='posterior', var_names=params_to_extract, filter_vars='like')
         for param in params_to_extract:
-            if param in params_to_extract:
-                all_params.setdefault(param, {})[neuron] = trace.posterior[param].values.flatten()
+            vals = trace.posterior[param].values.flatten()
+            n = len(vals)
+            all_vals.append(vals)
+            neuron_names.append([neuron] * n)
+            param_names.append([param] * n)
+        all_dfs.append(pd.DataFrame({
+            'neuron_name': np.concatenate(neuron_names),
+            'parameter': np.concatenate(param_names),
+            'value': np.concatenate(all_vals)
+        }))
     # Make into a tall dataframe for plotly plotting
-    df_params_full = pd.DataFrame({
-        'neuron_name': np.concatenate([list(neuron_dict.keys()) for neuron_dict in all_params.values()]),
-        'parameter': np.concatenate([[param] * len(neuron_dict) for param, neuron_dict in all_params.items()]),
-        'value': np.concatenate([neuron_dict.values() for neuron_dict in all_params.values()])
-    })
+    df_params_full = pd.concat(all_dfs, ignore_index=True)
     # Combine the model comparison data with the parameter data for plotting
     df_params = df_params_gcamp.merge(df_to_plot, on=['datatype', 'neuron_name'], how='outer')
 
