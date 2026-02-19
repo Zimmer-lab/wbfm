@@ -61,6 +61,16 @@ def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, inc
             if col in data:
                 df[col] = data[col]
         
+        reversal_events = data.get("reversal_events", [])
+        if reversal_events:
+            reversal = np.zeros(n_timepoints, dtype=object)
+            reversal[:] = 'no reversal'
+            for start, stop in reversal_events:
+                if start < n_timepoints:
+                    end = min(stop, n_timepoints)
+                    reversal[start:end] = 'reversal'
+            df['reversal'] = reversal
+        
         df.insert(0, 'local_time', np.arange(n_timepoints))
         df.insert(0, 'dataset_name', fname)
         

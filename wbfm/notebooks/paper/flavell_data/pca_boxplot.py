@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """PCA per dataset and boxplot of PC1 loadings for labeled neurons."""
 
+import argparse
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -11,14 +12,20 @@ from load_neurons import load_neurons
 from wbfm.utils.external.utils_pandas import combine_columns_with_suffix
 from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
 
-BEHAVIOR_COLUMNS = ['velocity', 'angular_velocity', 'head_curvature', 'body_curvature', 'pumping']
+BEHAVIOR_COLUMNS = ['velocity', 'angular_velocity', 'head_curvature', 'body_curvature', 'pumping', 'reversal', 'speed']
 METADATA_COLUMNS = ['dataset_name', 'local_time', 'source']
+COLUMN_EXCLUDE_PATTERNS = ['_manifold', 'eigenworm', 'curvature', '_frequency', '_turn', '_collision', 
+                           'CCA_neural_mode', 'local_time_physical', 'pca_', 'rev', 'pause']
 MIN_DATASETS = 5
 
 
 def get_neuron_columns(df):
-    """Get columns that are neurons (not metadata or behavior)."""
-    return [c for c in df.columns if c not in METADATA_COLUMNS + BEHAVIOR_COLUMNS]
+    """Get columns that are neurons (not metadata, behavior, or derived columns)."""
+    exclude_cols = set(METADATA_COLUMNS + BEHAVIOR_COLUMNS)
+    for c in df.columns:
+        if any(p in c for p in COLUMN_EXCLUDE_PATTERNS):
+            exclude_cols.add(c)
+    return [c for c in df.columns if c not in exclude_cols]
 
 
 def get_labeled_neurons(neuron_cols):
@@ -64,6 +71,7 @@ def pca_per_dataset(df, all_neurons, labeled_neurons_to_return, anchor_neuron='A
     if nan_log is None:
         nan_log = []
     results = {}
+    pc_scores = {}
     
     for dataset_name, group in df.groupby('dataset_name'):
         # Get all neurons that exist in this dataset (for PCA)
@@ -86,7 +94,7 @@ def pca_per_dataset(df, all_neurons, labeled_neurons_to_return, anchor_neuron='A
             })
         
         X = X.astype(np.float64)
-        X[:, nan_by_neuron | partial_nan] = 0
+        X = np.nan_to_num(X, nan=0.0)
         
         # Optionally z-score neurons before StandardScaler
         if zscore_neurons:
@@ -115,8 +123,12 @@ def pca_per_dataset(df, all_neurons, labeled_neurons_to_return, anchor_neuron='A
         
         # Return only the labeled neurons
         results[dataset_name] = {n: neuron_to_loading[n] for n in labeled_neurons_to_return if n in neuron_to_loading}
+        
+        # Store PC scores for phase plot
+        scores = pca.transform(X_std)
+        pc_scores[dataset_name] = scores
     
-    return results, nan_log
+    return results, nan_log, pc_scores
 
 
 def sort_neurons_by_median(plot_df):
@@ -228,7 +240,7 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None):
     print_diagnostic_correlations(df, plot_neurons, anchor_neuron='AVA')
     
     # Run PCA using ALL neurons, but return only labeled plot_neurons
-    pca_results, nan_log = pca_per_dataset(df, neuron_cols, plot_neurons, anchor_neuron='AVA', n_components=1, zscore_neurons=zscore_neurons, nan_log=nan_log)
+    pca_results, nan_log, pc_scores = pca_per_dataset(df, neuron_cols, plot_neurons, anchor_neuron='AVA', n_components=2, zscore_neurons=zscore_neurons, nan_log=nan_log)
     
     data_for_plot = []
     for dataset_name, loadings in pca_results.items():
@@ -272,7 +284,58 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None):
     )
     
     fig.write_html('pc1_loadings_boxplot.html')
-    print("Saved plot to pc1_loadings_boxplot.html")
+    fig.write_image('pc1_loadings_boxplot.png', scale=2)
+    print("Saved plot to pc1_loadings_boxplot.html and .png")
+    
+    # Phase plot: PC0 vs PC1 for flavell datasets only, colored by reversal
+    phase_data = []
+    for dataset_name, scores in pc_scores.items():
+        group = df[df['dataset_name'] == dataset_name]
+        source = group['source'].iloc[0] if 'source' in group.columns else 'unknown'
+        n_timepoints = scores.shape[0]
+        phase_data.append(pd.DataFrame({
+            'PC0': scores[:, 0],
+            'PC1': scores[:, 1],
+            'dataset': dataset_name,
+            'source': source,
+            'timepoint': np.arange(n_timepoints),
+            'reversal': group['reversal'].values if 'reversal' in group.columns else np.nan,
+        }))
+    
+    phase_df = pd.concat(phase_data, ignore_index=True)
+    
+    zscore_text = ', z-scored' if zscore_neurons else ''
+    
+    flavell_datasets = phase_df[phase_df['source'] == 'flavell']['dataset'].unique()
+    
+    for dataset_name in flavell_datasets:
+        dataset_phase = phase_df[phase_df['dataset'] == dataset_name]
+        
+        safe_name = dataset_name.replace('/', '_').replace(' ', '_')
+        
+        if 'reversal' not in dataset_phase.columns:
+            continue
+        valid_mask = ~dataset_phase['reversal'].isna()
+        if valid_mask.sum() == 0:
+            continue
+            
+        fig_phase = px.scatter(
+            dataset_phase[valid_mask],
+            x='PC0',
+            y='PC1',
+            color='reversal',
+            title=f'Phase Plot: {dataset_name} (reversal, anchored to AVA{zscore_text})',
+            color_discrete_map={'no reversal': 'blue', 'reversal': 'red'}
+        )
+        fig_phase.update_traces(marker=dict(size=4, opacity=0.7))
+        fig_phase.update_layout(
+            height=600,
+            width=800
+        )
+        fig_phase.write_html(f'phase_plot_{safe_name}_reversal.html')
+        fig_phase.write_image(f'phase_plot_{safe_name}_reversal.png', scale=2)
+    
+    print(f"Saved {len(flavell_datasets)} phase plots with reversal coloring (HTML and PNG)")
     
     if nan_log and nan_log_file:
         with open(nan_log_file, 'w') as f:
@@ -285,4 +348,13 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None):
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='PCA per dataset and boxplot of PC1 loadings')
+    parser.add_argument('--flavell-only', action='store_true',
+                        help='Use only flavell data (exclude zimmer)')
+    parser.add_argument('--zscore-neurons', action='store_true',
+                        help='Z-score neurons before PCA')
+    parser.add_argument('--nan-log-file', type=str, default=None,
+                        help='File to save NaN log')
+    args = parser.parse_args()
+    
+    main(include_hierarchical=not args.flavell_only, zscore_neurons=args.zscore_neurons, nan_log_file=args.nan_log_file)
