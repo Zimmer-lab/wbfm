@@ -94,6 +94,7 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
 
     # Remake local time columns to just be integers
     df_all_traces['local_time'] = df_all_traces.groupby('dataset_name').cumcount()
+    df_all_traces_interpolated['local_time'] = df_all_traces_interpolated.groupby('dataset_name').cumcount()
     df_all_manifold['local_time'] = df_all_manifold.groupby('dataset_name').cumcount()
     df_all_manifold1['local_time'] = df_all_manifold1.groupby('dataset_name').cumcount()
     if not do_immobilized:
