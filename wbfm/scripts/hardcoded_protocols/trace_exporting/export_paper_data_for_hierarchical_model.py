@@ -1,5 +1,6 @@
 from tqdm.auto import tqdm
 import argparse
+from wbfm.utils.external.custom_errors import NoBehaviorAnnotationsError
 from wbfm.utils.traces.utils_hierarchical_model_data_export import export_data_for_hierarchical_model
 
 if __name__ == '__main__':
@@ -12,5 +13,8 @@ if __name__ == '__main__':
     # Do gfp first because it's faster, so sometimes I can start other pipelines more quickly
     all_suffixes = ['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant', 'avb_hiscl', 'avb_hiscl_control']
     for suffix in tqdm(all_suffixes):
-        export_data_for_hierarchical_model(suffix=suffix,
-                                           skip_if_exists=args.skip_if_exists, delete_if_exists=args.delete_if_exists)
+        try:
+            export_data_for_hierarchical_model(suffix=suffix,
+                                            skip_if_exists=args.skip_if_exists, delete_if_exists=args.delete_if_exists)
+        except NoBehaviorAnnotationsError as e:
+            print(f"Skipping suffix {suffix} due to missing behavior annotations: {e}")
