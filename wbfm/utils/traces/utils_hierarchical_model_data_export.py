@@ -1,5 +1,7 @@
 import os
 
+from scipy import interpolate
+
 from wbfm.utils.general.utils_hardcoded import default_discrete_behaviors, load_paper_datasets, get_hierarchical_modeling_dir
 from wbfm.utils.visualization.multiproject_wrappers import build_cca_time_series_from_multiple_projects, build_trace_time_series_from_multiple_projects, \
     build_behavior_time_series_from_multiple_projects, build_cross_dataset_eigenworms, \
@@ -39,6 +41,10 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
     # Get individual data elements
     df_all_traces = build_trace_time_series_from_multiple_projects(all_projects, use_paper_options=True)
     df_all_traces.sort_values(['dataset_name', 'local_time'], inplace=True)
+
+    # Additional trace dataframe, which will be used to export an additional dataframe
+    # df_all_traces_interpolated = build_trace_time_series_from_multiple_projects(all_projects, use_paper_options=True, interpolate_nan=True)
+    # df_all_traces_interpolated.sort_values(['dataset_name', 'local_time'], inplace=True)
 
     if not do_immobilized:
         behavior_names = ['curvature_vb02', #'curvature_5', 'curvature_10', 'curvature_15', 'curvature_20',
@@ -98,7 +104,7 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
     # Include all neurons
     df_all = df_all_traces.merge(df_all_manifold, on=['dataset_name', 'local_time'], how='inner',
                                  suffixes=('', '_manifold'))
-    df_all = df_all.merge(df_all_manifold, on=['dataset_name', 'local_time'], how='inner',
+    df_all = df_all.merge(df_all_manifold1, on=['dataset_name', 'local_time'], how='inner',
                           suffixes=('', '_manifold1'))
     if not do_immobilized:
         df_all = df_all.merge(df_all_behavior, on=['dataset_name', 'local_time'], how='inner')
