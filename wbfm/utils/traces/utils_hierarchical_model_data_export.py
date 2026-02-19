@@ -43,8 +43,8 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
     df_all_traces.sort_values(['dataset_name', 'local_time'], inplace=True)
 
     # Additional trace dataframe, which will be used to export an additional dataframe
-    # df_all_traces_interpolated = build_trace_time_series_from_multiple_projects(all_projects, use_paper_options=True, interpolate_nan=True)
-    # df_all_traces_interpolated.sort_values(['dataset_name', 'local_time'], inplace=True)
+    df_all_traces_interpolated = build_trace_time_series_from_multiple_projects(all_projects, use_paper_options=True, interpolate_nan=True)
+    df_all_traces_interpolated.sort_values(['dataset_name', 'local_time'], inplace=True)
 
     if not do_immobilized:
         behavior_names = ['curvature_vb02', #'curvature_5', 'curvature_10', 'curvature_15', 'curvature_20',
@@ -92,7 +92,6 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
                                                                       residual_mode='pca_global_1')
     df_all_manifold1.sort_values(['dataset_name', 'local_time'], inplace=True)
 
-    # Align and export
     # Remake local time columns to just be integers
     df_all_traces['local_time'] = df_all_traces.groupby('dataset_name').cumcount()
     df_all_manifold['local_time'] = df_all_manifold.groupby('dataset_name').cumcount()
@@ -101,21 +100,37 @@ def export_data_for_hierarchical_model(suffix='', skip_if_exists=True, delete_if
         df_all_behavior['local_time'] = df_all_behavior.groupby('dataset_name').cumcount()
         df_eigenworms['local_time'] = df_eigenworms.groupby('dataset_name').cumcount()
     df_all_pca['local_time'] = df_all_pca.groupby('dataset_name').cumcount()
-    # Include all neurons
-    df_all = df_all_traces.merge(df_all_manifold, on=['dataset_name', 'local_time'], how='inner',
-                                 suffixes=('', '_manifold'))
-    df_all = df_all.merge(df_all_manifold1, on=['dataset_name', 'local_time'], how='inner',
-                          suffixes=('', '_manifold1'))
+    
+    # Merge all dataframes for export
+    merge_keys = ['dataset_name', 'local_time']
+
+    dfs_to_merge = [
+        (df_all_manifold, {'suffixes': ('', '_manifold')}),
+        (df_all_manifold1, {'suffixes': ('', '_manifold1')}),
+    ]
+
     if not do_immobilized:
-        df_all = df_all.merge(df_all_behavior, on=['dataset_name', 'local_time'], how='inner')
-        df_all = df_all.merge(df_eigenworms, on=['dataset_name', 'local_time'], how='inner')
-        df_all = df_all.merge(df_all_cca, on=['dataset_name', 'local_time'], how='inner')
-    df_all = df_all.merge(df_all_pca, on=['dataset_name', 'local_time'], how='inner')
+        dfs_to_merge.extend([
+            (df_all_behavior, {}),
+            (df_eigenworms, {}),
+            (df_all_cca, {})
+        ])
+
+    dfs_to_merge.append((df_all_pca, {}))
+
+    df_all = df_all_traces
+    for df, kwargs in dfs_to_merge:
+        df_all = df_all.merge(df, on=merge_keys, how='inner', **kwargs)
+    
+    df_all_interpolated = df_all_traces_interpolated
+    for df, kwargs in dfs_to_merge:
+        df_all_interpolated = df_all_interpolated.merge(df, on=merge_keys, how='inner', **kwargs)
 
     # Export
     if not DEBUG:
         df_all.to_hdf(output_fname, key='df_with_missing')
         print(f"Exported to {output_fname}")
+        df_all_interpolated.to_hdf(output_fname.replace('.h5', '_interpolated.h5'), key='df_with_missing')
     else:
         # Return all individual dataframes for debugging
-        return df_all, df_all_traces, df_all_manifold, df_all_manifold1, df_all_behavior, df_eigenworms, df_all_cca, df_all_pca
+        return df_all, df_all_interpolated, df_all_traces, df_all_manifold, df_all_manifold1, df_all_behavior, df_eigenworms, df_all_cca, df_all_pca
