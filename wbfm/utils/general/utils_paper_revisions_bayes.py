@@ -247,7 +247,7 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
                                                 all_traces=all_traces, Xy=None, verbose=0)
     
     # Full distributions of some parameters
-    params_to_extract = ['eigenworm3_coefficient', 'eigenworm4_coefficient', 'phase_shift']
+    params_to_extract = ['eigenworm3_coefficient', 'eigenworm4_coefficient', 'phase_shift', 'log_hyper_beta', 'log_amplitude_mu']
     all_dfs = []
     for neuron, trace in all_traces.items():
         all_vals = []
