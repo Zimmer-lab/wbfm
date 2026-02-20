@@ -162,7 +162,7 @@ MEM_PER_TASK=128G
 if [ "$use_gfp" == "true" ]; then
   CMD="$CMD --gfp"
   NUM_HOURS=6
-  MEM_PER_TASK=16G
+  MEM_PER_TASK=32G
 elif [ "$use_avb_hiscl" == "true" ]; then
   CMD="$CMD --avb_hiscl"
 fi
