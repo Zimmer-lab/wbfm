@@ -213,6 +213,8 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
     if 'r' in df_params.columns:
         df_params.loc[df_params['r'] < 0.1, 'text_polar'] = ''
 
+    # Also add columns for warnings in the loo dataframe
+
     # Basic printing
     # if verbose >= 1:
     #     print("Corrected p-values for pca0_amplitude:")

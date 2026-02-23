@@ -183,8 +183,8 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
                 else:
                     posterior_keys = ['y']
                 print(f"Sampling posterior predictive for {name}: {posterior_keys}")
-                trace.extend(pm.sample_posterior_predictive(trace, random_seed=rng, progressbar=False,
-                                                            var_names=posterior_keys))
+                pm.sample_posterior_predictive(trace, random_seed=rng, progressbar=False,
+                                                            var_names=posterior_keys, extend_inferencedata=True)
 
             all_traces[name] = trace
 
@@ -726,12 +726,13 @@ def reconstruct_model_term_from_trace(idata, neuron_name, Xy=None, dataset_name=
     # For posterior predictive samples (like 'y'), use sample_posterior_predictive
     if 'y' in var_names:
         with recon_model:
-            idata.extend(pm.sample_posterior_predictive(
+            pm.sample_posterior_predictive(
                 idata,
                 var_names=['y'],
                 random_seed=42,
-                progressbar=True
-            ))
+                progressbar=False,
+                extend_inferencedata=True
+            )
     
     return idata, model_data
 
