@@ -316,8 +316,8 @@ def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
         
         # Sign is unconstrained for all modes
         for k in range(n_modes):
-            hyper_pca = pm.Normal(f"hyper_pca{k}", mu=0.0, sigma=1.0)
-            sigma_pca = pm.HalfNormal(f"sigma_pca{k}", sigma=0.5)
+            hyper_pca = pm.Normal(f"hyper_pca{k}", mu=0.0, sigma=0.3)
+            sigma_pca = pm.HalfNormal(f"sigma_pca{k}", sigma=0.2)
             z = pm.Normal(f"z_pca{k}", 0.0, 1.0, dims=dims)
 
             amp = pm.Deterministic(
