@@ -15,7 +15,7 @@ except ImportError:
 DEFAULT_BEHAVIOR_COLUMNS = ['velocity', 'angular_velocity', 'head_curvature', 'body_curvature', 'pumping']
 
 
-def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, include_hierarchical=False):
+def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, include_hierarchical=False, include_immob=False):
     """Load neuron traces from JSON files.
 
     Args:
@@ -53,6 +53,8 @@ def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, inc
             else:
                 col_name = f"neuron_{i+1:03d}"
             
+            if col_name in trace_dict:
+                raise ValueError(f"Duplicate column name {col_name} in file {fname}")
             trace_dict[col_name] = trace
         
         df = pd.DataFrame(trace_dict)
@@ -85,7 +87,7 @@ def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, inc
         if not HAS_WBFM:
             raise ImportError("wbfm package not available")
         data_dir = get_hierarchical_modeling_dir()
-        h5_path = f"{data_dir}/data.h5"
+        h5_path = f"{data_dir}/data_interpolated.h5"
         if verbose:
             print(f"\nLoading hierarchical modeling data from {h5_path}")
         hm_df = pd.read_hdf(h5_path, "df_with_missing")
@@ -93,6 +95,20 @@ def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, inc
             print(f"  Loaded hierarchical: {hm_df.shape[0]} timepoints x {hm_df.shape[1]} columns")
         hm_df = hm_df.assign(source='zimmer')
         result = pd.concat([result, hm_df], ignore_index=True)
+
+    if include_immob:
+        if not HAS_WBFM:
+            raise ImportError("wbfm package not available")
+        data_dir = get_hierarchical_modeling_dir()
+        immob_dir = data_dir.replace('hierarchical_modeling', 'hierarchical_modeling_immob')
+        h5_path = f"{immob_dir}/data_interpolated.h5"
+        if verbose:
+            print(f"\nLoading immob data from {h5_path}")
+        immob_df = pd.read_hdf(h5_path, "df_with_missing")
+        if verbose:
+            print(f"  Loaded immob: {immob_df.shape[0]} timepoints x {immob_df.shape[1]} columns")
+        immob_df = immob_df.assign(source='immob')
+        result = pd.concat([result, immob_df], ignore_index=True)
 
     if verbose:
         print(f"\nCreated dataframe: {result.shape[0]} timepoints x {result.shape[1]} columns")
