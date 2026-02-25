@@ -1416,8 +1416,7 @@ class ProjectData:
             ('pca', PCA(n_components=n_components, whiten=False))
         ])
         pca = pipe.named_steps['pca']
-        # X -= X.mean()
-        # pca = PCA(n_components=n_components, whiten=False)
+        
         if return_pca_weights:
             pipe.fit(X)
             pca_weights = pca.components_.T

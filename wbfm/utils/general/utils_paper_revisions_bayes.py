@@ -230,6 +230,19 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
     return df_params
 
 
+def calc_var_ratio(Xy):
+    Xy_var = Xy.groupby('dataset_name').var()
+    Xy_var_ratio = {}
+    for col in Xy_var.columns:
+        if 'neuron' in col:
+            continue
+        col_manifold = f'{col}_manifold'
+        if col_manifold in Xy_var.columns:
+            Xy_var_ratio[col] = Xy_var[col_manifold] / Xy_var[col]
+    Xy_var_ratio = pd.DataFrame(Xy_var_ratio)
+    return Xy_var_ratio
+
+
 def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, recalculate_sigmoid=False):
     """
     Use above functions to calculate all data needed for the Bayesian model comparison and t-tests
@@ -244,10 +257,18 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
     foldername = os.path.join(parent_folder, f'output{suffix}')
     all_traces = _load_all_traces(foldername, single_neuron=single_neuron)
 
+    Xy = pd.read_hdf(os.path.join(parent_folder, 'data.h5'))
+
     df_params_gcamp = calculate_bayesian_ttests(suffix=suffix, single_neuron=single_neuron, do_gfp=False,
                                                 recalculate_sigmoid=recalculate_sigmoid, var_names=None,
-                                                all_traces=all_traces, Xy=None, verbose=0)
+                                                all_traces=all_traces, Xy=Xy, verbose=0)
     
+    # Calculate variance explained by the manifold per neuron (supp plot)
+    Xy_var_ratio = calc_var_ratio(Xy)
+    Xy_var_ratio['Dataset Type'] = 'Freely Moving (GCaMP, residual)'
+    Xy_var_ratio_median = Xy_var_ratio.groupby('Dataset Type').median().reset_index().melt(
+        id_vars='Dataset Type', var_name='neuron_name', value_name='manifold_variance')
+
     # Full distributions of some parameters
     params_to_extract = ['eigenworm3_coefficient', 'eigenworm4_coefficient', 'phase_shift', 'log_hyper_beta', 'log_amplitude_mu']
     all_dfs = []
@@ -269,7 +290,9 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
         }))
     # Make into a tall dataframe for plotly plotting
     df_params_full = pd.concat(all_dfs, ignore_index=True)
-    # Combine the model comparison data with the parameter data for plotting
+    
+    # Combine all dataframes: model comparison, parameter summary values, and manifold explained variance ratio
     df_params = df_params_gcamp.merge(df_to_plot, on=['datatype', 'neuron_name'], how='outer')
+    df_params = df_params.merge(Xy_var_ratio_median, on=['Dataset Type', 'neuron_name'], how='outer')
 
     return df_params, df_params_full, y_max_gfp, x_max_gfp

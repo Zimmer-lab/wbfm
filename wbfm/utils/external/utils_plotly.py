@@ -83,13 +83,29 @@ def plotly_plot_mean_and_shading(df, x, y, color=None, line_name='Mean', shade_s
     """
     Plot the mean of a y column for each x value, and shade the standard deviation
 
-    Note that this requires the identical x values for each group
+    Note that this requires identical x values for each group
+
+    Format expected for the dataframe (with dummy column names):
+    x   y   color
+    0   1   A
+    0   2   A
+    0   3   A
 
     Parameters
     ----------
     df
     x
     y
+    color - if not None, will plot a separate line and shading for each unique value in this column
+    line_name - name for the mean line in the legend
+    shade_style - 'std' to shade one standard deviation, 'quantile' to shade the interquartile range
+    add_individual_lines - whether to add lines for each individual group
+    cmap - optional dictionary mapping line_name to color for the mean line and shading
+    x_intersection_annotation - if not None, will add vertical and horizontal lines at the intersection of the mean line with the specified x value, and annotate with the y value at the intersection
+    annotation_kwargs - additional keyword arguments to pass to the annotation (like font size)
+    annotation_position - position for the annotation of the intersection point, options are 'top left', 'top right', 'bottom left', 'bottom right'
+    fig - optional existing figure to add to, if None will create a new figure
+    is_second_plot - whether this is the second plot in a figure, which affects whether the vertical line for the intersection annotation is plotted (to avoid plotting it twice in the same figure)
 
     Returns
     -------
