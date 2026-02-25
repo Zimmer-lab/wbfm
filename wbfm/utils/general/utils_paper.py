@@ -1533,6 +1533,8 @@ def calc_p_values_for_pca_weights(wbfm_weights: pd.DataFrame, immob_weights: pd.
                                   intrinsic_categories_fname=None, add_parentheses_for_less_confident=True):
     """
     Calculate p values for PCA weights between two datasets; neurons should be id'ed in both datasets.
+
+    Input dataframes should be in the format of neuron_name x PC1 weight, with neuron_name as the index and a single column for the weight.
     """
 
     ##
@@ -1552,22 +1554,17 @@ def calc_p_values_for_pca_weights(wbfm_weights: pd.DataFrame, immob_weights: pd.
         mapping = neurons_with_less_confident_ids(combine_left_right=True, return_mapping=True)
         df_both['neuron_name'] = df_both['neuron_name'].map(lambda x: mapping.get(x, x))
 
-    # Significantly different from 0... need a permutation version, so use an extra function
-    # From: https://stackoverflow.com/questions/73569894/permutation-based-alternative-to-scipy-stats-ttest-1samp
-    # def _t_statistic(x, axis=-1):
-    #     # return stats.ttest_1samp(x, popmean=0, axis=axis).statistic
-    #     return stats.ttest_1samp(x, popmean=0).statistic
-
-    # def t_statistic_permutation(x):
-    #     return stats.permutation_test((x.values, ), _t_statistic, permutation_type='samples', ).pvalue
-
     def t_statistic_permutation(x):
         return stats.wilcoxon(x.values).pvalue
 
-    # func = lambda x: stats.ttest_1samp(x, 0)[1]
     df_groupby = df_both.dropna().groupby(['neuron_name', 'dataset_type'])
     df_pvalue = df_groupby['PC1 weight'].apply(t_statistic_permutation).to_frame()
     df_pvalue.columns = ['p_value']
+
+    if len(df_pvalue) == 0:
+        empty_significant_diff = pd.DataFrame(columns=['p_value_diff', 'p_value_corrected_diff', 'significance_corrected_diff'])
+        empty_4states_counts = pd.DataFrame(columns=['Result', 'Result_simple', 'Result_description', 'Count'])
+        return df_both, empty_significant_diff, empty_4states_counts
 
     # Multiple comparison correction in the same way for all tests
     output = multipletests(df_pvalue.values.squeeze(), **opts_multipletests)

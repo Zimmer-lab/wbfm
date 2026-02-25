@@ -12,6 +12,7 @@ from load_neurons import load_neurons
 from wbfm.utils.external.utils_pandas import combine_columns_with_suffix
 from wbfm.utils.external.utils_plotly import plotly_plot_mean_and_shading
 from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation
 
 BEHAVIOR_COLUMNS = ['velocity', 'angular_velocity', 'head_curvature', 'body_curvature', 'pumping', 'reversal', 'speed']
 METADATA_COLUMNS = ['dataset_name', 'local_time', 'source']
@@ -240,7 +241,7 @@ def print_diagnostic_correlations(df, neurons, anchor_neuron='AVA'):
     return corr_summary
 
 
-def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, min_datasets=5, include_immob=False):
+def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, min_datasets=5, include_immob=False, DEBUG=False):
     nan_log = []
     df = load_neurons(include_hierarchical=include_hierarchical, include_immob=include_immob)
     
@@ -290,16 +291,7 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
             if passes:
                 neurons.append(neuron)
         
-        print(f"\n  Debug: {sources_pair} pair (min {min_datasets} datasets each):")
-        print(f"    Total labeled neurons checked: {len(all_neurons_debug)}")
-        
         filtered = [(n, c) for n, c in all_neurons_debug if n not in neurons]
-        print(f"    Filtered out: {len(filtered)}")
-        if len(filtered) <= 20:
-            for n, c in filtered:
-                print(f"      {n}: {c}")
-        
-        print(f"    Passed: {len(neurons)} -> {neurons}")
         return neurons
     
     # Get neurons for each comparison
@@ -328,7 +320,8 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     print(f"AVA in all neurons: {'AVA' in plot_neurons_all}")
     
     # Print diagnostic: correlation with AVA
-    print_diagnostic_correlations(df, plot_neurons_all, anchor_neuron='AVA')
+    if DEBUG:
+        print_diagnostic_correlations(df, plot_neurons_all, anchor_neuron='AVA')
     
     # Run PCA for all sources combined (20 components for variance explained plot)
     pca_results, nan_log, pc_scores, variance_explained = pca_per_dataset(
@@ -388,7 +381,8 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     # Combined plot (all sources)
     title_combined = f'PC1 Loadings for Filtered Neurons (confident + >= {min_datasets} datasets in each source, anchored to AVA{zscore_text}, sorted by median)'
     make_boxplot(plot_df, 'pc1_loadings_boxplot', title_combined)
-    print("Saved combined plot to pc1_loadings_boxplot.html and .png")
+    if DEBUG:
+        print("Saved combined plot to pc1_loadings_boxplot.html and .png")
     
     # Cumulative variance explained per PCA mode (use existing PCA results from pca_per_dataset)
     var_exp_data = []
@@ -422,7 +416,8 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
                     'pca_mode': mode_idx + 1,
                     'variance_explained': var_exp
                 })
-        print(f"Added GFP control data to variance explained plot")
+        if DEBUG:
+            print(f"Added GFP control data to variance explained plot")
     except Exception as e:
         print(f"Could not load GFP control data: {e}")
     
@@ -447,7 +442,8 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
         )
         fig_var.write_html('variance_explained_pca.html')
         fig_var.write_image('variance_explained_pca.png', scale=2)
-        print("Saved variance explained plot to variance_explained_pca.html and .png")
+        if DEBUG:
+            print("Saved variance explained plot to variance_explained_pca.html and .png")
     
     # Pairwise and all-three plots: run separate PCAs for each comparison
     comparisons = []
@@ -489,6 +485,39 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
         
         df_pair = pd.DataFrame(data_pair)
         
+        # Calculate p-values for 2-way comparisons only
+        p_value_dict = {}
+        if len(comp) == 4:
+            try:
+                df_src1 = df_pair[df_pair['source'] == src1].pivot(index='neuron', columns='dataset', values='PC1_loading')
+                df_src2 = df_pair[df_pair['source'] == src2].pivot(index='neuron', columns='dataset', values='PC1_loading')
+                if df_src1.shape[0] > 0 and df_src2.shape[0] > 0:
+                    # Compute p-values directly: t-test between the two sources for each neuron
+                    from scipy import stats
+                    from statsmodels.stats.multitest import multipletests
+                    
+                    common_neurons = set(df_src1.index).intersection(set(df_src2.index))
+                    p_values = {}
+                    for neuron in common_neurons:
+                        vals1 = df_src1.loc[neuron].dropna().values
+                        vals2 = df_src2.loc[neuron].dropna().values
+                        if len(vals1) >= 3 and len(vals2) >= 3:
+                            _, p = stats.ttest_ind(vals1, vals2, equal_var=False)
+                            p_values[neuron] = p
+                    
+                    if len(p_values) > 0:
+                        # FDR correction
+                        neurons = list(p_values.keys())
+                        p_arr = np.array([p_values[n] for n in neurons])
+                        _, p_corrected, _, _ = multipletests(p_arr, method='fdr_bh')
+                        p_value_dict = {n: p_corrected[i] for i, n in enumerate(neurons)}
+                        print(f"Calculated p-values for {src1} vs {src2}: {len(p_value_dict)} neurons")
+                        if DEBUG:
+                            for n, p in p_value_dict.items():
+                                print(f"  {n}: corrected p = {p:.4e}")
+            except Exception as e:
+                print(f"Warning: Could not calculate p-values for {src1} vs {src2}: {e}")
+        
         # Sort neurons by flavell median if available
         if 'flavell' in df_pair['source'].values:
             flavell_medians = df_pair[df_pair['source'] == 'flavell'].groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
@@ -496,8 +525,45 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
         else:
             sort_neurons = None
         
-        make_boxplot(df_pair, filename, title, sort_neurons)
-        print(f"Saved {filename} plot")
+        # Make boxplot
+        if len(df_pair) == 0:
+            return
+        if sort_neurons is None:
+            medians = df_pair.groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
+            sort_neurons = medians.index.tolist()
+        
+        plot_kwargs = dict(
+            data_frame=df_pair, 
+            x='neuron', 
+            y='PC1_loading',
+            title=title,
+            labels={'neuron': 'Neuron', 'PC1_loading': 'PC1 Loading'},
+            category_orders={'neuron': sort_neurons}
+        )
+        
+        if 'source' in df_pair.columns:
+            plot_kwargs['color'] = 'source'
+        
+        fig = px.box(**plot_kwargs)
+        fig.update_traces(marker=dict(size=4, opacity=0.5), boxpoints='all')
+        fig.update_layout(
+            xaxis=dict(tickangle=45),
+            height=600,
+            width=1600
+        )
+        
+        if p_value_dict:
+            try:
+                fig = add_p_value_annotation(fig, x_label='all', precalculated_p_values=p_value_dict, show_only_stars=True, show_ns=False, 
+                                             category_orders={'neuron': sort_neurons}, DEBUG=DEBUG)
+            except Exception as e:
+                # print(f"Warning: Could not add p-value annotations: {e}")
+                raise e
+        
+        fig.write_html(f'{filename}.html')
+        fig.write_image(f'{filename}.png', scale=2)
+        if DEBUG:
+            print(f"Saved {filename} plot")
     
     # Phase plot: PC0 vs PC1 for flavell datasets only, colored by reversal
     phase_data = []
@@ -547,7 +613,8 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
         fig_phase.write_html(f'phase_plot_{safe_name}_reversal.html')
         fig_phase.write_image(f'phase_plot_{safe_name}_reversal.png', scale=2)
     
-    print(f"Saved {len(flavell_datasets)} phase plots with reversal coloring (HTML and PNG)")
+    if DEBUG:
+        print(f"Saved {len(flavell_datasets)} phase plots with reversal coloring (HTML and PNG)")
     
     if nan_log and nan_log_file:
         with open(nan_log_file, 'w') as f:
@@ -571,9 +638,11 @@ if __name__ == "__main__":
                         help='File to save NaN log')
     parser.add_argument('--min-datasets', type=int, default=5,
                         help='Minimum number of datasets (per source) a neuron must appear in (default: 5)')
+    parser.add_argument('--debug', action='store_true', 
+                        help='Enable debug mode with extra prints')
     args = parser.parse_args()
     
     include_hierarchical = not args.flavell_only
     main(include_hierarchical=include_hierarchical, zscore_neurons=args.zscore_neurons, 
          nan_log_file=args.nan_log_file, min_datasets=args.min_datasets, 
-         include_immob=args.include_immob)
+         include_immob=args.include_immob, DEBUG=args.debug)

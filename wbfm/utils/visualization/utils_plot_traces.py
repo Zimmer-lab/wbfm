@@ -313,7 +313,7 @@ def plot_with_shading_plotly(mean_vals, std_vals, xmax=None, fig=None, std_vals_
 
 
 def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, inner_x_label_pair=None,
-                           _category_x_labels=None,
+                           _category_x_labels=None, category_orders=None,
                            bonferroni_factor=None, height_mode='all_same',
                            _format=None, permutations=None, show_only_stars=False, show_ns=True,
                            separate_boxplot_fig=False, has_multicategory_index=False,
@@ -364,6 +364,10 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
         format characteristics for the lines
     _all_x_labels: list
         list of all x_labels in the figure; only used when calculating x_labels via x_label='all'
+    category_orders: dict or None
+        Ordered category mapping (same as passed to px.box category_orders parameter).
+        When provided, it takes precedence over detected order for x-position calculations.
+        E.g. {'neuron': ['AVA', 'AVAL', 'AVAR']}
     permutations: Optional[int]
         If not None, then do a non-parametric t-test using this many permutations
     separate_boxplot_fig: bool
@@ -419,8 +423,19 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
             else:
                 category_x_labels = pd.Series(x_vec).unique()
             array_columns_dict = {x_label: None for x_label in category_x_labels}
+        
+        # Override detected order with provided category_orders if available
+        detected_labels = category_x_labels  # Keep a copy of what was detected
+        if category_orders is not None:
+            # category_orders is a dict like {'neuron': [ordered list of values]}
+            # Extract the ordered list for the x-axis, but filter to only include detected labels
+            for key, ordered_list in category_orders.items():
+                # Filter to only include labels that actually exist in the data
+                category_x_labels = [label for label in ordered_list if label in detected_labels]
+                break  # Use the first (and typically only) category_orders entry
+        
         if DEBUG:
-            print(f"Detected x_labels: {category_x_labels}")
+            print(f"Detected/Using x_labels: {category_x_labels}")
         for x_label in category_x_labels:
             if x_label == 'all':
                 logging.warning("x_label is 'all', which is a reserved keyword. Skipping")
@@ -429,7 +444,9 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                 bonferroni_factor = len(category_x_labels)
             fig = add_p_value_annotation(fig, array_columns=[array_columns_dict[x_label]],
                                          subplot=subplot, x_label=x_label, show_ns=show_ns,
-                                         _format=_format, _category_x_labels=category_x_labels, height_mode=height_mode,
+                                         _format=_format, _category_x_labels=category_x_labels, 
+                                         category_orders=None,  # Use _category_x_labels for order in recursive calls
+                                         height_mode=height_mode,
                                          bonferroni_factor=bonferroni_factor, DEBUG=DEBUG, permutations=permutations,
                                          show_only_stars=show_only_stars, inner_x_label_pair=inner_x_label_pair,
                                          has_multicategory_index=has_multicategory_index)
@@ -520,10 +537,26 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
             # In addition, the x values of the annotation should be the same as the x_label, not the raw column number
             # First we need to get which x value the label corresponds to
             if _category_x_labels is None:
-                category_x_labels = pd.Series(x0).unique()  # This keeps the order, unlike np.unique()
+                if category_orders is not None:
+                    # Use category_orders if provided (preferred, matches plotly visual order)
+                    # But filter to only include labels that exist in x0
+                    detected_from_x0 = pd.Series(x0).unique()
+                    for key, ordered_list in category_orders.items():
+                        category_x_labels = [label for label in ordered_list if label in detected_from_x0]
+                        break
+                else:
+                    category_x_labels = pd.Series(x0).unique()  # This keeps the order, unlike np.unique()
             else:
                 category_x_labels = _category_x_labels
-            x_label_ind = np.where(category_x_labels == x_label)[0][0]
+            
+            # Ensure x_label is in category_x_labels before trying to find its index
+            if x_label not in category_x_labels:
+                if DEBUG:
+                    print(f"Skipping {x_label} as it's not in the category labels")
+                continue
+            
+            category_x_labels_arr = np.array(category_x_labels)
+            x_label_ind = np.where(category_x_labels_arr == x_label)[0][0]
             if has_multicategory_index:
                 # Then each inner index will actually have its own x value, i.e. the outer index spans 2 columns
                 # i.e. 0 should map to 0.5, and 1 should map to 2.5
@@ -596,7 +629,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                                 # y=y_range[index][1] * _format['text_height'] + annotation_y_shift,
                                 y=np.max([y0_annotation, y1_annotation]),
                                 showarrow=False,
-                                text=significance_stars,
+                                text=significance_stars if not DEBUG else f"{significance_stars}\nlabel={x_label}",
                                 textangle=0,
                                 xref="x" + subplot_str,
                                 yref=y_ref
