@@ -3,6 +3,7 @@
 
 import json
 import glob
+import logging
 import pandas as pd
 import numpy as np
 
@@ -54,7 +55,8 @@ def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, inc
                 col_name = f"neuron_{i+1:03d}"
             
             if col_name in trace_dict:
-                raise ValueError(f"Duplicate column name {col_name} in file {fname}")
+                col_name = f"{col_name}_{i+1:03d}"
+                logging.warning(f"Duplicate column name {col_name} in file {fname}")
             trace_dict[col_name] = trace
         
         df = pd.DataFrame(trace_dict)
@@ -110,11 +112,11 @@ def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, inc
         immob_df = immob_df.assign(source='immob')
         result = pd.concat([result, immob_df], ignore_index=True)
 
-    if verbose:
-        print(f"\nCreated dataframe: {result.shape[0]} timepoints x {result.shape[1]} columns")
-        print(f"Columns: {list(result.columns[:5])} ... ({len(result.columns)} total)")
-        print(f"\nExample groupby:")
-        print(f"  result.groupby('dataset_name').apply(lambda x: x['neuron_001'].dropna().mean())")
+    # if verbose:
+    #     print(f"\nCreated dataframe: {result.shape[0]} timepoints x {result.shape[1]} columns")
+    #     print(f"Columns: {list(result.columns[:5])} ... ({len(result.columns)} total)")
+    #     print(f"\nExample groupby:")
+    #     print(f"  result.groupby('dataset_name').apply(lambda x: x['neuron_001'].dropna().mean())")
 
     return result
 

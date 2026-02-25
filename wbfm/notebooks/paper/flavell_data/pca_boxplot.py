@@ -10,6 +10,7 @@ from sklearn.preprocessing import StandardScaler
 
 from load_neurons import load_neurons
 from wbfm.utils.external.utils_pandas import combine_columns_with_suffix
+from wbfm.utils.external.utils_plotly import plotly_plot_mean_and_shading
 from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
 
 BEHAVIOR_COLUMNS = ['velocity', 'angular_velocity', 'head_curvature', 'body_curvature', 'pumping', 'reversal', 'speed']
@@ -45,15 +46,16 @@ def count_neuron_datasets(df, neuron_cols):
 
 def count_neuron_datasets_by_source(df, neuron_cols):
     """Count how many datasets each neuron appears in, broken down by source."""
-    counts = {n: {'flavell': 0, 'zimmer': 0} for n in neuron_cols}
+    counts = {}
+    for neuron in neuron_cols:
+        counts[neuron] = {}
     for (dataset_name, source), group in df.groupby(['dataset_name', 'source']):
         for neuron in neuron_cols:
             if neuron in group.columns:
                 if not group[neuron].isna().all():
-                    if source in counts[neuron]:
-                        counts[neuron][source] += 1
-                    else:
-                        counts[neuron][source] = 1
+                    if source not in counts[neuron]:
+                        counts[neuron][source] = 0
+                    counts[neuron][source] += 1
     return counts
 
 
@@ -85,15 +87,12 @@ def pca_per_dataset(df, all_neurons, labeled_neurons_to_return, anchor_neuron='A
         nan_log = []
     results = {}
     pc_scores = {}
-    
+    variance_explained = {}
+
     for dataset_name, group in df.groupby('dataset_name'):
-        # Get all neurons that exist in this dataset (for PCA)
         available_all = get_neurons_in_group(group, all_neurons)
-        
-        # Get labeled neurons for anchoring and for return
         available_labeled = get_neurons_in_group(group, labeled_neurons_to_return)
         
-        # Run PCA on ALL available neurons
         X = group[available_all].values.astype(np.float64)
         
         nan_by_neuron = np.isnan(X).all(axis=0)
@@ -109,7 +108,6 @@ def pca_per_dataset(df, all_neurons, labeled_neurons_to_return, anchor_neuron='A
         X = X.astype(np.float64)
         X = np.nan_to_num(X, nan=0.0)
         
-        # Apply z-scoring to neurons if requested
         if zscore_neurons:
             X_std = StandardScaler().fit_transform(X)
         else:
@@ -119,29 +117,60 @@ def pca_per_dataset(df, all_neurons, labeled_neurons_to_return, anchor_neuron='A
         pca.fit(X_std)
         
         loadings_all = pca.components_[0]
-        
-        # Map neuron name to loading
         neuron_to_loading = dict(zip(available_all, loadings_all))
-        
-        # Anchor using labeled neurons
         neuron_to_idx = {n: i for i, n in enumerate(available_all)}
         
         if anchor_neuron in available_labeled:
             anchor_loading = neuron_to_loading[anchor_neuron]
             if anchor_loading < 0:
-                # Flip all loadings
                 neuron_to_loading = {k: -v for k, v in neuron_to_loading.items()}
-        else:
-            print(f"  Warning: {anchor_neuron} not found in {dataset_name}, skipping anchoring")
         
-        # Return only the labeled neurons
         results[dataset_name] = {n: neuron_to_loading[n] for n in labeled_neurons_to_return if n in neuron_to_loading}
         
-        # Store PC scores for phase plot
         scores = pca.transform(X_std)
         pc_scores[dataset_name] = scores
+        
+        variance_explained[dataset_name] = pca.explained_variance_ratio_.copy()
     
-    return results, nan_log, pc_scores
+    return results, nan_log, pc_scores, variance_explained
+
+
+def compute_variance_explained(df, neuron_cols, n_components=20, zscore_neurons=False):
+    """Run PCA per dataset and return explained variance ratios.
+    
+    Args:
+        df: DataFrame with neuron columns
+        neuron_cols: List of neuron column names to use for PCA
+        n_components: Number of PCA components
+        zscore_neurons: Whether to z-score neurons before PCA
+        
+    Returns:
+        dict: dataset_name -> array of explained variance ratios
+    """
+    variance_explained = {}
+    
+    for dataset_name, group in df.groupby('dataset_name'):
+        available = get_neurons_in_group(group, neuron_cols)
+        if len(available) < 2:
+            continue
+            
+        X = group[available].values.astype(np.float64)
+        X = np.nan_to_num(X, nan=0.0)
+        
+        if zscore_neurons:
+            X_std = StandardScaler().fit_transform(X)
+        else:
+            X_std = X
+        
+        n_comp = min(n_components, X_std.shape[0], X_std.shape[1])
+        if n_comp < 2:
+            continue
+            
+        pca = PCA(n_components=n_comp)
+        pca.fit(X_std)
+        variance_explained[dataset_name] = pca.explained_variance_ratio_.copy()
+    
+    return variance_explained
 
 
 def sort_neurons_by_median(plot_df):
@@ -244,10 +273,15 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     def get_neurons_for_pair(sources_pair, counts_dict, confident_set, labeled_neurons, min_datasets):
         """Get neurons that have min_datasets in both sources of the pair."""
         neurons = []
+        debug_info = {src: [] for src in sources_pair}
+        all_neurons_debug = []
         for neuron in labeled_neurons:
             if neuron not in confident_set:
                 continue
             counts = counts_dict.get(neuron, {})
+            src_counts = {src: counts.get(src, 0) for src in sources_pair}
+            all_neurons_debug.append((neuron, src_counts))
+            
             passes = True
             for src in sources_pair:
                 if counts.get(src, 0) < min_datasets:
@@ -255,15 +289,37 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
                     break
             if passes:
                 neurons.append(neuron)
+        
+        print(f"\n  Debug: {sources_pair} pair (min {min_datasets} datasets each):")
+        print(f"    Total labeled neurons checked: {len(all_neurons_debug)}")
+        
+        filtered = [(n, c) for n, c in all_neurons_debug if n not in neurons]
+        print(f"    Filtered out: {len(filtered)}")
+        if len(filtered) <= 20:
+            for n, c in filtered:
+                print(f"      {n}: {c}")
+        
+        print(f"    Passed: {len(neurons)} -> {neurons}")
         return neurons
     
     # Get neurons for each comparison
     all_sources = sources
     plot_neurons_all = get_neurons_for_pair(sources, dataset_counts_by_source, confident_set, labeled_neurons, min_datasets)
     
-    neurons_fz = get_neurons_for_pair(['flavell', 'zimmer'], dataset_counts_by_source, confident_set, labeled_neurons, min_datasets)
-    neurons_fi = get_neurons_for_pair(['flavell', 'immob'], dataset_counts_by_source, confident_set, labeled_neurons, min_datasets)
-    neurons_zi = get_neurons_for_pair(['zimmer', 'immob'], dataset_counts_by_source, confident_set, labeled_neurons, min_datasets)
+    # Use lower threshold for pairwise comparisons since datasets are limited per source
+    pairwise_min_datasets = max(3, min_datasets // 2)
+    
+    # Only compute neurons for pairs that actually exist in the data
+    neurons_fz = []
+    neurons_fi = []
+    neurons_zi = []
+    
+    if 'flavell' in sources and 'zimmer' in sources:
+        neurons_fz = get_neurons_for_pair(['flavell', 'zimmer'], dataset_counts_by_source, confident_set, labeled_neurons, pairwise_min_datasets)
+    if 'flavell' in sources and 'immob' in sources:
+        neurons_fi = get_neurons_for_pair(['flavell', 'immob'], dataset_counts_by_source, confident_set, labeled_neurons, pairwise_min_datasets)
+    if 'zimmer' in sources and 'immob' in sources:
+        neurons_zi = get_neurons_for_pair(['zimmer', 'immob'], dataset_counts_by_source, confident_set, labeled_neurons, pairwise_min_datasets)
     
     print(f"Plot neurons (all {len(sources)} sources): {len(plot_neurons_all)}")
     print(f"Plot neurons (flavell vs zimmer): {len(neurons_fz)}")
@@ -274,8 +330,11 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     # Print diagnostic: correlation with AVA
     print_diagnostic_correlations(df, plot_neurons_all, anchor_neuron='AVA')
     
-    # Run PCA for all sources combined
-    pca_results, nan_log, pc_scores = pca_per_dataset(df, neuron_cols, plot_neurons_all, anchor_neuron='AVA', n_components=2, zscore_neurons=zscore_neurons, nan_log=nan_log)
+    # Run PCA for all sources combined (20 components for variance explained plot)
+    pca_results, nan_log, pc_scores, variance_explained = pca_per_dataset(
+        df, neuron_cols, plot_neurons_all, anchor_neuron='AVA', n_components=20, 
+        zscore_neurons=zscore_neurons, nan_log=nan_log
+    )
     
     # Build dataframe for all PCA results
     data_for_plot = []
@@ -331,6 +390,65 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     make_boxplot(plot_df, 'pc1_loadings_boxplot', title_combined)
     print("Saved combined plot to pc1_loadings_boxplot.html and .png")
     
+    # Cumulative variance explained per PCA mode (use existing PCA results from pca_per_dataset)
+    var_exp_data = []
+    for dataset_name, var_ratios in variance_explained.items():
+        group = df[df['dataset_name'] == dataset_name]
+        source = group['source'].iloc[0] if 'source' in group.columns else 'unknown'
+        cumulative_var = np.cumsum(var_ratios)
+        for mode_idx, var_exp in enumerate(cumulative_var):
+            var_exp_data.append({
+                'source': source,
+                'dataset': dataset_name,
+                'pca_mode': mode_idx + 1,
+                'variance_explained': var_exp
+            })
+    
+    # Add GFP control data using the dedicated function (use same zscore flag as main analysis)
+    gfp_h5_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/data.h5'
+    try:
+        df_gfp = pd.read_hdf(gfp_h5_path, key='df_with_missing')
+        df_gfp = df_gfp.dropna(axis=1, how='all')
+        
+        gfp_neurons = get_neuron_columns(df_gfp)
+        gfp_var_exp = compute_variance_explained(df_gfp, gfp_neurons, n_components=20, zscore_neurons=zscore_neurons)
+        
+        for dataset_name, var_ratios in gfp_var_exp.items():
+            cumulative_var = np.cumsum(var_ratios)
+            for mode_idx, var_exp in enumerate(cumulative_var):
+                var_exp_data.append({
+                    'source': 'gfp_control',
+                    'dataset': dataset_name,
+                    'pca_mode': mode_idx + 1,
+                    'variance_explained': var_exp
+                })
+        print(f"Added GFP control data to variance explained plot")
+    except Exception as e:
+        print(f"Could not load GFP control data: {e}")
+    
+    var_exp_df = pd.DataFrame(var_exp_data)
+    
+    if len(var_exp_df) > 0:
+        fig_var = plotly_plot_mean_and_shading(
+            var_exp_df,
+            x='pca_mode',
+            y='variance_explained',
+            color='source',
+            line_name='Mean',
+            shade_style='std',
+            add_individual_lines=False
+        )
+        fig_var.update_layout(
+            title=f'Cumulative Variance Explained per PCA Mode by Source (mean ± std{zscore_text})',
+            xaxis_title='PCA Mode',
+            yaxis_title='Cumulative Variance Explained',
+            height=600,
+            width=800
+        )
+        fig_var.write_html('variance_explained_pca.html')
+        fig_var.write_image('variance_explained_pca.png', scale=2)
+        print("Saved variance explained plot to variance_explained_pca.html and .png")
+    
     # Pairwise and all-three plots: run separate PCAs for each comparison
     comparisons = []
     if 'flavell' in sources and 'zimmer' in sources:
@@ -353,7 +471,7 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
             df_subset = df[df['source'].isin([src1, src2, src3])]
         
         # Run PCA for this comparison
-        pca_results_pair, _, pc_scores_pair = pca_per_dataset(df_subset, neuron_cols, neurons, anchor_neuron='AVA', n_components=2, zscore_neurons=zscore_neurons, nan_log=[])
+        pca_results_pair, _, pc_scores_pair, _ = pca_per_dataset(df_subset, neuron_cols, neurons, anchor_neuron='AVA', n_components=20, zscore_neurons=zscore_neurons, nan_log=[])
         
         # Build dataframe
         data_pair = []
