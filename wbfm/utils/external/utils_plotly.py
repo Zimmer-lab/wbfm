@@ -36,7 +36,7 @@ def plotly_boxplot_colored_boxes(df, color_list):
     return fig
 
 
-def add_trendline_annotation(fig):
+def add_trendline_annotation(fig, x_offset=0, y_offset=0):
     """
     Given a scatter plot with a trendline added, add an annotation with the slope, R² and p-value of the trendline
 
@@ -57,8 +57,8 @@ def add_trendline_annotation(fig):
     pvalue = trendline.pvalues[1]
 
     # Get a reasonable position (top right) for the annotation using the x and y max data points
-    x = np.nanmin(fig.data[0].x)
-    y = np.nanmax(fig.data[0].y)
+    x = np.nanmin(fig.data[0].x) + x_offset
+    y = np.nanmax(fig.data[0].y) + y_offset
 
     # Add the annotation
     annotation_text = f'Slope: {slope:.2f}<br>R²: {r2:.2f}<br>p-value: {pvalue:.2e}'
