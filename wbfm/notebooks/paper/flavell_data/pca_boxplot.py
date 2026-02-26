@@ -241,18 +241,20 @@ def print_diagnostic_correlations(df, neurons, anchor_neuron='AVA'):
     return corr_summary
 
 
-def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, min_datasets=5, include_immob=False, DEBUG=False):
-    nan_log = []
+def prepare_dataframe(include_hierarchical=False, include_immob=False):
+    """Load and prepare the neuron dataframe.
+    
+    Args:
+        include_hierarchical: Include hierarchical data (zimmer)
+        include_immob: Include immob data
+    
+    Returns:
+        DataFrame with loaded and prepared neuron data
+    """
     df = load_neurons(include_hierarchical=include_hierarchical, include_immob=include_immob)
     
     print("\nCombining L/R neuron suffixes (per dataset)...")
     df = combine_suffixes_per_dataset(df)
-    
-    neuron_cols = get_neuron_columns(df)
-    labeled_neurons = get_labeled_neurons(neuron_cols)
-    
-    print(f"Total neuron columns after combining: {len(neuron_cols)}")
-    print(f"Labeled neurons after combining: {len(labeled_neurons)}")
     
     # Filter to datasets that have AVA (required anchor)
     datasets_with_ava = []
@@ -264,6 +266,22 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     df = df[df['dataset_name'].isin(datasets_with_ava)]
     print(f"Filtered to {len(datasets_with_ava)}/{original_count} datasets with AVA")
     
+    return df
+
+
+def filter_neurons_by_coverage(df, neuron_cols, labeled_neurons, min_datasets=5, pairwise_min_datasets=3):
+    """Filter neurons by coverage across datasets.
+    
+    Args:
+        df: DataFrame with neuron data
+        neuron_cols: List of all neuron column names
+        labeled_neurons: List of labeled (non-neuron_XXX) neurons
+        min_datasets: Minimum datasets for "all" neurons
+        pairwise_min_datasets: Minimum datasets for pairwise comparisons
+    
+    Returns:
+        dict with keys: 'all', 'flavell_zimmer', 'flavell_immob', 'zimmer_immob'
+    """
     confident_list = neurons_with_confident_ids(combine_left_right=True)
     confident_set = set(confident_list)
     print(f"Confident neuron base names: {len(confident_set)}")
@@ -274,14 +292,10 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     def get_neurons_for_pair(sources_pair, counts_dict, confident_set, labeled_neurons, min_datasets):
         """Get neurons that have min_datasets in both sources of the pair."""
         neurons = []
-        debug_info = {src: [] for src in sources_pair}
-        all_neurons_debug = []
         for neuron in labeled_neurons:
             if neuron not in confident_set:
                 continue
             counts = counts_dict.get(neuron, {})
-            src_counts = {src: counts.get(src, 0) for src in sources_pair}
-            all_neurons_debug.append((neuron, src_counts))
             
             passes = True
             for src in sources_pair:
@@ -291,17 +305,11 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
             if passes:
                 neurons.append(neuron)
         
-        filtered = [(n, c) for n, c in all_neurons_debug if n not in neurons]
         return neurons
     
     # Get neurons for each comparison
-    all_sources = sources
     plot_neurons_all = get_neurons_for_pair(sources, dataset_counts_by_source, confident_set, labeled_neurons, min_datasets)
     
-    # Use lower threshold for pairwise comparisons since datasets are limited per source
-    pairwise_min_datasets = max(3, min_datasets // 2)
-    
-    # Only compute neurons for pairs that actually exist in the data
     neurons_fz = []
     neurons_fi = []
     neurons_zi = []
@@ -319,17 +327,24 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     print(f"Plot neurons (zimmer vs immob): {len(neurons_zi)}")
     print(f"AVA in all neurons: {'AVA' in plot_neurons_all}")
     
-    # Print diagnostic: correlation with AVA
-    if DEBUG:
-        print_diagnostic_correlations(df, plot_neurons_all, anchor_neuron='AVA')
+    return {
+        'all': plot_neurons_all,
+        'flavell_zimmer': neurons_fz,
+        'flavell_immob': neurons_fi,
+        'zimmer_immob': neurons_zi
+    }
+
+
+def build_pca_plot_dataframe(pca_results, df):
+    """Build DataFrame for plotting from PCA results.
     
-    # Run PCA for all sources combined (20 components for variance explained plot)
-    pca_results, nan_log, pc_scores, variance_explained = pca_per_dataset(
-        df, neuron_cols, plot_neurons_all, anchor_neuron='AVA', n_components=20, 
-        zscore_neurons=zscore_neurons, nan_log=nan_log
-    )
+    Args:
+        pca_results: Dict of dataset_name -> dict of neuron -> PC1 loading
+        df: Original DataFrame (used for source information)
     
-    # Build dataframe for all PCA results
+    Returns:
+        DataFrame with columns: dataset, neuron, PC1_loading, source
+    """
     data_for_plot = []
     for dataset_name, loadings in pca_results.items():
         for neuron, loading in loadings.items():
@@ -344,47 +359,179 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
                     row['source'] = group['source'].iloc[0]
             data_for_plot.append(row)
     
-    plot_df = pd.DataFrame(data_for_plot)
+    return pd.DataFrame(data_for_plot)
+
+
+def compute_pvalues_for_comparison(plot_df, src1, src2):
+    """Compute p-values for a pairwise comparison.
+    
+    Args:
+        plot_df: DataFrame with PC1_loading, neuron, source columns
+        src1: First source name
+        src2: Second source name
+    
+    Returns:
+        dict of neuron -> corrected p-value
+    """
+    from scipy import stats
+    from statsmodels.stats.multitest import multipletests
+    
+    p_value_dict = {}
+    
+    try:
+        df_src1 = plot_df[plot_df['source'] == src1].pivot(index='neuron', columns='dataset', values='PC1_loading')
+        df_src2 = plot_df[plot_df['source'] == src2].pivot(index='neuron', columns='dataset', values='PC1_loading')
+        
+        if df_src1.shape[0] > 0 and df_src2.shape[0] > 0:
+            common_neurons = set(df_src1.index).intersection(set(df_src2.index))
+            p_values = {}
+            for neuron in common_neurons:
+                vals1 = df_src1.loc[neuron].dropna().values
+                vals2 = df_src2.loc[neuron].dropna().values
+                if len(vals1) >= 3 and len(vals2) >= 3:
+                    _, p = stats.ttest_ind(vals1, vals2, equal_var=False)
+                    p_values[neuron] = p
+            
+            if len(p_values) > 0:
+                neurons = list(p_values.keys())
+                p_arr = np.array([p_values[n] for n in neurons])
+                _, p_corrected, _, _ = multipletests(p_arr, method='fdr_bh')
+                p_value_dict = {n: p_corrected[i] for i, n in enumerate(neurons)}
+                print(f"Calculated p-values for {src1} vs {src2}: {len(p_value_dict)} neurons")
+    except Exception as e:
+        print(f"Warning: Could not calculate p-values for {src1} vs {src2}: {e}")
+    
+    return p_value_dict
+
+
+def make_phase_plot_data(pc_scores, df):
+    """Build DataFrame for phase plots.
+    
+    Args:
+        pc_scores: Dict of dataset_name -> PCA scores array (n_timepoints, n_components)
+        df: Original DataFrame (used for source and behavioral data)
+    
+    Returns:
+        DataFrame with columns: PC0, PC1, dataset, source, timepoint, reversal
+    """
+    phase_data = []
+    for dataset_name, scores in pc_scores.items():
+        group = df[df['dataset_name'] == dataset_name]
+        source = group['source'].iloc[0] if 'source' in group.columns else 'unknown'
+        n_timepoints = scores.shape[0]
+        phase_data.append(pd.DataFrame({
+            'PC0': scores[:, 0],
+            'PC1': scores[:, 1],
+            'dataset': dataset_name,
+            'source': source,
+            'timepoint': np.arange(n_timepoints),
+            'reversal': group['reversal'].values if 'reversal' in group.columns else np.nan,
+        }))
+    
+    return pd.concat(phase_data, ignore_index=True)
+
+
+def make_boxplot(df_subset, filename, title, sort_neurons=None):
+    """Create a boxplot of PC1 loadings using plotly.
+    
+    Args:
+        df_subset: DataFrame with 'neuron', 'PC1_loading', and optionally 'source' columns
+        filename: Base filename for saving (without extension)
+        title: Plot title
+        sort_neurons: Optional list of neuron names to order the x-axis (by median PC1 loading)
+    """
+    if len(df_subset) == 0:
+        return
+    if sort_neurons is None:
+        medians = df_subset.groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
+        sort_neurons = medians.index.tolist()
+    
+    plot_kwargs = dict(
+        data_frame=df_subset, 
+        x='neuron', 
+        y='PC1_loading',
+        title=title,
+        labels={'neuron': 'Neuron', 'PC1_loading': 'PC1 Loading'},
+        category_orders={'neuron': sort_neurons}
+    )
+    
+    if 'source' in df_subset.columns:
+        plot_kwargs['color'] = 'source'
+    
+    fig = px.box(**plot_kwargs)
+    fig.update_traces(marker=dict(size=4, opacity=0.5), boxpoints='all')
+    fig.update_layout(
+        xaxis=dict(tickangle=45),
+        height=600,
+        width=1600
+    )
+    
+    fig.write_html(f'{filename}.html')
+    fig.write_image(f'{filename}.png', scale=2)
+
+
+def get_comparisons_to_run(plot_df, filtered_neurons):
+    """Determine which source comparisons to run based on available data.
+    
+    Args:
+        plot_df: DataFrame with 'source' column containing PCA results
+        filtered_neurons: Dict with keys 'all', 'flavell_zimmer', 'flavell_immob', 'zimmer_immob'
+                        mapping to lists of neurons for each comparison
+    
+    Returns:
+        List of comparison tuples. Each tuple is either:
+        - (src1, src2, neurons, filename) for 2-way comparisons
+        - (src1, src2, src3, neurons, filename) for 3-way comparisons
+    """
     sources = plot_df['source'].unique().tolist()
-    zscore_text = ', z-scored' if zscore_neurons else ''
+    comparisons = []
     
-    def make_boxplot(df_subset, filename, title, sort_neurons=None):
-        if len(df_subset) == 0:
-            return
-        if sort_neurons is None:
-            medians = df_subset.groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
-            sort_neurons = medians.index.tolist()
-        
-        plot_kwargs = dict(
-            data_frame=df_subset, 
-            x='neuron', 
-            y='PC1_loading',
-            title=title,
-            labels={'neuron': 'Neuron', 'PC1_loading': 'PC1 Loading'},
-            category_orders={'neuron': sort_neurons}
-        )
-        
-        if 'source' in df_subset.columns:
-            plot_kwargs['color'] = 'source'
-        
-        fig = px.box(**plot_kwargs)
-        fig.update_traces(marker=dict(size=4, opacity=0.5), boxpoints='all')
-        fig.update_layout(
-            xaxis=dict(tickangle=45),
-            height=600,
-            width=1600
-        )
-        
-        fig.write_html(f'{filename}.html')
-        fig.write_image(f'{filename}.png', scale=2)
+    if 'flavell' in sources and 'zimmer' in sources:
+        comparisons.append(('flavell', 'zimmer', filtered_neurons['flavell_zimmer'], 'pc1_loadings_flavell_zimmer'))
+    if 'flavell' in sources and 'immob' in sources:
+        comparisons.append(('flavell', 'immob', filtered_neurons['flavell_immob'], 'pc1_loadings_flavell_immob'))
+    if 'zimmer' in sources and 'immob' in sources:
+        comparisons.append(('zimmer', 'immob', filtered_neurons['zimmer_immob'], 'pc1_loadings_zimmer_immob'))
+    if 'flavell' in sources and 'zimmer' in sources and 'immob' in sources:
+        comparisons.append(('flavell', 'zimmer', 'immob', filtered_neurons['all'], 'pc1_loadings_all_three'))
     
-    # Combined plot (all sources)
-    title_combined = f'PC1 Loadings for Filtered Neurons (confident + >= {min_datasets} datasets in each source, anchored to AVA{zscore_text}, sorted by median)'
-    make_boxplot(plot_df, 'pc1_loadings_boxplot', title_combined)
-    if DEBUG:
-        print("Saved combined plot to pc1_loadings_boxplot.html and .png")
+    return comparisons
+
+
+def save_nan_log(nan_log, nan_log_file, DEBUG=False):
+    """Save NaN log to a CSV file.
     
-    # Cumulative variance explained per PCA mode (use existing PCA results from pca_per_dataset)
+    Args:
+        nan_log: List of dicts with 'dataset' and 'neurons_with_partial_nan' keys
+        nan_log_file: Path to output file
+        DEBUG: If True, print confirmation message
+    """
+    if nan_log and nan_log_file:
+        with open(nan_log_file, 'w') as f:
+            f.write("Dataset,Neurons with Partial NaN\n")
+            for entry in nan_log:
+                f.write(f"{entry['dataset']},{','.join(entry['neurons_with_partial_nan'])}\n")
+        if DEBUG:
+            print(f"Saved NaN log to {nan_log_file}")
+
+
+def make_variance_explained_plot(variance_explained, df, zscore_neurons, DEBUG, gfp_h5_path=None):
+    """Create variance explained plot from PCA results.
+    
+    Args:
+        variance_explained: Dict of dataset_name -> array of explained variance ratios
+                           (from pca_per_dataset)
+        df: Original DataFrame (used for source information)
+        zscore_neurons: Whether neurons were z-scored before PCA
+        DEBUG: If True, print debug messages
+        gfp_h5_path: Optional path to GFP control data H5 file. If None, uses default path.
+                    Set to None to skip GFP control data entirely.
+    
+    Returns:
+        DataFrame with variance explained data (for potential further analysis)
+    """
+    DEFAULT_GFP_PATH = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/data.h5'
+    
     var_exp_data = []
     for dataset_name, var_ratios in variance_explained.items():
         group = df[df['dataset_name'] == dataset_name]
@@ -398,32 +545,35 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
                 'variance_explained': var_exp
             })
     
-    # Add GFP control data using the dedicated function (use same zscore flag as main analysis)
-    gfp_h5_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/data.h5'
-    try:
-        df_gfp = pd.read_hdf(gfp_h5_path, key='df_with_missing')
-        df_gfp = df_gfp.dropna(axis=1, how='all')
-        
-        gfp_neurons = get_neuron_columns(df_gfp)
-        gfp_var_exp = compute_variance_explained(df_gfp, gfp_neurons, n_components=20, zscore_neurons=zscore_neurons)
-        
-        for dataset_name, var_ratios in gfp_var_exp.items():
-            cumulative_var = np.cumsum(var_ratios)
-            for mode_idx, var_exp in enumerate(cumulative_var):
-                var_exp_data.append({
-                    'source': 'gfp_control',
-                    'dataset': dataset_name,
-                    'pca_mode': mode_idx + 1,
-                    'variance_explained': var_exp
-                })
-        if DEBUG:
-            print(f"Added GFP control data to variance explained plot")
-    except Exception as e:
-        print(f"Could not load GFP control data: {e}")
+    gfp_path = gfp_h5_path if gfp_h5_path is not None else DEFAULT_GFP_PATH
+    
+    if gfp_path is not None:
+        try:
+            df_gfp = pd.read_hdf(gfp_path, key='df_with_missing')
+            df_gfp = df_gfp.dropna(axis=1, how='all')
+            
+            gfp_neurons = get_neuron_columns(df_gfp)
+            gfp_var_exp = compute_variance_explained(df_gfp, gfp_neurons, n_components=20, zscore_neurons=zscore_neurons)
+            
+            for dataset_name, var_ratios in gfp_var_exp.items():
+                cumulative_var = np.cumsum(var_ratios)
+                for mode_idx, var_exp in enumerate(cumulative_var):
+                    var_exp_data.append({
+                        'source': 'gfp_control',
+                        'dataset': dataset_name,
+                        'pca_mode': mode_idx + 1,
+                        'variance_explained': var_exp
+                    })
+            if DEBUG:
+                print(f"Added GFP control data to variance explained plot")
+        except Exception as e:
+            print(f"Could not load GFP control data: {e}")
     
     var_exp_df = pd.DataFrame(var_exp_data)
     
     if len(var_exp_df) > 0:
+        zscore_text = ', z-scored' if zscore_neurons else ''
+        
         fig_var = plotly_plot_mean_and_shading(
             var_exp_df,
             x='pca_mode',
@@ -445,127 +595,21 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
         if DEBUG:
             print("Saved variance explained plot to variance_explained_pca.html and .png")
     
-    # Pairwise and all-three plots: run separate PCAs for each comparison
-    comparisons = []
-    if 'flavell' in sources and 'zimmer' in sources:
-        comparisons.append(('flavell', 'zimmer', neurons_fz, 'pc1_loadings_flavell_zimmer'))
-    if 'flavell' in sources and 'immob' in sources:
-        comparisons.append(('flavell', 'immob', neurons_fi, 'pc1_loadings_flavell_immob'))
-    if 'zimmer' in sources and 'immob' in sources:
-        comparisons.append(('zimmer', 'immob', neurons_zi, 'pc1_loadings_zimmer_immob'))
-    if 'flavell' in sources and 'zimmer' in sources and 'immob' in sources:
-        comparisons.append(('flavell', 'zimmer', 'immob', plot_neurons_all, 'pc1_loadings_all_three'))
+    return var_exp_df
+
+
+def make_all_phase_plots(pc_scores, df, zscore_text, DEBUG=False):
+    """Create phase plots (PC0 vs PC1) for flavell datasets colored by reversal.
     
-    for comp in comparisons:
-        if len(comp) == 4:
-            src1, src2, neurons, filename = comp
-            title = f'PC1 Loadings: {src1.capitalize()} vs {src2.capitalize()} (confident + >= {min_datasets} datasets in each, anchored to AVA{zscore_text})'
-            df_subset = df[df['source'].isin([src1, src2])]
-        else:
-            src1, src2, src3, neurons, filename = comp
-            title = f'PC1 Loadings: {src1.capitalize()} vs {src2.capitalize()} vs {src3.capitalize()} (confident + >= {min_datasets} datasets in each, anchored to AVA{zscore_text})'
-            df_subset = df[df['source'].isin([src1, src2, src3])]
-        
-        # Run PCA for this comparison
-        pca_results_pair, _, pc_scores_pair, _ = pca_per_dataset(df_subset, neuron_cols, neurons, anchor_neuron='AVA', n_components=20, zscore_neurons=zscore_neurons, nan_log=[])
-        
-        # Build dataframe
-        data_pair = []
-        for dataset_name, loadings in pca_results_pair.items():
-            for neuron, loading in loadings.items():
-                row = {
-                    'dataset': dataset_name,
-                    'neuron': neuron,
-                    'PC1_loading': loading
-                }
-                group = df_subset[df_subset['dataset_name'] == dataset_name]
-                if 'source' in group.columns:
-                    row['source'] = group['source'].iloc[0]
-                data_pair.append(row)
-        
-        df_pair = pd.DataFrame(data_pair)
-        
-        # Calculate p-values for 2-way comparisons only
-        p_value_dict = {}
-        if len(comp) == 4:
-            try:
-                df_src1 = df_pair[df_pair['source'] == src1].pivot(index='neuron', columns='dataset', values='PC1_loading')
-                df_src2 = df_pair[df_pair['source'] == src2].pivot(index='neuron', columns='dataset', values='PC1_loading')
-                if df_src1.shape[0] > 0 and df_src2.shape[0] > 0:
-                    # Compute p-values directly: t-test between the two sources for each neuron
-                    from scipy import stats
-                    from statsmodels.stats.multitest import multipletests
-                    
-                    common_neurons = set(df_src1.index).intersection(set(df_src2.index))
-                    p_values = {}
-                    for neuron in common_neurons:
-                        vals1 = df_src1.loc[neuron].dropna().values
-                        vals2 = df_src2.loc[neuron].dropna().values
-                        if len(vals1) >= 3 and len(vals2) >= 3:
-                            _, p = stats.ttest_ind(vals1, vals2, equal_var=False)
-                            p_values[neuron] = p
-                    
-                    if len(p_values) > 0:
-                        # FDR correction
-                        neurons = list(p_values.keys())
-                        p_arr = np.array([p_values[n] for n in neurons])
-                        _, p_corrected, _, _ = multipletests(p_arr, method='fdr_bh')
-                        p_value_dict = {n: p_corrected[i] for i, n in enumerate(neurons)}
-                        print(f"Calculated p-values for {src1} vs {src2}: {len(p_value_dict)} neurons")
-                        if DEBUG:
-                            for n, p in p_value_dict.items():
-                                print(f"  {n}: corrected p = {p:.4e}")
-            except Exception as e:
-                print(f"Warning: Could not calculate p-values for {src1} vs {src2}: {e}")
-        
-        # Sort neurons by flavell median if available
-        if 'flavell' in df_pair['source'].values:
-            flavell_medians = df_pair[df_pair['source'] == 'flavell'].groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
-            sort_neurons = flavell_medians.index.tolist()
-        else:
-            sort_neurons = None
-        
-        # Make boxplot
-        if len(df_pair) == 0:
-            return
-        if sort_neurons is None:
-            medians = df_pair.groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
-            sort_neurons = medians.index.tolist()
-        
-        plot_kwargs = dict(
-            data_frame=df_pair, 
-            x='neuron', 
-            y='PC1_loading',
-            title=title,
-            labels={'neuron': 'Neuron', 'PC1_loading': 'PC1 Loading'},
-            category_orders={'neuron': sort_neurons}
-        )
-        
-        if 'source' in df_pair.columns:
-            plot_kwargs['color'] = 'source'
-        
-        fig = px.box(**plot_kwargs)
-        fig.update_traces(marker=dict(size=4, opacity=0.5), boxpoints='all')
-        fig.update_layout(
-            xaxis=dict(tickangle=45),
-            height=600,
-            width=1600
-        )
-        
-        if p_value_dict:
-            try:
-                fig = add_p_value_annotation(fig, x_label='all', precalculated_p_values=p_value_dict, show_only_stars=True, show_ns=False, 
-                                             category_orders={'neuron': sort_neurons}, DEBUG=DEBUG)
-            except Exception as e:
-                # print(f"Warning: Could not add p-value annotations: {e}")
-                raise e
-        
-        fig.write_html(f'{filename}.html')
-        fig.write_image(f'{filename}.png', scale=2)
-        if DEBUG:
-            print(f"Saved {filename} plot")
+    Args:
+        pc_scores: Dict of dataset_name -> PCA scores array (n_timepoints, n_components)
+        df: Original DataFrame (used for source and behavioral data)
+        zscore_text: String to include in plot titles (e.g. ', z-scored' or '')
+        DEBUG: If True, print debug messages
     
-    # Phase plot: PC0 vs PC1 for flavell datasets only, colored by reversal
+    Returns:
+        int: Number of phase plots created
+    """
     phase_data = []
     for dataset_name, scores in pc_scores.items():
         group = df[df['dataset_name'] == dataset_name]
@@ -582,10 +626,9 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     
     phase_df = pd.concat(phase_data, ignore_index=True)
     
-    zscore_text = ', z-scored' if zscore_neurons else ''
-    
     flavell_datasets = phase_df[phase_df['source'] == 'flavell']['dataset'].unique()
     
+    plot_count = 0
     for dataset_name in flavell_datasets:
         dataset_phase = phase_df[phase_df['dataset'] == dataset_name]
         
@@ -612,16 +655,199 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
         )
         fig_phase.write_html(f'phase_plot_{safe_name}_reversal.html')
         fig_phase.write_image(f'phase_plot_{safe_name}_reversal.png', scale=2)
+        plot_count += 1
     
     if DEBUG:
-        print(f"Saved {len(flavell_datasets)} phase plots with reversal coloring (HTML and PNG)")
+        print(f"Saved {plot_count} phase plots with reversal coloring (HTML and PNG)")
     
-    if nan_log and nan_log_file:
-        with open(nan_log_file, 'w') as f:
-            f.write("Dataset,Neurons with Partial NaN\n")
-            for entry in nan_log:
-                f.write(f"{entry['dataset']},{','.join(entry['neurons_with_partial_nan'])}\n")
-        print(f"Saved NaN log to {nan_log_file}")
+    return plot_count
+
+
+def make_pairwise_comparisons(df, neuron_cols, comparisons, zscore_neurons=False, min_datasets=5, zscore_text='', DEBUG=False):
+    """Run pairwise PCA and generate boxplots for source comparisons.
+    
+    Args:
+        df: DataFrame with neuron data
+        neuron_cols: List of all neuron column names
+        comparisons: List of comparison tuples from get_comparisons_to_run()
+        zscore_neurons: Whether to z-score neurons before PCA
+        min_datasets: Minimum datasets for neuron inclusion
+        zscore_text: String to include in plot titles
+        DEBUG: If True, print debug messages
+    """
+    for comp in comparisons:
+        if len(comp) == 4:
+            src1, src2, neurons, filename = comp
+            title = f'PC1 Loadings: {src1.capitalize()} vs {src2.capitalize()} (confident + >= {min_datasets} datasets in each, anchored to AVA{zscore_text})'
+            df_subset = df[df['source'].isin([src1, src2])]
+        else:
+            src1, src2, src3, neurons, filename = comp
+            title = f'PC1 Loadings: {src1.capitalize()} vs {src2.capitalize()} vs {src3.capitalize()} (confident + >= {min_datasets} datasets in each, anchored to AVA{zscore_text})'
+            df_subset = df[df['source'].isin([src1, src2, src3])]
+        
+        pca_results_pair, _, pc_scores_pair, _ = pca_per_dataset(
+            df_subset, neuron_cols, neurons, anchor_neuron='AVA', 
+            n_components=20, zscore_neurons=zscore_neurons, nan_log=[]
+        )
+        
+        data_pair = []
+        for dataset_name, loadings in pca_results_pair.items():
+            for neuron, loading in loadings.items():
+                row = {
+                    'dataset': dataset_name,
+                    'neuron': neuron,
+                    'PC1_loading': loading
+                }
+                group = df_subset[df_subset['dataset_name'] == dataset_name]
+                if 'source' in group.columns:
+                    row['source'] = group['source'].iloc[0]
+                data_pair.append(row)
+        
+        df_pair = pd.DataFrame(data_pair)
+        
+        p_value_dict = {}
+        if len(comp) == 4:
+            try:
+                df_src1 = df_pair[df_pair['source'] == src1].pivot(index='neuron', columns='dataset', values='PC1_loading')
+                df_src2 = df_pair[df_pair['source'] == src2].pivot(index='neuron', columns='dataset', values='PC1_loading')
+                if df_src1.shape[0] > 0 and df_src2.shape[0] > 0:
+                    from scipy import stats
+                    from statsmodels.stats.multitest import multipletests
+                    
+                    common_neurons = set(df_src1.index).intersection(set(df_src2.index))
+                    p_values = {}
+                    for neuron in common_neurons:
+                        vals1 = df_src1.loc[neuron].dropna().values
+                        vals2 = df_src2.loc[neuron].dropna().values
+                        if len(vals1) >= 3 and len(vals2) >= 3:
+                            _, p = stats.ttest_ind(vals1, vals2, equal_var=False)
+                            p_values[neuron] = p
+                    
+                    if len(p_values) > 0:
+                        neurons_list = list(p_values.keys())
+                        p_arr = np.array([p_values[n] for n in neurons_list])
+                        _, p_corrected, _, _ = multipletests(p_arr, method='fdr_bh')
+                        p_value_dict = {n: p_corrected[i] for i, n in enumerate(neurons_list)}
+                        print(f"Calculated p-values for {src1} vs {src2}: {len(p_value_dict)} neurons")
+                        if DEBUG:
+                            for n, p in p_value_dict.items():
+                                print(f"  {n}: corrected p = {p:.4e}")
+            except Exception as e:
+                print(f"Warning: Could not calculate p-values for {src1} vs {src2}: {e}")
+        
+        if 'flavell' in df_pair['source'].values:
+            flavell_medians = df_pair[df_pair['source'] == 'flavell'].groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
+            sort_neurons = flavell_medians.index.tolist()
+        else:
+            sort_neurons = None
+        
+        if len(df_pair) == 0:
+            continue
+        if sort_neurons is None:
+            medians = df_pair.groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
+            sort_neurons = medians.index.tolist()
+        
+        plot_kwargs = dict(
+            data_frame=df_pair, 
+            x='neuron', 
+            y='PC1_loading',
+            title=title,
+            labels={'neuron': 'Neuron', 'PC1_loading': 'PC1 Loading'},
+            category_orders={'neuron': sort_neurons}
+        )
+        
+        if 'source' in df_pair.columns:
+            plot_kwargs['color'] = 'source'
+        
+        fig = px.box(**plot_kwargs)
+        fig.update_traces(marker=dict(size=4, opacity=0.5), boxpoints='all')
+        fig.update_layout(
+            xaxis=dict(tickangle=45),
+            height=600,
+            width=1600
+        )
+        
+        if p_value_dict:
+            try:
+                fig = add_p_value_annotation(fig, x_label='all', precalculated_p_values=p_value_dict, show_only_stars=True, show_ns=DEBUG, 
+                                             category_orders={'neuron': sort_neurons}, DEBUG=DEBUG)
+            except Exception as e:
+                raise e
+        
+        fig.write_html(f'{filename}.html')
+        fig.write_image(f'{filename}.png', scale=2)
+        if DEBUG:
+            print(f"Saved {filename} plot")
+
+
+def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, min_datasets=5, include_immob=False, DEBUG=False, gfp_h5_path=None):
+    nan_log = []
+    
+    df = prepare_dataframe(include_hierarchical=include_hierarchical, include_immob=include_immob)
+    neuron_cols = get_neuron_columns(df)
+    labeled_neurons = get_labeled_neurons(neuron_cols)
+    
+    print(f"Total neuron columns after combining: {len(neuron_cols)}")
+    print(f"Labeled neurons after combining: {len(labeled_neurons)}")
+    
+    sources = df['source'].unique().tolist()
+    
+    pairwise_min_datasets = max(3, min_datasets // 2)
+    
+    filtered = filter_neurons_by_coverage(
+        df, neuron_cols, labeled_neurons, 
+        min_datasets=min_datasets, 
+        pairwise_min_datasets=pairwise_min_datasets
+    )
+    plot_neurons_all = filtered['all']
+    neurons_fz = filtered['flavell_zimmer']
+    neurons_fi = filtered['flavell_immob']
+    neurons_zi = filtered['zimmer_immob']
+    
+    print(f"Plot neurons (all {len(sources)} sources): {len(plot_neurons_all)}")
+    print(f"Plot neurons (flavell vs zimmer): {len(neurons_fz)}")
+    print(f"Plot neurons (flavell vs immob): {len(neurons_fi)}")
+    print(f"Plot neurons (zimmer vs immob): {len(neurons_zi)}")
+    print(f"AVA in all neurons: {'AVA' in plot_neurons_all}")
+    
+    # Print diagnostic: correlation with AVA
+    if DEBUG:
+        print_diagnostic_correlations(df, plot_neurons_all, anchor_neuron='AVA')
+    
+    # Run PCA for all sources combined (20 components for variance explained plot)
+    pca_results, nan_log, pc_scores, variance_explained = pca_per_dataset(
+        df, neuron_cols, plot_neurons_all, anchor_neuron='AVA', n_components=20, 
+        zscore_neurons=zscore_neurons, nan_log=nan_log
+    )
+    
+    # Build dataframe for all PCA results
+    plot_df = build_pca_plot_dataframe(pca_results, df)
+    sources = plot_df['source'].unique().tolist()
+    zscore_text = ', z-scored' if zscore_neurons else ''
+    
+    # Combined plot (all sources)
+    title_combined = f'PC1 Loadings for Filtered Neurons (confident + >= {min_datasets} datasets in each source, anchored to AVA{zscore_text}, sorted by median)'
+    make_boxplot(plot_df, 'pc1_loadings_boxplot', title_combined)
+    if DEBUG:
+        print("Saved combined plot to pc1_loadings_boxplot.html and .png")
+    
+    # Cumulative variance explained per PCA mode
+    make_variance_explained_plot(variance_explained, df, zscore_neurons, DEBUG, gfp_h5_path)
+    
+    # Pairwise and all-three plots: run separate PCAs for each comparison
+    comparisons = get_comparisons_to_run(plot_df, filtered)
+    make_pairwise_comparisons(
+        df, neuron_cols, comparisons, 
+        zscore_neurons=zscore_neurons, 
+        min_datasets=min_datasets,
+        zscore_text=zscore_text,
+        DEBUG=DEBUG
+    )
+    
+    # Phase plot: PC0 vs PC1 for flavell datasets only, colored by reversal
+    make_all_phase_plots(pc_scores, df, zscore_text, DEBUG)
+    
+    save_nan_log(nan_log, nan_log_file, DEBUG)
     
     return plot_df
 
@@ -640,9 +866,11 @@ if __name__ == "__main__":
                         help='Minimum number of datasets (per source) a neuron must appear in (default: 5)')
     parser.add_argument('--debug', action='store_true', 
                         help='Enable debug mode with extra prints')
+    parser.add_argument('--gfp-h5-path', type=str, default=None,
+                        help='Path to GFP control data H5 file (default: use built-in path)')
     args = parser.parse_args()
     
     include_hierarchical = not args.flavell_only
     main(include_hierarchical=include_hierarchical, zscore_neurons=args.zscore_neurons, 
          nan_log_file=args.nan_log_file, min_datasets=args.min_datasets, 
-         include_immob=args.include_immob, DEBUG=args.debug)
+         include_immob=args.include_immob, DEBUG=args.debug, gfp_h5_path=args.gfp_h5_path)
