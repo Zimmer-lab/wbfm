@@ -404,11 +404,11 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         fname = None
         try:
             fname = self.get_local_raw_data_config_filename()
-            return SubfolderConfigFile(**self._check_path_and_load_config(fname))
+            return SubfolderConfigFile(**self._check_path_and_load_config(Path(fname)))
         except FileNotFoundError:
             try:
                 fname = self.get_remote_raw_data_config_filename()
-                return SubfolderConfigFile(**self._check_path_and_load_config(fname))
+                return SubfolderConfigFile(**self._check_path_and_load_config(Path(fname)))
             except FileNotFoundError:
                 # Allow a hardcoded default... fragile, but necessary for projects with deleted raw data
                 cfg = default_raw_data_config()
