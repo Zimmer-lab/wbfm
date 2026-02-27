@@ -365,7 +365,7 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         fname = Path(self.config['subfolder_configs']['traces'])
         return SubfolderConfigFile(**self._check_path_and_load_config(fname))
 
-    def get_remote_raw_data_config_filename(self):
+    def get_remote_raw_data_config_filename(self) -> str:
         """
         Get the yaml file for the raw data itself; old projects have this stored with the raw data
 
@@ -376,6 +376,17 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         if fname is None:
             raise FileNotFoundError
         fname = Path(fname).joinpath('config.yaml')
+        if not fname.exists():
+            raise FileNotFoundError
+        return str(fname)
+
+    def get_local_raw_data_config_filename(self) -> str:
+        """
+        See get_remote_raw_data_config_filename() for the old location of the raw data config; this is the new location, which is local to the project
+            See default_raw_data_config() for the default values
+        """
+        fname = self.get_behavior_config().absolute_subfolder
+        fname = Path(fname).joinpath('raw_data_config.yaml')
         if not fname.exists():
             raise FileNotFoundError
         return str(fname)
@@ -392,14 +403,18 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         """
         fname = None
         try:
-            fname = self.get_remote_raw_data_config_filename()
+            fname = self.get_local_raw_data_config_filename()
             return SubfolderConfigFile(**self._check_path_and_load_config(fname))
         except FileNotFoundError:
-            # Allow a hardcoded default... fragile, but necessary for projects with deleted raw data
-            cfg = default_raw_data_config()
-            self._logger.debug(f"Could not find file {fname}; "
-                               f"Using hardcoded default raw data config: {cfg}")
-            return SubfolderConfigFile(_self_path=None, _config=cfg, project_dir=self.project_dir)
+            try:
+                fname = self.get_remote_raw_data_config_filename()
+                return SubfolderConfigFile(**self._check_path_and_load_config(fname))
+            except FileNotFoundError:
+                # Allow a hardcoded default... fragile, but necessary for projects with deleted raw data
+                cfg = default_raw_data_config()
+                self._logger.debug(f"Could not find file {fname}; "
+                                f"Using hardcoded default raw data config: {cfg}")
+                return SubfolderConfigFile(_self_path=None, _config=cfg, project_dir=self.project_dir)
 
     def get_nwb_config(self, make_subfolder=True) -> SubfolderConfigFile:
         fname = self.config['subfolder_configs'].get('nwb', None)
