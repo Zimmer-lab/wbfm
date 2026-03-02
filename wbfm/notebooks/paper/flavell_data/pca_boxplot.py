@@ -753,8 +753,8 @@ def make_pairwise_comparisons(df, neuron_cols, comparisons, zscore_neurons=False
             data_frame=df_pair, 
             x='neuron', 
             y='PC1_loading',
-            title=title,
-            labels={'neuron': 'Neuron', 'PC1_loading': 'PC1 Loading'},
+            # title=title,
+            labels={'neuron': 'Neuron', 'PC1_loading': 'PC1 Weight'},
             category_orders={'neuron': sort_neurons}
         )
         
@@ -765,19 +765,17 @@ def make_pairwise_comparisons(df, neuron_cols, comparisons, zscore_neurons=False
         fig = px.box(**plot_kwargs)
         fig.update_traces(marker=dict(size=4, opacity=0.5), boxpoints='all')
         fig.update_layout(
-            xaxis=dict(tickangle=45),
-            height=600,
-            width=1600
+            xaxis=dict(tickangle=45)
         )
-        
+
         if p_value_dict:
             try:
                 fig = add_p_value_annotation(fig, x_label='all', precalculated_p_values=p_value_dict, show_only_stars=True, show_ns=DEBUG, 
-                                             category_orders={'neuron': sort_neurons}, DEBUG=DEBUG)
+                                             category_orders={'neuron': sort_neurons}, height_mode='top_of_data', DEBUG=DEBUG)
             except Exception as e:
                 raise e
-        
-        apply_figure_settings(fig, width_factor=1.0, height_factor=0.3)
+
+        apply_figure_settings(fig, width_factor=1.0, height_factor=0.4)
 
         fig.write_html(f'{filename}.html')
         fig.write_image(f'{filename}.png', scale=2)
