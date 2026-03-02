@@ -51,19 +51,26 @@ def _load_model_comparison_dfs(foldername, single_neuron=None):
 
 def calculate_paper_model_comparisons(suffix='_pca_global', single_neuron=None, Xy=None, Xy_gfp=None,
                                       y_column = 'Relative Hierarchy Score', x_column = 'Behavior Score', remove_names_of_ns=True,
-                                      verbose=0):
+                                      verbose=0, parent_folder_kwargs=None):
+
+    if parent_folder_kwargs is None:
+        parent_folder_kwargs = {}
 
     # Load raw arviz results
-    foldername = os.path.join(get_hierarchical_modeling_dir(), f'output{suffix}')
-    foldername_gfp = os.path.join(get_hierarchical_modeling_dir(gfp=True), f'output{suffix}')
+    parent_folder = get_hierarchical_modeling_dir(**parent_folder_kwargs)
+    parent_folder_kwargs['gfp'] = True
+    parent_folder_gfp = get_hierarchical_modeling_dir(**parent_folder_kwargs)
+
+    foldername = os.path.join(parent_folder, f'output{suffix}')
+    foldername_gfp = os.path.join(parent_folder_gfp, f'output{suffix}')
 
     df = _load_model_comparison_dfs(foldername, single_neuron=single_neuron)
     df_gfp = _load_model_comparison_dfs(foldername_gfp, single_neuron=single_neuron)
 
     if Xy is None:
-        Xy = pd.read_hdf(os.path.join(get_hierarchical_modeling_dir(), 'data.h5'))
+        Xy = pd.read_hdf(os.path.join(parent_folder, 'data.h5'))
     if Xy_gfp is None:
-        Xy_gfp = pd.read_hdf(os.path.join(get_hierarchical_modeling_dir(gfp=True), 'data.h5'))
+        Xy_gfp = pd.read_hdf(os.path.join(parent_folder_gfp, 'data.h5'))
 
     # Package for plotting
     df_to_plot_gcamp = package_bayesian_df_for_plot(df, df_normalization=Xy, 
@@ -91,17 +98,15 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
                               all_traces=None, Xy=None, verbose=0):
     from wbfm.utils.general.utils_hardcoded import role_of_neuron_dict
 
-    parent_folder = get_hierarchical_modeling_dir(gfp=do_gfp)
-
-    foldername = os.path.join(parent_folder, f'output{suffix}')
     if all_traces is None:
+        parent_folder = get_hierarchical_modeling_dir(gfp=do_gfp)
+        foldername = os.path.join(parent_folder, f'output{suffix}')
         all_traces = _load_all_traces(foldername, single_neuron=single_neuron)
 
     if Xy is None:
+        parent_folder = get_hierarchical_modeling_dir(gfp=do_gfp)
+        foldername = os.path.join(parent_folder, f'output{suffix}')
         Xy = pd.read_hdf(os.path.join(parent_folder, 'data.h5'))
-
-    # foldername = os.path.join(f'{parent_folder}_gfp', f'output{suffix}')
-    # all_traces_gfp = load_all_traces(foldername)
 
     # Just plot all
     if single_neuron is None:
@@ -243,17 +248,20 @@ def calc_var_ratio(Xy):
     return Xy_var_ratio
 
 
-def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, recalculate_sigmoid=False):
+def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, recalculate_sigmoid=False,
+                                      parent_folder_kwargs=None):
     """
     Use above functions to calculate all data needed for the Bayesian model comparison and t-tests
 
     """
+    if parent_folder_kwargs is None:
+        parent_folder_kwargs = dict(gfp=False, immobilized=False, o2_stimulus=False, mutant=False, avb_hiscl=False)
 
     # Model comparisons
-    df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_paper_model_comparisons(suffix=suffix, single_neuron=single_neuron)
+    df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_paper_model_comparisons(suffix=suffix, single_neuron=single_neuron, parent_folder_kwargs=parent_folder_kwargs)
 
     # Parameter values and t-tests
-    parent_folder = get_hierarchical_modeling_dir(gfp=False)
+    parent_folder = get_hierarchical_modeling_dir(**parent_folder_kwargs)
     foldername = os.path.join(parent_folder, f'output{suffix}')
     all_traces = _load_all_traces(foldername, single_neuron=single_neuron)
 
