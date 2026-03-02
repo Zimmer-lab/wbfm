@@ -969,7 +969,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_name', type=str)
     parser.add_argument('--residual_mode', type=str, default='pca_global')
     # Boolean
-    parser.add_argument('--avb_hiscl', action='store_true')
+    parser.add_argument('--parent_folder_suffix', type=str, help='Alternate parent folder for the traces, specifically the suffix; see export_data_for_hierarchical_model(). Examples are "avb_hiscl", and "avb_hiscl_control"')
     parser.add_argument('--gfp', action='store_true')
     parser.add_argument('--simple_eigenworms', action='store_true')
     parser.add_argument('--keep_large_vars', action='store_true', help='Keep large deterministic variables (curvature_term, mu, etc.) in saved traces')
@@ -991,4 +991,4 @@ if __name__ == '__main__':
         main_full_models(neuron_name=args.neuron_name, 
                          residual_mode=residual_mode,
                          use_additional_eigenworms=not args.simple_eigenworms, keep_large_vars=args.keep_large_vars, DEBUG=args.debug,
-                         gfp=args.gfp, avb_hiscl=args.avb_hiscl)
+                         gfp=args.gfp, suffix=args.parent_folder_suffix)

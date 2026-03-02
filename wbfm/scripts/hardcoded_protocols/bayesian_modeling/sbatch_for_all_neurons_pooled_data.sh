@@ -6,8 +6,8 @@
 function show_help {
   echo "Usage: $0 [-g] [-a] [-r] [-c] [-h] <gfp>"
   echo "  -g: Use GFP data"
-  echo "  -a: Use AVB hiscl data"
   echo "  -s: Use simple eigenworms (1 and 2 only)"
+  echo "  -t: Alternate parent folder for the traces, specifically the suffix; see export_data_for_hierarchical_model(). Examples are 'avb_hiscl', and 'avb_hiscl_control'"
   echo "  -r: Trace mode; should be one of 'None', 'pca_global', 'pca_global_1', 'cca_continuous', 'discrete'; default is pca_global"
   echo "  -c: Run temporal-split CV comparison instead of full model fitting"
   echo "  -k: Keep large deterministic variables (curvature_term, mu, etc.) in saved traces"
@@ -17,17 +17,17 @@ function show_help {
 
 # Get all user flags
 use_gfp="false"
-use_avb_hiscl="false"
+parent_folder_suffix=""
 use_raw_trace="false"
 debug="false"
 simple_eigenworms="false"
 cv_comparison="false"
 keep_large_vars="false"
-while getopts gasr:dckh flag
+while getopts gt:sr:dckh flag
 do
     case "${flag}" in
         g) use_gfp="true";;
-        a) use_avb_hiscl="true";;
+        t) parent_folder_suffix=${OPTARG};;
         s) simple_eigenworms="true";;
         r) residual_mode=${OPTARG};;
         d) debug="true";;
@@ -138,8 +138,8 @@ CMD="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/utils/external/u
 # Changes if running on gfp
 if [ "$use_gfp" == "true" ]; then
   LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/logs"
-elif [ "$use_avb_hiscl" == "true" ]; then
-  LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_avb_hiscl/logs"
+elif [ "$parent_folder_suffix" ]; then
+  LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_${parent_folder_suffix}/logs"
 else
   LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling/logs"
 fi
@@ -163,8 +163,8 @@ if [ "$use_gfp" == "true" ]; then
   CMD="$CMD --gfp"
   NUM_HOURS=6
   MEM_PER_TASK=32G
-elif [ "$use_avb_hiscl" == "true" ]; then
-  CMD="$CMD --avb_hiscl"
+elif [ "$parent_folder_suffix" ]; then
+  CMD="$CMD --parent_folder_suffix $parent_folder_suffix"
 fi
 
 if [ "$simple_eigenworms" == "true" ]; then
