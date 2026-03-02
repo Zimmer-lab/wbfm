@@ -1977,7 +1977,6 @@ class WormFullVideoPosture:
             logging.warning(f"Found multiple stage position files in {_folder}: {fnames}")
         return _filename_table_position
 
-
     @staticmethod
     def _check_ulises_pipeline_files_in_subfolder(behavior_subfolder):
         # Get the centerline-specific files
