@@ -56,6 +56,7 @@ for f in "${folders[@]}"; do
         if [ "$run_in_background" == "True" ]; then
             # shellcheck disable=SC2086
             python $COMMAND with $ARGS &
+            sleep 0.1 # Stagger the jobs slightly to avoid overwhelming the cluster scheduler
         else
             # shellcheck disable=SC2086
             python $COMMAND with $ARGS
