@@ -760,7 +760,7 @@ def make_pairwise_comparisons(df, neuron_cols, comparisons, zscore_neurons=False
         
         if 'source' in df_pair.columns:
             plot_kwargs['color'] = 'source'
-            plot_kwargs['color_discrete_sequence'] = plotly_paper_color_discrete_map()
+            plot_kwargs['color_discrete_map'] = plotly_paper_color_discrete_map()
         
         fig = px.box(**plot_kwargs)
         fig.update_traces(marker=dict(size=4, opacity=0.5), boxpoints='all')
