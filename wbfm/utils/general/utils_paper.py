@@ -67,15 +67,15 @@ def plotly_paper_color_discrete_map():
     beh_cmap = BehaviorCodes.ethogram_cmap(include_collision=True, include_quiescence=True, include_reversal_turns=True,
                                            include_custom=True, include_stimulus=True)
 
-    cmap_dict = {'gcamp': base_cmap[0], 'wbfm': base_cmap[0],
+    cmap_dict = {'gcamp': base_cmap[0], 'wbfm': base_cmap[0], 'wbfm': base_cmap[0], 'zimmer': base_cmap[0],
                  'Active in Freely Moving only': base_cmap[0], 'Manifold in Freely Moving only': base_cmap[0],
                  'Freely Moving (GCaMP)': base_cmap[0], 'Freely Moving': base_cmap[0], 'Wild Type': base_cmap[0], '488': base_cmap[0], 488: base_cmap[0],
                  'No Light': base_cmap[1], '505': base_cmap[1], 505: base_cmap[1],
-                 # Skip orange... don't like it!
+                 'flavell': base_cmap[1],# Mostly skip orange... don't like it!
                  'immob': base_cmap[2], 'Active in Immob': base_cmap[2], 'Manifold in Immob': base_cmap[2],
                  'Intrinsic (shared with immobilized)': base_cmap[2],
                  'Immobilized (GCaMP)': base_cmap[2], 'Immobilized': base_cmap[2],
-                 'gfp': base_cmap[7], 'Reversal State': base_cmap[7],  # Gray
+                 'gfp': base_cmap[7], 'gfp_control': base_cmap[7],'Reversal State': base_cmap[7],  # Gray
                  'Inactive': base_cmap[7], 'Active': base_cmap[0],
                  'Freely Moving (GFP)': base_cmap[7],
                  'Freely Moving (GFP, residual)': base_cmap[7],

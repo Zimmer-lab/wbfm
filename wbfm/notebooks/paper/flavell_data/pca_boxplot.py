@@ -12,6 +12,7 @@ from load_neurons import load_neurons
 from wbfm.utils.external.utils_pandas import combine_columns_with_suffix
 from wbfm.utils.external.utils_plotly import plotly_plot_mean_and_shading
 from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_color_discrete_map
 from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation
 
 BEHAVIOR_COLUMNS = ['velocity', 'angular_velocity', 'head_curvature', 'body_curvature', 'pumping', 'reversal', 'speed']
@@ -581,7 +582,8 @@ def make_variance_explained_plot(variance_explained, df, zscore_neurons, DEBUG, 
             color='source',
             line_name='Mean',
             shade_style='std',
-            add_individual_lines=False
+            add_individual_lines=False,
+            cmap=plotly_paper_color_discrete_map()
         )
         fig_var.update_layout(
             title=f'Cumulative Variance Explained per PCA Mode by Source (mean ± std{zscore_text})',
@@ -590,6 +592,7 @@ def make_variance_explained_plot(variance_explained, df, zscore_neurons, DEBUG, 
             height=600,
             width=800
         )
+        apply_figure_settings(fig_var, width_factor=0.4, height_factor=0.4)
         fig_var.write_html('variance_explained_pca.html')
         fig_var.write_image('variance_explained_pca.png', scale=2)
         if DEBUG:
@@ -649,10 +652,9 @@ def make_all_phase_plots(pc_scores, df, zscore_text, DEBUG=False):
             color_discrete_map={'no reversal': 'blue', 'reversal': 'red'}
         )
         fig_phase.update_traces(marker=dict(size=4, opacity=0.7))
-        fig_phase.update_layout(
-            height=600,
-            width=800
-        )
+
+        apply_figure_settings(fig_phase, width_factor=0.4, height_factor=0.4)
+        
         fig_phase.write_html(f'phase_plot_{safe_name}_reversal.html')
         fig_phase.write_image(f'phase_plot_{safe_name}_reversal.png', scale=2)
         plot_count += 1
@@ -758,6 +760,7 @@ def make_pairwise_comparisons(df, neuron_cols, comparisons, zscore_neurons=False
         
         if 'source' in df_pair.columns:
             plot_kwargs['color'] = 'source'
+            plot_kwargs['color_discrete_sequence'] = plotly_paper_color_discrete_map()
         
         fig = px.box(**plot_kwargs)
         fig.update_traces(marker=dict(size=4, opacity=0.5), boxpoints='all')
@@ -774,6 +777,8 @@ def make_pairwise_comparisons(df, neuron_cols, comparisons, zscore_neurons=False
             except Exception as e:
                 raise e
         
+        apply_figure_settings(fig, width_factor=1.0, height_factor=0.3)
+
         fig.write_html(f'{filename}.html')
         fig.write_image(f'{filename}.png', scale=2)
         if DEBUG:
