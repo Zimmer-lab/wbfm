@@ -58,8 +58,7 @@ def calculate_paper_model_comparisons(suffix='_pca_global', single_neuron=None, 
 
     # Load raw arviz results
     parent_folder = get_hierarchical_modeling_dir(**parent_folder_kwargs)
-    parent_folder_kwargs['gfp'] = True
-    parent_folder_gfp = get_hierarchical_modeling_dir(**parent_folder_kwargs)
+    parent_folder_gfp = get_hierarchical_modeling_dir(gfp=True)
 
     foldername = os.path.join(parent_folder, f'output{suffix}')
     foldername_gfp = os.path.join(parent_folder_gfp, f'output{suffix}')
