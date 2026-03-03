@@ -1,5 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
+from time import sleep
 import arviz as az
 import numpy as np
 import pandas as pd
@@ -28,6 +29,7 @@ def _load_all_traces(foldername, single_neuron=None):
             try:
                 trace = az.from_netcdf(trace_fname)
                 all_traces[neuron] = trace
+                sleep(0.1)
             except (ValueError, OSError) as e:
                 print(f"Error for neuron {neuron}; this is not surprising if some are still being written: {e}")
     print(f"Loaded {len(all_traces)} out of {len(fnames)} neurons from {foldername}")
@@ -256,19 +258,29 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
     if parent_folder_kwargs is None:
         parent_folder_kwargs = dict(gfp=False, immobilized=False, o2_stimulus=False, mutant=False, avb_hiscl=False)
 
-    # Model comparisons
-    df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_paper_model_comparisons(suffix=suffix, single_neuron=single_neuron, parent_folder_kwargs=parent_folder_kwargs)
-
-    # Parameter values and t-tests
+    # Load data
     parent_folder = get_hierarchical_modeling_dir(**parent_folder_kwargs)
     foldername = os.path.join(parent_folder, f'output{suffix}')
     all_traces = _load_all_traces(foldername, single_neuron=single_neuron)
-
     Xy = pd.read_hdf(os.path.join(parent_folder, 'data.h5'))
 
+    parent_folder_gfp = get_hierarchical_modeling_dir(gfp=True)
+    foldername_gfp = os.path.join(parent_folder_gfp, f'output{suffix}')
+    all_traces_gfp = _load_all_traces(foldername_gfp, single_neuron=single_neuron)
+    Xy_gfp = pd.read_hdf(os.path.join(parent_folder_gfp, 'data.h5'))
+
+    # Model comparisons
+    df_to_plot, _df, y_max_gfp, x_max_gfp = calculate_paper_model_comparisons(suffix=suffix, single_neuron=single_neuron, parent_folder_kwargs=parent_folder_kwargs,
+                                                                              Xy=Xy, Xy_gfp=Xy_gfp)
+
+    # Parameter values and t-tests
     df_params_gcamp = calculate_bayesian_ttests(suffix=suffix, single_neuron=single_neuron, do_gfp=False,
                                                 recalculate_sigmoid=recalculate_sigmoid, var_names=None,
                                                 all_traces=all_traces, Xy=Xy, verbose=0)
+    
+    df_params_gfp = calculate_bayesian_ttests(suffix=suffix, single_neuron=single_neuron, do_gfp=True,
+                                                recalculate_sigmoid=recalculate_sigmoid, var_names=None,
+                                                all_traces=all_traces_gfp, Xy=Xy_gfp, verbose=0)
     
     # Calculate variance explained by the manifold per neuron (supp plot)
     Xy_var_ratio = calc_var_ratio(Xy)
@@ -299,7 +311,10 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
     df_params_full = pd.concat(all_dfs, ignore_index=True)
     
     # Combine all dataframes: model comparison, parameter summary values, and manifold explained variance ratio
-    df_params = df_params_gcamp.merge(df_to_plot, on=['datatype', 'neuron_name'], how='outer')
+    # First combine the ones with the exact same columns
+    df_params = pd.concat([df_params_gcamp, df_params_gfp], ignore_index=True)
+    # Then merge with new-column dataframes
+    df_params = df_params.merge(df_to_plot, on=['datatype', 'neuron_name'], how='outer')
     df_params = df_params.merge(Xy_var_ratio_median, on=['Dataset Type', 'neuron_name'], how='outer')
 
     return df_params, df_params_full, y_max_gfp, x_max_gfp
