@@ -92,7 +92,7 @@ def get_stardist_model(model_name: str = 'students_and_lukas_3d_zarr',
     elif model_name == 'lukas_3d_zarr_local':
         model = StarDist3D(None, name='Lukas3d_zarr_local', basedir=folder_local)
     elif is_full_path:
-        logging.info(f"Loaded stardist model from full path: {model_name}")
+        logging.info(f"Loaded stardist model from full path: {model_name} with folder {folder}")
         model = StarDist3D(None, name=model_name, basedir=folder)
     else:
         raise NameError(f'No StarDist model found using {model_name}! Current models are {sd_options}')
