@@ -197,7 +197,7 @@ class ConfigFileWithProjectContext:
         self.logger.info(f"Saving at local path: {self.unresolve_absolute_path(abs_path)}")
         check_exists(abs_path, allow_overwrite)
         if suffix == '.h5':
-            ensure_dense_dataframe(data).to_hdf(abs_path, key="df_with_missing")
+            data.to_hdf(abs_path, key="df_with_missing")
         elif suffix == '.csv':
             data.to_csv(abs_path)
         elif suffix == '.xlsx':
