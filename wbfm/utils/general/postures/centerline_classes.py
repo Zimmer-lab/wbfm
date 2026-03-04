@@ -1469,7 +1469,7 @@ class WormFullVideoPosture:
         fig = plt.figure(figsize=(15, 15))
         ax = fig.add_subplot(111, projection='3d')
         c = np.arange(self.num_volumes) / 1e6
-        eig = self.eigenworms().values
+        eig = self.eigenworms(fluorescence_fps=True).values
         ax.scatter(eig[:, 0], eig[:, 1], eig[:, 2], c=c)
         plt.colorbar()
 

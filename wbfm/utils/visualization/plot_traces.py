@@ -437,7 +437,6 @@ def make_grid_plot_from_callables(get_data_func: callable,
 
     """
     
-    
     if fig_opt is None:
         fig_opt = {}
     if shade_plot_kwargs is None:
