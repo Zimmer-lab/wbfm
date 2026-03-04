@@ -195,6 +195,8 @@ def make_grid_plot_from_project(project_data: ProjectData,
         except ValueError as e:
             logger.warning(f"Couldn't save dataframe to {fname}; likely due to a duplicate column")
             logger.warning(f"Error: {e}")
+        # Close figure after saving to free memory; figure is already on disk
+        plt.close(fig)
 
     return fig
 
@@ -491,6 +493,8 @@ def make_grid_plot_from_callables(get_data_func: callable,
     if logger is not None:
         logger.info(f"Found {num_neurons} neurons; shaping to grid of shape {(num_rows, num_columns)}")
     if fig is None:
+        # Disable interactive mode to suppress "GUI outside main thread" warning in batch contexts
+        plt.ioff()
         fig, original_axes = plt.subplots(num_rows, num_columns, **default_fig_opt)
         new_fig = True
     else:
@@ -909,6 +913,11 @@ def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwa
             fname = 'heatmap_zscore.png'
             fname = traces_cfg.resolve_relative_path(fname, prepend_subfolder=True)
             fig_zscore.savefig(fname)
+        
+        # Close figures after saving to free memory; figures are already on disk
+        plt.close(fig)
+        if also_plot_zscore:
+            plt.close(fig_zscore)
 
     return fig
 
@@ -916,6 +925,8 @@ def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwa
 def make_default_summary_plots_using_config(proj_dat: ProjectData):
     # Note: reloads the project data to properly read the new trace h5 files
     logger = proj_dat.logger
+    # Disable interactive mode for batch processing to prevent matplotlib threading warnings
+    plt.ioff()
     logger.info("Making default grid plots")
     grid_opt = paper_trace_settings()
     grid_opt['channel_mode'] = 'all'
@@ -944,6 +955,10 @@ def make_default_summary_plots_using_config(proj_dat: ProjectData):
         logger.warning("Failed to make PC1 grid plot; if this is a test project this may be expected")
         logger.info(e)
         pass
+    
+    # Aggressively close all remaining figures after batch processing to prevent memory exhaustion
+    logger.info("Summary plots complete; clearing matplotlib figure cache")
+    plt.close('all')
 
 
 def make_default_triggered_average_plots(project_cfg, to_save=True):
