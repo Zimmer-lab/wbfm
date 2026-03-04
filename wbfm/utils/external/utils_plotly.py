@@ -3,6 +3,7 @@ from typing import List
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+import statsmodels.api as sm
 from plotly.subplots import make_subplots
 
 
@@ -476,3 +477,37 @@ def colored_text(text, color, bold=False):
         return f"<span style='color:{str(color)}'> {str(text)} </span>"
     else:
         return f"<span style='color:{str(color)}'> <b>{str(text)}</b> </span>"
+
+
+def extend_trendline(fig, x_min, x_max, n_points=100, line_opt=None):
+    if line_opt is None:
+        line_opt = dict(color="black", dash="dot")
+
+    # Extract regression results
+    results = px.get_trendline_results(fig)
+    model = results.iloc[0]["px_fit_results"]
+
+    # Create extended x range
+    x_extended = np.linspace(x_min, x_max, n_points)
+
+    # Manually build exog matrix (this avoids the shape error)
+    import statsmodels.api as sm
+    X_new = sm.add_constant(x_extended)
+    y_extended = model.predict(X_new)
+
+    # Remove existing trendline
+    fig.data = tuple(
+        trace for trace in fig.data
+        if not (trace.mode == "lines")
+    )
+
+    # Add extended line
+    fig.add_trace(
+        go.Scatter(
+            x=x_extended,
+            y=y_extended,
+            mode="lines",
+            line=line_opt,
+            # name="Extended Trendline"
+        )
+    )
