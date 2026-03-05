@@ -1046,7 +1046,7 @@ class PaperExampleTracePlotter(PaperColoredTracePlotter):
         return dict(dpi=300, figsize=(10/3, 10/2), gridspec_kw={'wspace': 0.0, 'hspace': 0.0})
 
     def plot_triple_traces(self, neuron_name, title=False, legend=False, round_y_ticks=False,
-                           output_foldername=None, combine_lr=False, **kwargs):
+                           output_foldername=None, combine_lr=False, shading_kwargs=None, **kwargs):
         """
         Plot the three traces (raw, global, residual) on the same plot.
         If output_foldername is not None, save the plot in that folder.
@@ -1060,6 +1060,8 @@ class PaperExampleTracePlotter(PaperColoredTracePlotter):
         -------
 
         """
+        if shading_kwargs is None:
+            shading_kwargs = dict()
         df_traces, df_traces_residual, df_traces_global = self._load_triple_traces(combine_lr=combine_lr)
 
         fig_opt = self.get_figure_opt()
@@ -1093,7 +1095,7 @@ class PaperExampleTracePlotter(PaperColoredTracePlotter):
                 ax.set_xticks([])
             else:
                 ax.set_xlabel("Time (s)")
-            self.project.shade_axis_using_behavior(ax)
+            self.project.shade_axis_using_behavior(ax, **shading_kwargs)
 
         # Remove space between subplots
         plt.subplots_adjust(hspace=0)
