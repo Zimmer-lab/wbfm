@@ -1417,11 +1417,12 @@ class ProjectData:
         ])
         pca = pipe.named_steps['pca']
         
-        if return_pca_weights:
-            pipe.fit(X)
-            pca_weights = pca.components_.T
-        pipe.fit(X.T)
-        pca_modes = pca.components_.T
+        pipe.fit(X)
+        pca_weights = pca.components_.T
+        pca_modes = pipe.transform(X)
+        # Modes should be z-scored, not have the original data variance
+        pca_modes = pca_modes / np.sqrt(pca.explained_variance_)
+
         if multiply_by_variance:
             pca_modes *= pca.explained_variance_
 
