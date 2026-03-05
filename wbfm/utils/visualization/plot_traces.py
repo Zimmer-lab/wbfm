@@ -959,6 +959,7 @@ def make_default_summary_plots_using_config(proj_dat: ProjectData):
     # Aggressively close all remaining figures after batch processing to prevent memory exhaustion
     logger.info("Summary plots complete; clearing matplotlib figure cache")
     try:
+        logging.info(f"Currently open figures: {plt.get_fignums()}")
         # Close figures individually first to avoid segfaults with seaborn clustermap figures
         for fig_num in plt.get_fignums():
             try:
