@@ -958,7 +958,18 @@ def make_default_summary_plots_using_config(proj_dat: ProjectData):
     
     # Aggressively close all remaining figures after batch processing to prevent memory exhaustion
     logger.info("Summary plots complete; clearing matplotlib figure cache")
-    plt.close('all')
+    try:
+        # Close figures individually first to avoid segfaults with seaborn clustermap figures
+        for fig_num in plt.get_fignums():
+            try:
+                plt.close(fig_num)
+            except Exception as e:
+                logger.debug(f"Error closing figure {fig_num}: {e}")
+        # Final cleanup
+        plt.close('all')
+    except Exception as e:
+        logger.warning(f"Error during matplotlib cleanup: {e}. Continuing anyway.")
+        # Suppress segfaults during cleanup since figures are already on disk
 
 
 def make_default_triggered_average_plots(project_cfg, to_save=True):
