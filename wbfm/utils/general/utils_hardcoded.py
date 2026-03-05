@@ -444,12 +444,16 @@ def neurons_with_confident_ids(combine_left_right=False, add_parentheses_for_les
                     'ALA', 'RIS', 'AQR', 'RMDVL', 'RMDVR', 'URXL', 'URXR',
                     'VB01', 'VB02', 'VB03', 'DB01', 'DB02', 'VA01', 'VA02', 'DA01', 'DD01',
                     'RIBL', 'RIBR', 'RMEL', 'RMER', 'RMED', 'RMEV', 'RID', 'AVBL', 'AVBR']
+    # Always add less confident, but optionally add parentheses around them
     if combine_left_right:
         neuron_names = [n[:-1] if (n[-1] in ['L', 'R'] and len(n) > 3) else n for n in neuron_names]
         neuron_names = list(set(neuron_names))
+    
+    less_confident = neurons_with_less_confident_ids(combine_left_right=combine_left_right)
     if add_parentheses_for_less_confident:
-        less_confident = neurons_with_less_confident_ids(combine_left_right=combine_left_right)
         neuron_names = [f"({n})" if n in less_confident else n for n in neuron_names]
+    else:
+        neuron_names.extend(less_confident)
     return neuron_names
 
 
