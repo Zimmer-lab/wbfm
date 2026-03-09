@@ -16,7 +16,6 @@ from pathlib import Path
 
 from wbfm.utils.external.utils_plotly import colored_text
 from wbfm.utils.external.utils_matplotlib import export_legend
-from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 from wbfm.utils.general.utils_hardcoded import get_neuron_base, load_paper_datasets, neuron_groups, intrinsic_definition, intrinsic_categories_short_description, neurons_with_confident_ids, neurons_with_less_confident_ids
 
 from wbfm.utils.utils_cache import cache_to_disk_class
@@ -1440,6 +1439,7 @@ def split_time_series_with_laser_switches(df_green: pd.DataFrame, background_per
 
 def plot_trajectory(project_data, beh_annotation_kwargs=None, to_save=True):
     from wbfm.utils.visualization.utils_plot_traces import modify_dataframe_to_allow_gaps_for_plotly
+    from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 
     xy = project_data.worm_posture_class.calc_behavior_from_alias('worm_center_position').copy()
     xy = xy - xy.iloc[0, :]
