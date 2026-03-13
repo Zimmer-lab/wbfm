@@ -249,6 +249,10 @@ def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/505_488_505'
     elif data_type == '488_505_488_immob_inactive':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/488_505_488'
+    elif data_type == '488_leifer_conditions':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/488_leifer_only'
+    elif data_type == '505_leifer_conditions':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/505_leifer_only'
     elif data_type == 'no_light_control_fm':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/not_light_control'
     elif data_type == 'avb_hiscl':
