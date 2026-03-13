@@ -599,7 +599,6 @@ def options_for_ethogram(beh_vec, shading=False, include_reversal_turns=False, i
     -------
 
     """
-    err
     if include_collision:
         additional_shaded_states = additional_shaded_states or []
         additional_shaded_states.append(BehaviorCodes.SELF_COLLISION)
