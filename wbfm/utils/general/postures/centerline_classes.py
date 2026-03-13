@@ -2409,7 +2409,7 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
 
 
 def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fname: str = None,
-                                   template_vector = None, convert_to_behavior_codes = True) -> Tuple[pd.Series, bool]:
+                                   template_vector = None, convert_to_behavior_codes = True, fps = None) -> Tuple[pd.Series, bool]:
     """
     Reads from a directly passed filename, or from the config file if that fails
 
@@ -2449,8 +2449,8 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
                 logging.warning(f"Reading using manual annotation from Itamar's tracify package")
                 # From Itamar's tracify package, which saves only the starts and ends
                 # IN THE SECONDS, not trace frame rate
-                fps = 3.47
-                logging.warning(f"Assuming that the manual annotation is the seconds, and using fps={fps}")
+                if fps is None:
+                    raise ValueError("Must pass fps if reading from Itamar's tracify package")
                 starts_ends = (pd.read_csv(behavior_fname) * fps).astype(int)
                 behavior_annotations = make_binary_vector_from_starts_and_ends(starts_ends['start'], starts_ends['end'],
                                                                                original_vals=template_vector)

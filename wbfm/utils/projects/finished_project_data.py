@@ -23,7 +23,7 @@ from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 from wbfm.utils.external.utils_jupyter import executing_in_notebook
 from wbfm.utils.external.utils_zarr import zarr_reader_folder_or_zipstore
 from wbfm.utils.external.custom_errors import NoMatchesError, NoNeuronsError, NoBehaviorAnnotationsError, \
-    IncompleteConfigFileError, DataSynchronizationError
+    IncompleteConfigFileError, DataSynchronizationError, MissingAnalysisError
 from wbfm.utils.general.postprocessing.utils_imputation import impute_missing_values_in_dataframe
 from wbfm.utils.general.postures.centerline_classes import WormFullVideoPosture
 from wbfm.utils.neuron_matching.class_reference_frame import ReferenceFrame
@@ -3017,7 +3017,7 @@ def slice_time_like_object(
                 continue
             try:
                 getattr(obj, nm)
-            except (AttributeError, TypeError, NoBehaviorAnnotationsError) as e:
+            except (AttributeError, TypeError, NoBehaviorAnnotationsError, MissingAnalysisError) as e:
                 if verbose:
                     print(f"slice_time_like_object: skipping materialization of {obj.__class__.__name__}.{nm}: {e}")
 
