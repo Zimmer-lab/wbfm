@@ -679,7 +679,7 @@ class WormFullVideoPosture:
         if self._beh_annotation is None:
             template_vector = self.template_vector(fluorescence_fps=self.beh_annotation_already_converted_to_fluorescence_fps)
             self._beh_annotation, _ = parse_behavior_annotation_file(behavior_fname=self.filename_beh_annotation,
-                                                                     template_vector=template_vector)
+                                                                     template_vector=template_vector, volumes_per_second=self.physical_unit_conversion.volumes_per_second)
         if isinstance(self._beh_annotation, pd.DataFrame):
             self._beh_annotation = self._beh_annotation.annotation
         if self._beh_annotation is not None:
@@ -720,7 +720,7 @@ class WormFullVideoPosture:
             template_vector = None
         df, _ = parse_behavior_annotation_file(behavior_fname=self.filename_manual_beh_annotation,
                                                template_vector=template_vector,
-                                               convert_to_behavior_codes=True)
+                                               convert_to_behavior_codes=True, volumes_per_second=self.physical_unit_conversion.volumes_per_second)
         if df is None:
             raise NoManualBehaviorAnnotationsError(self.filename_manual_beh_annotation)
         return df
@@ -2409,7 +2409,7 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
 
 
 def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fname: str = None,
-                                   template_vector = None, convert_to_behavior_codes = True, fps = None) -> Tuple[pd.Series, bool]:
+                                   template_vector = None, convert_to_behavior_codes = True, volumes_per_second = None) -> Tuple[pd.Series, bool]:
     """
     Reads from a directly passed filename, or from the config file if that fails
 
@@ -2449,9 +2449,9 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
                 logging.warning(f"Reading using manual annotation from Itamar's tracify package")
                 # From Itamar's tracify package, which saves only the starts and ends
                 # IN THE SECONDS, not trace frame rate
-                if fps is None:
-                    raise ValueError("Must pass fps if reading from Itamar's tracify package")
-                starts_ends = (pd.read_csv(behavior_fname) * fps).astype(int)
+                if volumes_per_second is None:
+                    raise MissingAnalysisError("Must pass fps if reading from Itamar's tracify package")
+                starts_ends = (pd.read_csv(behavior_fname) * volumes_per_second).astype(int)
                 behavior_annotations = make_binary_vector_from_starts_and_ends(starts_ends['start'], starts_ends['end'],
                                                                                original_vals=template_vector)
                 # Change the integers to match Ulises' original annotation; see _ulises_int_2_flag
