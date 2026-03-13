@@ -183,7 +183,7 @@ class PhysicalUnitConversion:
         raw_data_cfg = project_cfg.get_raw_data_config()
         if not raw_data_cfg.has_valid_self_path:
             opt['num_flyback_planes_discarded'] = 0
-            logging.debug("No raw data config found; assuming no flyback planes discarded")
+            logging.warning("No raw data config found; assuming no flyback planes discarded")
         elif not raw_data_cfg.config.get('flyback_saved', False):
             num_flyback_planes_discarded = raw_data_cfg.config.get('num_flyback_planes_discarded', None)
             if num_flyback_planes_discarded is None:
