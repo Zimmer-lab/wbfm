@@ -717,6 +717,7 @@ def plot_fig1E_F_plotly_simple(
     # Simple color palette mapping for wavelengths
     palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
     color_map = {w: palette[i % len(palette)] for i, w in enumerate(wavelengths)}
+    condition_name_mapping = {0: "First 1/3", 1: "Middle 1/3", 2: "Last 1/3", 3: "Leifer conditions"}
 
     # Prepare traces per wavelength for Fig 1E
     fig1e = go.Figure()
@@ -724,7 +725,7 @@ def plot_fig1E_F_plotly_simple(
     data_1e = {w: {'x': [], 'y': []} for w in wavelengths}
     for (cond, w), vals in per_condition.items():
         ys = [v for v in vals['avg_fractions'] if not np.isnan(v)]
-        xs = [cond] * len(ys)
+        xs = [condition_name_mapping[cond]] * len(ys)
         data_1e[w]['x'].extend(xs)
         data_1e[w]['y'].extend(ys)
 
@@ -736,9 +737,9 @@ def plot_fig1E_F_plotly_simple(
             marker_color=color_map[w]
         ))
     fig1e.update_layout(
-        title=f"Figure 1E: Average fraction of power in [{F_LOW}, {F_HIGH}] Hz per recording [^1]",
+        title=f"",
         xaxis_title="Condition",
-        yaxis_title="Average fraction in band",
+        yaxis_title=f"Average fraction of power<br>in [{F_LOW}, {F_HIGH}] Hz",
         boxmode='group',
         height=500
     )
@@ -748,7 +749,7 @@ def plot_fig1E_F_plotly_simple(
     data_1f = {w: {'x': [], 'y': []} for w in wavelengths}
     for (cond, w), vals in per_condition.items():
         ys = [v for v in vals['f50'] if not np.isnan(v)]
-        xs = [cond] * len(ys)
+        xs = [condition_name_mapping[cond]] * len(ys)
         data_1f[w]['x'].extend(xs)
         data_1f[w]['y'].extend(ys)
 
@@ -760,9 +761,9 @@ def plot_fig1E_F_plotly_simple(
             marker_color=color_map[w]
         ))
     fig1f.update_layout(
-        title="Figure 1F: Frequency below which 50% of average spectral power resides [^1]",
+        title="Figure 1F:  [^1]",
         xaxis_title="Condition",
-        yaxis_title="50% spectral edge (Hz)",
+        yaxis_title="Frequency below which 50%<br>of average spectral power resides",
         boxmode='group',
         height=500
     )
