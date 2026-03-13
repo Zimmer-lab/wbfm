@@ -584,16 +584,19 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
             continue
 
         # Get the y value to plot the annotation
-        y_range_of_plot = np.max(y_range[index])
+        y_range_of_plot = np.max(y_range[index]) - np.min(y_range[index])
         if height_mode == 'all_same':
             annotation_y_shift = -y_range_of_plot * 0.1  # Shift annotation down by this amount
             y0_annotation = y_range[index][0] + annotation_y_shift
             y1_annotation = y_range[index][1] + annotation_y_shift
             y_ref = "y" + subplot_str + " domain"
         elif height_mode == 'top_of_data':
-            annotation_y_shift = y_range_of_plot * 0.01  # Shift annotation up by this amount
-            y0_annotation = np.max(y0) + annotation_y_shift
-            y1_annotation = np.max(y1) + annotation_y_shift
+            y0_max = np.max(y0)
+            y1_max = np.max(y1)
+            y_range_of_plot = np.max([y0_max, y1_max]) - np.min([np.min(y0), np.min(y1)])
+            annotation_y_shift = y_range_of_plot * 0.1  # Shift annotation up by this amount
+            y0_annotation = y0_max + annotation_y_shift
+            y1_annotation = y1_max + annotation_y_shift
             y_ref = "y"
         else:
             raise ValueError(f"Unknown height_mode: {height_mode}")
@@ -637,7 +640,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
         if DEBUG:
             print(f"p-value: {pvalue} for x_label {x_label}")
             print(f"Adding annotation at x={column_pair[0]} and {column_pair[1]}")
-            print(f"Adding annotation at y={y0_annotation} and {y1_annotation}")
+            print(f"Adding annotation at y={y0_annotation} and {y1_annotation} with annotation_y_shift={annotation_y_shift}")
             # err
     return fig
 

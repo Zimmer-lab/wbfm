@@ -691,13 +691,13 @@ def compute_fig1_metrics(
 
 
 def plot_fig1E_F_plotly_simple(
-    per_condition
+    per_condition, category_orders=None
 ):
     """
-    Simplified Plotly boxplots for Figure 1E and 1F:
+    Simplified Plotly boxplots for Figure 1E and 1F using plotly.express:
       - x-axis: condition
       - color: wavelength
-      - regular boxplots (no median markers or mean/SD overlays)
+      - individual data points plotted as jittered dots overlaid on boxes
 
     Inputs
     ------
@@ -713,57 +713,54 @@ def plot_fig1E_F_plotly_simple(
       - 'Fig1F': plotly.graph_objects.Figure
     """
     # Collect all wavelengths to assign consistent colors
-    wavelengths = sorted({w for (_, w) in per_condition.keys()})
+    wavelengths = ({w for (_, w) in per_condition.keys()})
     # Simple color palette mapping for wavelengths
     palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
     color_map = {w: palette[i % len(palette)] for i, w in enumerate(wavelengths)}
     condition_name_mapping = {0: "First 1/3", 1: "Middle 1/3", 2: "Last 1/3", 3: "Leifer conditions"}
+    category_orders = category_orders if category_orders is not None else None
 
-    # Prepare traces per wavelength for Fig 1E
-    fig1e = go.Figure()
-    # Build data per wavelength: x=condition, y=avg_fraction
-    data_1e = {w: {'x': [], 'y': []} for w in wavelengths}
+    # Prepare data for Fig 1E as a list of dicts
+    data_1e = []
     for (cond, w), vals in per_condition.items():
-        ys = [v for v in vals['avg_fractions'] if not np.isnan(v)]
-        xs = [condition_name_mapping[cond]] * len(ys)
-        data_1e[w]['x'].extend(xs)
-        data_1e[w]['y'].extend(ys)
+        for v in vals['avg_fractions']:
+            if not np.isnan(v):
+                data_1e.append({
+                    'Condition': condition_name_mapping[cond],
+                    'Wavelength': w,
+                    'Value': v
+                })
 
-    for w in wavelengths:
-        fig1e.add_trace(go.Box(
-            x=data_1e[w]['x'],
-            y=data_1e[w]['y'],
-            name=str(w),
-            marker_color=color_map[w]
-        ))
+    df_1e = pd.DataFrame(data_1e)
+    fig1e = px.box(df_1e, x='Condition', y='Value', color='Wavelength',
+                   color_discrete_map=color_map, points='all', category_orders=category_orders)
     fig1e.update_layout(
-        title=f"",
+        title="",
         xaxis_title="Condition",
         yaxis_title=f"Average fraction of power<br>in [{F_LOW}, {F_HIGH}] Hz",
         boxmode='group',
         height=500
     )
 
-    # Prepare traces per wavelength for Fig 1F
-    fig1f = go.Figure()
-    data_1f = {w: {'x': [], 'y': []} for w in wavelengths}
+    # Prepare data for Fig 1F as a list of dicts
+    data_1f = []
     for (cond, w), vals in per_condition.items():
-        ys = [v for v in vals['f50'] if not np.isnan(v)]
-        xs = [condition_name_mapping[cond]] * len(ys)
-        data_1f[w]['x'].extend(xs)
-        data_1f[w]['y'].extend(ys)
+        for v in vals['f50']:
+            if not np.isnan(v):
+                data_1f.append({
+                    'Condition': condition_name_mapping[cond],
+                    'Wavelength': w,
+                    'Value': v
+                })
 
-    for w in wavelengths:
-        fig1f.add_trace(go.Box(
-            x=data_1f[w]['x'],
-            y=data_1f[w]['y'],
-            name=str(w),
-            marker_color=color_map[w]
-        ))
+    df_1f = pd.DataFrame(data_1f)
+    fig1f = px.box(df_1f, x='Condition', y='Value', color='Wavelength',
+                   color_discrete_map=color_map, points='all',
+                   category_orders=category_orders)
     fig1f.update_layout(
-        title="Figure 1F:  [^1]",
+        title="",
         xaxis_title="Condition",
-        yaxis_title="Frequency below which 50%<br>of average spectral power resides",
+        yaxis_title="Median of the<br>mean Power Spectrum (Hz)",
         boxmode='group',
         height=500
     )
