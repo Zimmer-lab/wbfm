@@ -12,6 +12,7 @@ from scipy.stats import ttest_ind, norm
 
 from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_color_discrete_map, data_type_name_mapping
 from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation
+from wbfm.utils.external.utils_plotly import plotly_plot_mean_and_shading, combine_plotly_figures
 
 # ======================================
 # Configuration parameters (edit as needed)
@@ -768,6 +769,294 @@ def plot_fig1E_F_plotly_simple(
     return {'Fig1E': fig1e, 'Fig1F': fig1f}
 
 
+def prepare_s2a_psd_data_for_mean_and_shading(results):
+    """
+    Prepare S2A PSD data for plotly_plot_mean_and_shading.
+    Creates one row per frequency point per recording, with a 'group' column for each condition+wavelength.
+    
+    Parameters
+    ----------
+    results: dict[(condition, wavelength)] -> list of per-recording metrics dicts
+    
+    Returns
+    -------
+    df_psd: pd.DataFrame with columns ['frequency', 'psd', 'group']
+    """
+    data_list = []
+    for (cond, wavelength), recs in results.items():
+        group_id = f"{cond} | {wavelength}"
+        
+        # Group recordings by frequency-grid length
+        by_len = {}
+        for r in recs:
+            freqs, psd = r['freqs'], r['psd_avg_norm']
+            if freqs is None or psd is None:
+                continue
+            L = len(freqs)
+            by_len.setdefault(L, {'freqs': [], 'psd': []})
+            by_len[L]['freqs'].append(freqs)
+            by_len[L]['psd'].append(psd)
+        
+        # Flatten to individual points, one row per frequency per recording
+        for L, grp in by_len.items():
+            freqs_ref = grp['freqs'][0]
+            for psd_array in grp['psd']:
+                for freq, psd_val in zip(freqs_ref, psd_array):
+                    data_list.append({
+                        'frequency': float(freq),
+                        'psd': float(psd_val),
+                        'group': group_id
+                    })
+    return pd.DataFrame(data_list)
+
+
+def prepare_s2a_cdf_data_for_mean_and_shading(results):
+    """
+    Prepare S2A CDF data for plotly_plot_mean_and_shading.
+    Creates one row per frequency point per recording, with a 'group' column for each condition+wavelength.
+    
+    Parameters
+    ----------
+    results: dict[(condition, wavelength)] -> list of per-recording metrics dicts
+    
+    Returns
+    -------
+    df_cdf: pd.DataFrame with columns ['frequency', 'cdf', 'group']
+    """
+    data_list = []
+    for (cond, wavelength), recs in results.items():
+        group_id = f"{cond} | {wavelength}"
+        
+        # Group recordings by frequency-grid length
+        by_len = {}
+        for r in recs:
+            freqs, cdf = r['freqs'], r['cdf']
+            if freqs is None or cdf is None:
+                continue
+            L = len(freqs)
+            by_len.setdefault(L, {'freqs': [], 'cdf': []})
+            by_len[L]['freqs'].append(freqs)
+            by_len[L]['cdf'].append(cdf)
+        
+        # Flatten to individual points, one row per frequency per recording
+        for L, grp in by_len.items():
+            freqs_ref = grp['freqs'][0]
+            for cdf_array in grp['cdf']:
+                for freq, cdf_val in zip(freqs_ref, cdf_array):
+                    data_list.append({
+                        'frequency': float(freq),
+                        'cdf': float(cdf_val),
+                        'group': group_id
+                    })
+    return pd.DataFrame(data_list)
+
+
+def plot_s2a_mean_and_shading(results, shade_style='std', cmap=None):
+    """
+    Plot S2A data (PSD and CDF) using mean and shading for each condition+wavelength group.
+    
+    Parameters
+    ----------
+    results: dict[(condition, wavelength)] -> list of per-recording metrics dicts
+    shade_style: 'std' or 'quantile'
+    cmap: optional color map
+    
+    Returns
+    -------
+    fig: plotly figure with subplots
+    """
+    # Prepare data
+    df_psd = prepare_s2a_psd_data_for_mean_and_shading(results)
+    df_cdf = prepare_s2a_cdf_data_for_mean_and_shading(results)
+    
+    # Build color map for groups if not provided
+    if cmap is None:
+        wavelength_cmap = make_wavelength_color_map(results)
+        # Create a group-based color map directly from results
+        group_cmap = {}
+        for (cond, wavelength), _ in results.items():
+            group_id = f"{cond} | {wavelength}"
+            group_cmap[group_id] = wavelength_cmap[wavelength]
+    else:
+        group_cmap = cmap
+    
+    # Create individual figures
+    fig_psd = plotly_plot_mean_and_shading(
+        df_psd,
+        x='frequency',
+        y='psd',
+        color='group',
+        line_name='Mean',
+        shade_style=shade_style,
+        cmap=group_cmap
+    )
+    fig_psd.update_layout(
+        title="Normalized PSD",
+        xaxis_title="Frequency (Hz)",
+        yaxis_title="Normalized PSD",
+        height=400
+    )
+    
+    fig_cdf = plotly_plot_mean_and_shading(
+        df_cdf,
+        x='frequency',
+        y='cdf',
+        color='group',
+        line_name='Mean',
+        shade_style=shade_style,
+        cmap=group_cmap
+    )
+    fig_cdf.update_layout(
+        title="CDF",
+        xaxis_title="Frequency (Hz)",
+        yaxis_title="CDF",
+        height=400
+    )
+    
+    # Combine figures
+    fig = combine_plotly_figures([fig_psd, fig_cdf], horizontal=False)
+    
+    # Add vertical lines at band edges
+    fig.add_vline(x=F_LOW, line=dict(color='black', dash='dot', width=1))
+    fig.add_vline(x=F_HIGH, line=dict(color='black', dash='dot', width=1))
+    
+    fig.update_layout(
+        title="Figure S2A: Averaged normalized PSDs and CDFs per condition [^2]",
+        height=800
+    )
+    
+    # Limit x-axis to 2*F_HIGH
+    fig.update_xaxes(range=[0, 2 * F_HIGH])
+    
+    return fig
+
+
+def prepare_s2b_data_for_mean_and_shading(results):
+    """
+    Prepare S2B data (percentage of neurons above threshold) for plotly_plot_mean_and_shading.
+    
+    Parameters
+    ----------
+    results: dict[(condition, wavelength)] -> list of per-recording metrics dicts
+    
+    Returns
+    -------
+    df_s2b: pd.DataFrame with columns ['condition', 'wavelength', 'pct_neurons_above']
+    """
+    data_list = []
+    for (cond, wavelength), recs in results.items():
+        for rec in recs:
+            if not np.isnan(rec['pct_neurons_above']):
+                data_list.append({
+                    'condition': cond,
+                    'wavelength': str(wavelength),
+                    'pct_neurons_above': rec['pct_neurons_above']
+                })
+    return pd.DataFrame(data_list)
+
+
+def prepare_s2c_data_for_mean_and_shading(quiet_counts, totals):
+    """
+    Prepare S2C data (proportion of quiet recordings) for plotly_plot_mean_and_shading.
+    
+    Parameters
+    ----------
+    quiet_counts: dict[label] -> count of quiet recordings
+    totals: dict[label] -> total count of recordings
+    
+    Returns
+    -------
+    df_s2c: pd.DataFrame with columns ['condition', 'wavelength', 'prop_quiet']
+    """
+    data_list = []
+    for label in quiet_counts.keys():
+        cond = label.split('|')[0].strip()
+        wavelength = label.split('|')[1].strip()
+        prop = (quiet_counts[label] / totals[label]) if totals[label] > 0 else np.nan
+        if not np.isnan(prop):
+            data_list.append({
+                'condition': cond,
+                'wavelength': str(wavelength),
+                'prop_quiet': prop
+            })
+    return pd.DataFrame(data_list)
+
+
+def plot_s2b_mean_and_shading(df_s2b, shade_style='std', cmap=None):
+    """
+    Plot S2B data using mean and shading for each wavelength group.
+    
+    Parameters
+    ----------
+    df_s2b: pd.DataFrame from prepare_s2b_data_for_mean_and_shading
+    shade_style: 'std' or 'quantile'
+    cmap: optional color map
+    
+    Returns
+    -------
+    fig: plotly figure
+    """
+    if cmap is None:
+        cmap = make_wavelength_color_map({('cond', w): None for w in df_s2b['wavelength'].unique()})
+        # Convert to format expected by plotly_plot_mean_and_shading
+        cmap = {str(w): color for w, color in cmap.items()}
+    
+    fig = plotly_plot_mean_and_shading(
+        df_s2b, 
+        x='condition', 
+        y='pct_neurons_above', 
+        color='wavelength',
+        line_name='Mean',
+        shade_style=shade_style,
+        cmap=cmap
+    )
+    fig.update_layout(
+        title=f"Figure S2B: % neurons with fraction in [{F_LOW}, {F_HIGH}] Hz > {THRESHOLD_FRACTION} [^2]",
+        xaxis_title="Condition",
+        yaxis_title="% of neurons > threshold",
+        height=500
+    )
+    return fig
+
+
+def plot_s2c_mean_and_shading(df_s2c, shade_style='std', cmap=None):
+    """
+    Plot S2C data using mean and shading for each wavelength group.
+    
+    Parameters
+    ----------
+    df_s2c: pd.DataFrame from prepare_s2c_data_for_mean_and_shading
+    shade_style: 'std' or 'quantile'
+    cmap: optional color map
+    
+    Returns
+    -------
+    fig: plotly figure
+    """
+    if cmap is None:
+        cmap = make_wavelength_color_map({('cond', w): None for w in df_s2c['wavelength'].unique()})
+        # Convert to format expected by plotly_plot_mean_and_shading
+        cmap = {str(w): color for w, color in cmap.items()}
+    
+    fig = plotly_plot_mean_and_shading(
+        df_s2c, 
+        x='condition', 
+        y='prop_quiet', 
+        color='wavelength',
+        line_name='Mean',
+        shade_style=shade_style,
+        cmap=cmap
+    )
+    fig.update_layout(
+        title=f"Figure S2C: Proportion of quiet recordings (quiet_threshold={QUIET_THRESHOLD}%)",
+        xaxis_title="Condition",
+        yaxis_title="Proportion of quiet recordings",
+        height=500,
+        yaxis_range=[0, 1]
+    )
+    return fig
+
+
 # ==========================
 # Driver function
 # ==========================
@@ -776,7 +1065,10 @@ def reproduce_figures_plotly(
     all_dfs: Dict[Tuple[str, str], List[pd.DataFrame]],
     sampling_intervals_all: Dict[Tuple[str, str], List[float]],
     apply_delta_ff: bool = False,
-    quiet_threshold: float = QUIET_THRESHOLD
+    quiet_threshold: float = QUIET_THRESHOLD,
+    use_mean_and_shading: bool = False,
+    shade_style: str = 'std',
+    cmap: dict = None
 ):
     """
     End-to-end reproduction:
@@ -784,16 +1076,36 @@ def reproduce_figures_plotly(
       - Plot S2A (normalized PSD & CDF),
       - Plot S2B (percentage above threshold) + stats,
       - Plot S2C (quiet proportions) + stats.
+    
+    Parameters
+    ----------
+    all_dfs: dict of recording dataframes keyed by (condition, wavelength)
+    sampling_intervals_all: dict of sampling intervals (temporal) keyed by (condition, wavelength)
+    apply_delta_ff: whether to apply ΔF/F normalization per neuron
+    quiet_threshold: threshold for classifying quiet recordings
+    use_mean_and_shading: if True, use plotly_plot_mean_and_shading for S2A, S2B, and S2C instead of original plot styles
+    shade_style: 'std' for standard deviation shading, 'quantile' for interquartile range
+    cmap: optional color map for wavelengths
+    
+    Returns
+    -------
+    dict with keys: 'results', 'figures', 'stats'
     """
     # Compute metrics per recording
     results = compute_all_metrics(all_dfs, sampling_intervals_all, apply_delta_ff=apply_delta_ff)
 
     # Figure S2A-like
-    fig_s2a = plot_s2a_plotly_simple(results)
+    if use_mean_and_shading:
+        fig_s2a = plot_s2a_mean_and_shading(results, shade_style=shade_style, cmap=cmap)
+    else:
+        fig_s2a = plot_s2a_plotly_simple(results)
 
     # Figure S2B-like
-    # cond_labels, data_values, means, stds = prepare_s2b_data(results)
-    fig_s2b = plot_s2b_plotly_simple(results)
+    if use_mean_and_shading:
+        df_s2b = prepare_s2b_data_for_mean_and_shading(results)
+        fig_s2b = plot_s2b_mean_and_shading(df_s2b, shade_style=shade_style, cmap=cmap)
+    else:
+        fig_s2b = plot_s2b_plotly_simple(results)
 
     # S2B stats and annotations (adjacent pairs by default)
     # s2b_stats, annotations = compute_s2b_stats_plotly(cond_labels, data_values, alpha=ALPHA_BH, alternative='greater')
@@ -809,7 +1121,11 @@ def reproduce_figures_plotly(
 
     # Figure S2C-like
     quiet_counts, totals = classify_quiet(results, quiet_threshold=quiet_threshold)
-    fig_s2c, conds_s2c, props_s2c = plot_s2c_plotly_simple(quiet_counts, totals)
+    if use_mean_and_shading:
+        df_s2c = prepare_s2c_data_for_mean_and_shading(quiet_counts, totals)
+        fig_s2c = plot_s2c_mean_and_shading(df_s2c, shade_style=shade_style, cmap=cmap)
+    else:
+        fig_s2c, conds_s2c, props_s2c = plot_s2c_plotly_simple(quiet_counts, totals)
 
     # S2C stats (adjacent pairs)
     s2c_stats = compute_s2c_stats(quiet_counts, totals)
