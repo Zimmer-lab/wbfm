@@ -231,16 +231,16 @@ class CCAPlotter:
         if use_pca:
             if use_behavior:
                 # Get the PCA modes from the neuronal activity
-                X_r, _ = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, **self.trace_kwargs)
+                _, X_r, _, _ = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, **self.trace_kwargs)
                 # Transform the neuronal PCA modes to behavior space using linear regression
                 reg = LinearRegression().fit(X_r, y)
                 y_r_recon = reg.predict(X_r)
 
             else:
                 # Just reconstruct the traces
-                pipe = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, 
-                                                        return_pca_object=True, **self.trace_kwargs)
-                y_r_recon = pipe.inverse_transform(pipe.fit_transform(y))
+                _, _, _, pipe = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, 
+                                                        **self.trace_kwargs)
+                y_r_recon = pipe.inverse_transform(pipe.transform(y))
 
         else:
             # Only use the neuronal latent space to reconstruct
@@ -415,8 +415,11 @@ class CCAPlotter:
             self._save_plotly_all_formats(fig, fname)
 
     def calc_pca_mode(self, i_mode, return_pca_weights=False) -> Tuple[pd.DataFrame, np.array]:
-        X_r, var_explained = self.project_data.calc_pca_modes(n_components=i_mode + 1, multiply_by_variance=True,
-                                                              return_pca_weights=return_pca_weights, **self.trace_kwargs)
+        df_weights, X_r, var_explained, _ = self.project_data.calc_pca_modes(n_components=i_mode + 1, multiply_by_variance=True,
+                                                              **self.trace_kwargs)
+        if return_pca_weights:
+            df_weights.index.name = None
+            return df_weights, var_explained
         X_r = np.array(X_r)
         df = pd.DataFrame({f'PCA mode {i_mode + 1}': X_r[:, i_mode] / X_r[:, i_mode].max()})
         return df, var_explained
@@ -463,7 +466,7 @@ class CCAPlotter:
             modes_to_plot = [0, 1, 2]
         if use_pca:
             # Multiply just to help the plotting
-            X_r, var_explained = self.project_data.calc_pca_modes(n_components=3, multiply_by_variance=False)
+            _, X_r, var_explained, _ = self.project_data.calc_pca_modes(n_components=3, multiply_by_variance=False)
             X_r = 3*X_r
             var_explained = 100*var_explained
             df_latents = pd.DataFrame(X_r)
@@ -841,7 +844,7 @@ def calc_pca_weights_for_all_projects(all_projects, which_mode=0, correct_sign_u
     trace_opt = kwargs.copy()
 
     for name, p in tqdm(all_projects.items()):
-        trace_weights, _ = p.calc_pca_modes(return_pca_weights=True, combine_left_right=combine_left_right, **trace_opt)
+        trace_weights, _, _, _ = p.calc_pca_modes(combine_left_right=combine_left_right, **trace_opt)
         all_weights[name] = trace_weights.T.loc[which_mode, :]
 
     df_weights = pd.DataFrame(all_weights).T

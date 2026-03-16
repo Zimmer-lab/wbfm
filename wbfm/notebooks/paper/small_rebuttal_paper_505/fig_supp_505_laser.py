@@ -350,7 +350,7 @@ for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)
     _df = seg.calc_default_traces(**trace_opt)
     df_traces.append(_df)
 
-    _df = seg.calc_pca_modes(n_components=3, **trace_opt)[0]
+    df_weights, _df, _, _ = seg.calc_pca_modes(n_components=3, **trace_opt)
     _df['position'] = i
     _df['Laser Wavelength'] = laser_wavelength
     pca_list.append(_df)

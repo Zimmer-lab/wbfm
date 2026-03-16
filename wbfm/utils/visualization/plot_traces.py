@@ -2099,28 +2099,18 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
 
     df_traces_no_nan = fill_nan_in_dataframe(df_traces.copy(), do_filtering=True)
     # Calculate pca modes and weights using the class method
-    df_pca_weights, df_pca_modes_full, var_explained_full = project_data.calc_pca_modes(n_components=10, 
+    df_pca_weights, df_pca_modes_full, var_explained_full, pipe = project_data.calc_pca_modes(n_components=10, 
                                                                                           **default_trace_opt)
-    # Reconstruct PCA objects to get the sklearn interface we need
-    X = project_data.calc_default_traces(**default_trace_opt)
-    df_mean_subtracted = X - X.mean()
-    
-    # Create pca_weights object for sorting
-    pca_weights = PCA(n_components=10)
-    pca_weights.fit(df_mean_subtracted)
-    
-    # Create pca_modes object for phase plot
-    pca_modes = PCA(n_components=10)
-    pca_modes.fit(df_mean_subtracted.T)
     # Preprocess
     df_tmp = df_traces
     # df_tmp -= df_tmp.min()
-    ind_sort = np.argsort(pca_weights.components_[0, :])
+    ind_sort = np.argsort(df_pca_weights.iloc[:, 0].values)
     dat = df_tmp.T.iloc[ind_sort, :]
     neuron_names = list(dat.index)
-    df_pca_modes = pd.DataFrame(pca_modes.components_[0:num_pca_modes_to_plot, :].T)
-    col_names = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
-    df_pca_modes.columns = col_names
+    
+    # Use the already-computed modes from the method
+    df_pca_modes = df_pca_modes_full.iloc[:, :num_pca_modes_to_plot].copy()
+    df_pca_modes.columns = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
     df_pca_modes.set_index(x_for_plots_volumes, inplace=True)
 
     has_behavior = True
@@ -2142,9 +2132,8 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
         # Then we are working in behavioral space, and the x axis should be set properly in the worm_posture class
         pass
 
-    df_pca_weights = pd.DataFrame(pca_weights.components_[0:num_pca_modes_to_plot, :].T)
-    col_names = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
-    df_pca_weights.columns = col_names
+    df_pca_weights = df_pca_weights.iloc[:, :num_pca_modes_to_plot].copy()
+    df_pca_weights.columns = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
     df_pca_weights.index = neuron_names
     df_pca_weights = df_pca_weights.iloc[ind_sort, :].reset_index(drop=True)
     var_explained = pca_modes.explained_variance_ratio_[:7]

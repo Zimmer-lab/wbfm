@@ -1072,7 +1072,7 @@ def approximate_behavioral_annotation_using_pc1(project_cfg, trace_kwargs=None, 
     opt = dict(use_paper_options=True, interpolate_nan=True)
     if trace_kwargs is not None:
         opt.update(trace_kwargs)
-    pca_modes, _ = project_data.calc_pca_modes(n_components=2, flip_pc1_to_have_reversals_high=True,
+    _, pca_modes, _, _ = project_data.calc_pca_modes(n_components=2, flip_pc1_to_have_reversals_high=True,
                                                **opt)
     pc0 = pca_modes.loc[:, 0]
 

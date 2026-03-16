@@ -368,7 +368,7 @@ def build_pca_time_series_from_multiple_projects(all_projects: Dict[str, Project
 
     all_dfs = {}
     for dataset_name, p in all_projects.items():
-        df, _ = p.calc_pca_modes(n_components=n_components, **kwargs)
+        df, _, _, _ = p.calc_pca_modes(n_components=n_components, **kwargs)
         all_dfs[dataset_name] = df
     df_traces = pd.concat(all_dfs)
     df_traces = df_traces.reset_index(names=['dataset_name', 'local_time'])

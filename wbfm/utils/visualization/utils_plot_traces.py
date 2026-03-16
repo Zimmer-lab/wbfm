@@ -698,7 +698,7 @@ def plot_triggered_averages(project_data_list, output_foldername=None,
 
                 # Actually plot
                 if neuron_base == "PC1":
-                    y, _ = project_data.calc_pca_modes(2, **trace_opt, multiply_by_variance=True)
+                    _, y, _, _ = project_data.calc_pca_modes(2, **trace_opt, multiply_by_variance=True)
                     y = pd.Series(y.loc[:, 0])
                     neuron = neuron_base
                 else:

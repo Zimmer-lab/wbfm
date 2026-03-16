@@ -1493,7 +1493,7 @@ class ProjectData:
 
     def calc_plateau_state_using_pc1(self, replace_nan=True, DEBUG=False, **trace_kwargs):
         # Get the trace that will be used to calculate the plateau state
-        pca_modes, _ = self.calc_pca_modes(n_components=1, **trace_kwargs)
+        pca_modes, _, _, _ = self.calc_pca_modes(n_components=1, **trace_kwargs)
         pc1 = pd.Series(pca_modes.loc[:, 0])
         # Calculate plateaus using worm posture class method
         plateaus, working_pw_fits = self.worm_posture_class.calc_plateau_state_from_trace(pc1, n_breakpoints=2,
@@ -2669,7 +2669,7 @@ def plot_pca_modes_from_project(project_data: ProjectData, n_components=3, trace
     if trace_kwargs is None:
         trace_kwargs = {}
 
-    pca_modes, var_explained = project_data.calc_pca_modes(n_components=n_components, **trace_kwargs)
+    pca_modes, _, var_explained, _ = project_data.calc_pca_modes(n_components=n_components, **trace_kwargs)
 
     # Use physical time axis
     x = project_data.x_for_plots
@@ -2727,7 +2727,7 @@ def plot_pca_projection_3d_from_project(project_data: ProjectData, trace_kwargs=
     if states_to_remove is None:
         states_to_remove = [BehaviorCodes.UNKNOWN]
 
-    pca_proj, var_explained = project_data.calc_pca_modes(**trace_kwargs, interpolate_nan=True)
+    pca_proj, _, var_explained, _ = project_data.calc_pca_modes(**trace_kwargs, interpolate_nan=True)
     var_explained *= 100
 
     if t_end is not None:
