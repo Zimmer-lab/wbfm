@@ -2,8 +2,87 @@
 # ======================================
 # Configuration parameters (edit as needed)
 # ======================================
-from typing import Any, Dict, List, Tuple
+"""
+SUPPLEMENTAL FIGURES S2A, S2B, S2C: DUAL-MODE VISUALIZATION (March 2026 REFACTOR)
+=================================================================================
 
+ARCHITECTURE OVERVIEW:
+This module generates publication-quality supplement figures with two visualization modes:
+
+1. CLASSIC MODE (use_mean_and_shading=False):
+   - S2A: Stacked subplots (original layout)
+   - S2B: Grouped boxplots (percent neurons above threshold)
+   - S2C: Bar plots (quiet proportions)
+
+2. MEAN+SHADING MODE (use_mean_and_shading=True):
+   - S2A: 2 rows × 4 cols grid (PSD/CDF rows, conditions 0-3 columns)
+   - S2B: Line plots with mean ± shading per wavelength
+   - S2C: Line plots with mean ± shading per wavelength
+
+KEY DESIGN DECISIONS:
+--------------------
+
+DATA FORMAT (Critical for Understanding):
+- Data preparation functions (prepare_s2a_psd_data_for_mean_and_shading, etc.)
+  intentionally produce ONE ROW PER FREQUENCY PER RECORDING PER GROUP.
+- NO pre-averaging in data prep. This separation of concerns prevents bugs.
+- Aggregation happens downstream in plotly_plot_mean_and_shading:
+  * Groups by (condition, wavelength)
+  * Computes mean/std ACROSS RECORDINGS for each group
+  
+Example data structure after prepare_s2a_psd_data_for_mean_and_shading:
+  frequency  psd         group
+  0.008      0.5         0 | Green       <- freq bin from recording 1, cond 0, wavelength Green
+  0.008      0.6         0 | Green       <- freq bin from recording 2, cond 0, wavelength Green
+  0.008      0.3         1 | Green       <- freq bin from recording 1, cond 1, wavelength Green
+  (continues for all freq bins, all recordings, all groups...)
+
+S2A SPECIAL ARCHITECTURE (2×4 GRID):
+When use_mean_and_shading=True:
+  - Creates 2 rows (PSD, CDF) × 4 cols (Condition 0, 1, 2, 3)
+  - CONDITION MUST be in [0,1,2,3] for grid layout to work
+  - Each subplot shows all wavelengths for that condition (color-coded)
+  - plotly_plot_mean_and_shading computes separate mean/std per wavelength within condition
+  - Band-edge lines (F_LOW, F_HIGH) shown on all subplots
+  - X-axis uniform across all subplots: [0, 2*F_HIGH]
+
+COLOR MAPPING STRATEGY:
+- make_wavelength_color_map(results) returns {wavelength -> color} palette
+- Type consistency critical: use original wavelength objects from results dict
+- Do NOT convert wavelengths to strings before building color map
+- Build group_cmap directly from results.items() to maintain type alignment
+
+SPECTRUM CONFIGURATION:
+- Frequency band: [F_LOW=0.007, F_HIGH=0.033] Hz
+- X-axis limit: [0, 2*F_HIGH] Hz
+- Post-processing: percentile normalization per recording
+- CDF computed via complementary empirical CDF (1 - standard CDF)
+
+METRICS COMPUTED (compute_all_metrics output):
+- PSD: Power Spectral Density (L/period, normalized per recording)
+- CDF: Cumulative Distribution Function of activity levels
+- S2B: Percent neurons with frequency band activity > THRESHOLD_FRACTION
+- S2C: Percent recordings with >QUIET_THRESHOLD neurons above threshold
+
+WORKFLOW:
+1. reproduce_figures_plotly: Main entry point
+2. compute_all_metrics: Extract PSD/CDF/thresholds per recording
+3. Conditional logic based on use_mean_and_shading flag:
+   IF False: Use original plot_s2a_plotly_simple, etc. (stacked layout)
+   IF True: 
+     a. prepare_s2a_psd_data_for_mean_and_shading -> DataFrame
+     b. prepare_s2a_cdf_data_for_mean_and_shading -> DataFrame
+     c. plot_s2a_mean_and_shading -> 2×4 grid figure
+     (Similar pattern for S2B, S2C)
+
+ERROR PREVENTION NOTES:
+- Ensure results dict has condition keys in [0,1,2,3] (not strings like "0")
+- Don't aggregate data before prepare_s2a_* (causes group mixing)
+- Check wavelength type consistency in color map building
+- Use direct results dict keys for cmap, not derived values
+"""
+from typing import Any, Dict, List, Tuple
+import numpy as np
 import pandas as pd
 from scipy.stats import ttest_ind, norm
 
@@ -20,6 +99,70 @@ ALPHA_BH = 0.05           # Benjamini–Hochberg FDR level [^2]
 # Helper functions: spectral metrics
 # ==================================
 
+def determine_common_fft_length(
+    all_dfs: Dict[Tuple[str, str], List[pd.DataFrame]],
+    strategy: str = 'max'
+) -> int:
+    """
+    Determine a common FFT length to ensure all datasets use the same frequency grid.
+    
+    This function finds the optimal time-series length for zero-padding so that:
+    - All recordings are padded to the same length before FFT
+    - Frequency resolution is uniform across all conditions
+    - Fine frequency details are preserved
+    
+    Parameters
+    ----------
+    all_dfs : dict[(condition, wavelength)] -> list[pd.DataFrame]
+        All recordings for all conditions
+    strategy : {'max', 'median'}, default='max'
+        'max': Use longest recording length (preserves fine resolution)
+        'median': Use median length (balances resolution with padding overhead)
+    
+    Returns
+    -------
+    target_fft_length : int
+        The standardized FFT length to use for all recordings
+    """
+    all_lengths = []
+    for key, df_list in all_dfs.items():
+        for df in df_list:
+            all_lengths.append(df.shape[0])
+    
+    if len(all_lengths) == 0:
+        raise ValueError("No recordings found in all_dfs")
+    
+    if strategy == 'max':
+        return int(np.max(all_lengths))
+    elif strategy == 'median':
+        return int(np.median(all_lengths))
+    else:
+        raise ValueError(f"Unknown strategy: {strategy}")
+
+
+def pad_signal_for_fft(x: np.ndarray, target_length: int) -> np.ndarray:
+    """
+    Zero-pad signal to target length (appends zeros at end).
+    
+    Parameters
+    ----------
+    x : np.ndarray
+        Original signal
+    target_length : int
+        Desired length (must be >= len(x))
+    
+    Returns
+    -------
+    x_padded : np.ndarray
+        Zero-padded signal of length target_length
+    """
+    if len(x) > target_length:
+        raise ValueError(f"Signal length {len(x)} exceeds target {target_length}")
+    if len(x) == target_length:
+        return x.copy()
+    return np.pad(x, (0, target_length - len(x)), mode='constant', constant_values=0)
+
+
 def compute_delta_ff(df: pd.DataFrame) -> pd.DataFrame:
     """
     Apply ΔF/F per neuron (column): ΔF/F = (F - mean(F)) / mean(F) [^2].
@@ -29,38 +172,83 @@ def compute_delta_ff(df: pd.DataFrame) -> pd.DataFrame:
     return (df - mean_vals) / mean_vals
 
 def band_power_fraction_per_neuron(x: np.ndarray, d: float,
-                                   f_low: float = F_LOW, f_high: float = F_HIGH) -> float:
+                                   f_low: float = F_LOW, f_high: float = F_HIGH,
+                                   target_fft_length: int = None) -> float:
     """
     Fraction of power in [f_low, f_high] Hz for a single neuron trace x using normalized PSD [^2].
+    
+    Parameters
+    ----------
+    x : np.ndarray
+        Single-neuron time series
+    d : float
+        Sampling interval (seconds)
+    f_low, f_high : float
+        Frequency band bounds (Hz)
+    target_fft_length : int, optional
+        If provided, zero-pad signal to this length before FFT.
+        Ensures all recordings use the same frequency grid.
+        If None, uses signal length as-is.
+    
+    Returns
+    -------
+    float
+        Normalized power fraction in band [f_low, f_high]
     """
-    X = np.fft.rfft(x)
+    x_fft = pad_signal_for_fft(x, target_fft_length) if target_fft_length is not None else x
+    X = np.fft.rfft(x_fft)
     psd = np.abs(X) ** 2
     total_power = psd.sum()
     if total_power == 0:
         return 0.0
     psd /= total_power
 
-    freqs = np.fft.rfftfreq(len(x), d=d)
+    freqs = np.fft.rfftfreq(len(x_fft), d=d)
     band_mask = (freqs >= f_low) & (freqs <= f_high)
     return float(psd[band_mask].sum())
 
 def recording_metrics(df: pd.DataFrame, d: float,
                       f_low: float = F_LOW, f_high: float = F_HIGH,
                       threshold: float = THRESHOLD_FRACTION,
-                      apply_delta_ff: bool = False) -> Tuple[float, float, np.ndarray]:
+                      apply_delta_ff: bool = False,
+                      target_fft_length: int = None) -> Tuple[float, float, np.ndarray]:
     """
     For one recording (df: T x N_neurons), compute:
       - per-neuron fraction of power in [f_low, f_high],
       - average fraction across neurons (for sorting/summary),
       - percentage of neurons with fraction > threshold (Figure S2B metric) [^2].
     Optionally apply ΔF/F per neuron [^2].
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Recording data (T x N_neurons)
+    d : float
+        Sampling interval (seconds)
+    f_low, f_high : float
+        Frequency band bounds
+    threshold : float
+        Threshold for counting neurons above band fraction
+    apply_delta_ff : bool
+        Apply ΔF/F normalization
+    target_fft_length : int, optional
+        FFT length for standardizing frequency grid across recordings
+    
+    Returns
+    -------
+    avg_fraction : float
+        Average band fraction across neurons
+    pct_neurons_above : float
+        Percentage of neurons exceeding threshold
+    fractions : np.ndarray
+        Per-neuron band fractions
     """
     df_proc = compute_delta_ff(df) if apply_delta_ff else df
 
     fractions = []
     for col in df_proc.columns:
         x = df_proc[col].values
-        frac = band_power_fraction_per_neuron(x, d, f_low, f_high)
+        frac = band_power_fraction_per_neuron(x, d, f_low, f_high, target_fft_length=target_fft_length)
         fractions.append(frac)
 
     fractions = np.array(fractions, dtype=float)
@@ -68,7 +256,8 @@ def recording_metrics(df: pd.DataFrame, d: float,
     pct_neurons_above = 100.0 * (np.sum(fractions > threshold) / len(fractions)) if len(fractions) > 0 else np.nan
     return avg_fraction, pct_neurons_above, fractions
 
-def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False
+def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False,
+                    target_fft_length: int = None
                     ) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     """
     50% spectral edge using CDF of averaged power spectra across neurons [^1]:
@@ -77,7 +266,30 @@ def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False
       - normalize,
       - CDF over frequency bins,
       - frequency at which CDF crosses 0.5.
-    Returns: f50, freqs, psd_avg_norm, cdf
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Recording data (T x N_neurons)
+    d : float
+        Sampling interval (seconds)
+    apply_delta_ff : bool
+        Apply ΔF/F normalization
+    target_fft_length : int, optional
+        If provided, zero-pad signals to this length before FFT.
+        Ensures consistent frequency grid across recordings.
+        If None, uses signal length as-is.
+    
+    Returns
+    -------
+    f50 : float
+        Frequency at 50% spectral power
+    freqs : np.ndarray
+        Frequency grid (Hz)
+    psd_avg_norm : np.ndarray
+        Normalized averaged PSD
+    cdf : np.ndarray
+        Cumulative distribution function of power
     """
     df_proc = compute_delta_ff(df) if apply_delta_ff else df
 
@@ -85,7 +297,8 @@ def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False
     n_time = df_proc.shape[0]
     for col in df_proc.columns:
         x = df_proc[col].values
-        X = np.fft.rfft(x)
+        x_fft = pad_signal_for_fft(x, target_fft_length) if target_fft_length is not None else x
+        X = np.fft.rfft(x_fft)
         psd_list.append(np.abs(X) ** 2)
 
     if len(psd_list) == 0:
@@ -97,7 +310,8 @@ def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False
         return np.nan, None, None, None
 
     psd_avg_norm = psd_avg / total_power
-    freqs = np.fft.rfftfreq(n_time, d=d)
+    n_fft = target_fft_length if target_fft_length is not None else n_time
+    freqs = np.fft.rfftfreq(n_fft, d=d)
     cdf = np.cumsum(psd_avg_norm)
     idx = int(np.searchsorted(cdf, 0.5))
     f50 = float(freqs[idx]) if idx < len(freqs) else float(freqs[-1])
@@ -157,7 +371,8 @@ def two_proportion_ztest(x1: int, n1: int, x2: int, n2: int) -> Tuple[float, flo
 def compute_all_metrics(
     all_dfs: Dict[Tuple[str, str], List[pd.DataFrame]],
     sampling_intervals_all: Dict[Tuple[str, str], List[float]],
-    apply_delta_ff: bool = False
+    apply_delta_ff: bool = False,
+    fft_length_strategy: str = 'max'
 ) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
     """
     Compute per-recording metrics for each condition:
@@ -165,8 +380,32 @@ def compute_all_metrics(
       - pct_neurons_above (Figure S2B metric),
       - fractions per neuron,
       - f50 spectral edge and PSD/CDF (Figure S2A).
-    Returns dict keyed by (condition_name, laser_wavelength) -> list of recording metrics dicts.
+    
+    CRITICAL: All recordings are zero-padded to the same FFT length to ensure
+    consistent frequency grid across all datasets.
+    
+    Parameters
+    ----------
+    all_dfs : dict[(condition, wavelength)] -> list[pd.DataFrame]
+        Recording data for all conditions
+    sampling_intervals_all : dict[(condition, wavelength)] -> list[float]
+        Sampling intervals (seconds) for each recording
+    apply_delta_ff : bool, default=False
+        Apply ΔF/F normalization
+    fft_length_strategy : {'max', 'median'}, default='max'
+        Strategy for determining common FFT length:
+        - 'max': Use longest recording (finest frequency resolution)
+        - 'median': Use median recording length (balance resolution vs padding)
+    
+    Returns
+    -------
+    dict[(condition, wavelength)] -> list[dict]
+        Per-recording metrics with keys: 'avg_fraction', 'pct_neurons_above',
+        'fractions', 'f50', 'freqs', 'psd_avg_norm', 'cdf'
     """
+    # Determine common FFT length across all recordings
+    target_fft_length = determine_common_fft_length(all_dfs, strategy=fft_length_strategy)
+    
     results = {}
     for key, df_list in all_dfs.items():
         d_list = sampling_intervals_all[key]
@@ -174,9 +413,12 @@ def compute_all_metrics(
         metrics_list = []
         for df, d in zip(df_list, d_list):
             avg_fraction, pct_neurons_above, fractions = recording_metrics(
-                df, d, F_LOW, F_HIGH, THRESHOLD_FRACTION, apply_delta_ff=apply_delta_ff
+                df, d, F_LOW, F_HIGH, THRESHOLD_FRACTION, apply_delta_ff=apply_delta_ff,
+                target_fft_length=target_fft_length
             )
-            f50, freqs, psd_avg_norm, cdf = spectral_edge_50(df, d, apply_delta_ff=apply_delta_ff)
+            f50, freqs, psd_avg_norm, cdf = spectral_edge_50(
+                df, d, apply_delta_ff=apply_delta_ff, target_fft_length=target_fft_length
+            )
             metrics_list.append({
                 'avg_fraction': avg_fraction,            # used to sort recordings (Figure S1-like) [^3]
                 'pct_neurons_above': pct_neurons_above,  # Figure S2B metric [^2]
@@ -285,41 +527,46 @@ def plot_s2b_plotly_simple(results):
       - Boxplots of % of neurons with band fraction in [F_LOW, F_HIGH] > THRESHOLD_FRACTION per recording
       - x-axis: condition, color: wavelength
       - Matches the metric definition and usage in the supplemental methods and S2B panel [^2]
-
     Input
     -----
     results: dict[(condition, wavelength)] -> list of per-recording dicts with keys:
         'pct_neurons_above'
-
     Returns
     -------
     fig: plotly.graph_objects.Figure
     """
     color_map = make_wavelength_color_map(results)
-    # Build data per wavelength
-    waves = sorted(color_map.keys())
-    data = {w: {'x': [], 'y': []} for w in waves}
-    for (cond, wavelength), recs in results.items():
-        ys = [r['pct_neurons_above'] for r in recs if not np.isnan(r['pct_neurons_above'])]
-        xs = [cond] * len(ys)
-        data[wavelength]['x'].extend(xs)
-        data[wavelength]['y'].extend(ys)
 
-    fig = go.Figure()
-    for w in waves:
-        fig.add_trace(go.Box(
-            x=data[w]['x'],
-            y=data[w]['y'],
-            name=str(w),
-            marker_color=color_map[w]
-        ))
-    fig.update_layout(
+    # Build flat DataFrame for px.box
+    rows = []
+    for (cond, wavelength), recs in results.items():
+        for r in recs:
+            if not np.isnan(r['pct_neurons_above']):
+                rows.append({
+                    'condition': cond,
+                    'wavelength': str(wavelength),
+                    'pct_neurons_above': r['pct_neurons_above']
+                })
+    df = pd.DataFrame(rows)
+
+    fig = px.box(
+        df,
+        x='condition',
+        y='pct_neurons_above',
+        color='wavelength',
+        color_discrete_map={str(w): c for w, c in color_map.items()},
+        points='all',                   # show all individual points
         title=f"Figure S2B: % neurons with fraction in [{F_LOW}, {F_HIGH}] Hz > {THRESHOLD_FRACTION} [^2]",
-        xaxis_title="Condition",
-        yaxis_title="% of neurons > threshold",
-        boxmode='group',
-        height=500
+        labels={
+            'condition': 'Condition',
+            'pct_neurons_above': '% of neurons > threshold',
+            'wavelength': 'Wavelength'
+        },
+        height=500,
     )
+
+    fig.update_layout(boxmode='group')
+
     return fig
 
 
@@ -571,6 +818,7 @@ def compute_fig1_metrics(
     all_dfs,
     sampling_intervals_all,
     apply_delta_ff=False,
+    fft_length_strategy='max',
     comparisons=None,           # list of pairs: [ ((condA, λA), (condB, λB)), ... ]
     alternative='greater',      # H1: mean(condA) > mean(condB) [^2]
     alpha=ALPHA_BH              # BH FDR level [^2]
@@ -594,6 +842,8 @@ def compute_fig1_metrics(
         Sampling intervals (seconds) aligned to each recording [^1].
     apply_delta_ff : bool
         If True, apply ΔF/F per neuron before spectral analysis [^2].
+    fft_length_strategy : {'max', 'median'}, default='max'
+        Strategy for determining common FFT length across all recordings [^1]
     comparisons : list[tuple[(cond_name_A, λ_A), (cond_name_B, λ_B)]] or None
         Optional condition-pair comparisons for stats. H1: mean(A) > mean(B) [^2].
     alternative : {'greater', 'less', 'two-sided'}
@@ -618,6 +868,9 @@ def compute_fig1_metrics(
                 'percent_change_mean': float  # 100 * (meanA - meanB)/meanB
             }
     """
+    # Determine common FFT length across all recordings
+    target_fft_length = determine_common_fft_length(all_dfs, strategy=fft_length_strategy)
+    
     per_condition = {}
 
     # Compute per-recording metrics for each condition
@@ -630,10 +883,12 @@ def compute_fig1_metrics(
         for df, d in zip(df_list, d_list):
             # Figure 1E metric: average across neurons of per-neuron band fraction [^1]
             avg_fraction, _, _ = recording_metrics(
-                df, d, F_LOW, F_HIGH, THRESHOLD_FRACTION, apply_delta_ff=apply_delta_ff
+                df, d, F_LOW, F_HIGH, THRESHOLD_FRACTION, apply_delta_ff=apply_delta_ff,
+                target_fft_length=target_fft_length
             )
             # Figure 1F metric: 50% spectral edge from averaged spectrum CDF [^1]
-            f50, _, _, _ = spectral_edge_50(df, d, apply_delta_ff=apply_delta_ff)
+            f50, _, _, _ = spectral_edge_50(df, d, apply_delta_ff=apply_delta_ff,
+                                           target_fft_length=target_fft_length)
             avg_fracs.append(avg_fraction)
             f50_list.append(f50)
 
@@ -765,16 +1020,22 @@ def plot_fig1E_F_plotly_simple(
 
 def prepare_s2a_psd_data_for_mean_and_shading(results):
     """
-    Prepare S2A PSD data for plotly_plot_mean_and_shading.
-    Creates one row per frequency point per recording, with a 'group' column for each condition+wavelength.
+    Prepare S2A (Power Spectral Density) data for plotly_plot_mean_and_shading.
+    One row per frequency point per recording; NO pre-averaging within groups.
+    plotly_plot_mean_and_shading computes mean/std per group downstream.
     
     Parameters
     ----------
-    results: dict[(condition, wavelength)] -> list of per-recording metrics dicts
+    results : dict[(condition, wavelength)] -> list[dict]
+        Output from compute_all_metrics. Each dict has 'freqs' and 'psd_avg_norm'.
+        Condition must be in [0,1,2,3] for plot_s2a_mean_and_shading grid layout.
     
     Returns
     -------
-    df_psd: pd.DataFrame with columns ['frequency', 'psd', 'group']
+    df_psd : pd.DataFrame
+        Columns: ['frequency', 'psd', 'group']
+        Format: "condition_id | wavelength_id"
+        Rows = sum(num_recordings * num_frequencies)
     """
     data_list = []
     for (cond, wavelength), recs in results.items():
@@ -806,16 +1067,22 @@ def prepare_s2a_psd_data_for_mean_and_shading(results):
 
 def prepare_s2a_cdf_data_for_mean_and_shading(results):
     """
-    Prepare S2A CDF data for plotly_plot_mean_and_shading.
-    Creates one row per frequency point per recording, with a 'group' column for each condition+wavelength.
+    Prepare S2A (Cumulative Distribution Function) data for plotly_plot_mean_and_shading.
+    One row per frequency point per recording; NO pre-averaging within groups.
+    Mirrors prepare_s2a_psd_data_for_mean_and_shading but for CDF values.
     
     Parameters
     ----------
-    results: dict[(condition, wavelength)] -> list of per-recording metrics dicts
+    results : dict[(condition, wavelength)] -> list[dict]
+        Output from compute_all_metrics. Each dict has 'freqs' and 'cdf'.
+        Condition must be in [0,1,2,3] for plot_s2a_mean_and_shading grid layout.
     
     Returns
     -------
-    df_cdf: pd.DataFrame with columns ['frequency', 'cdf', 'group']
+    df_cdf : pd.DataFrame
+        Columns: ['frequency', 'cdf', 'group']
+        Format: "condition_id | wavelength_id"
+        Rows = sum(num_recordings * num_frequencies)
     """
     data_list = []
     for (cond, wavelength), recs in results.items():
@@ -845,20 +1112,46 @@ def prepare_s2a_cdf_data_for_mean_and_shading(results):
     return pd.DataFrame(data_list)
 
 
-def plot_s2a_mean_and_shading(results, shade_style='std', cmap=None):
+def axis_ref(row_idx, col_idx, n_cols):
+    """Plotly axis helper function"""
+    linear_idx = (row_idx - 1) * n_cols + col_idx
+    suffix = '' if linear_idx == 1 else str(linear_idx)
+    return f'x{suffix}', f'y{suffix}'
+    
+
+def plot_s2a_mean_and_shading(results, shade_style='std', cmap=None, DEBUG=False):
     """
-    Plot S2A data (PSD and CDF) using mean and shading for each condition+wavelength group.
+    Plot S2A spectral data (PSD and CDF) with mean lines and confidence shading.
+    ARCHITECTURE: 2 rows × 4 cols grid (row 1=PSD, row 2=CDF; cols=conditions 0-3).
+    Each subplot shows all wavelengths for that condition (color-coded by wavelength).
+    
+    WORKFLOW:
+    1. Prepare flat DataFrames (one row per freq/recording/group)
+    2. Create 2×4 subplot grid
+    3. For each condition (0-3):
+       - Filter data by condition
+       - Plot PSD and CDF separately, add traces to grid
+       - plotly_plot_mean_and_shading computes mean/std per wavelength within condition
+    4. Add band-edge lines (F_LOW, F_HIGH) to all subplots
+    5. Set x-axis to [0, 2*F_HIGH] consistently
     
     Parameters
     ----------
-    results: dict[(condition, wavelength)] -> list of per-recording metrics dicts
-    shade_style: 'std' or 'quantile'
-    cmap: optional color map
+    results : dict[(condition, wavelength)] -> list[dict]
+        From compute_all_metrics. Condition MUST be in [0,1,2,3] for grid layout.
+    shade_style : {'std', 'quantile'}, default='std'
+        'std' = mean±1σ; 'quantile' = IQR
+    cmap : dict, optional
+        Color map {group_id -> color}. If None, uses make_wavelength_color_map.
     
     Returns
     -------
-    fig: plotly figure with subplots
+    fig : plotly.graph_objects.Figure
+        2×4 subplot grid (1400×800px). Each line is (condition, wavelength) pair.
+        Shading shows variability across recordings within that group.
     """
+    if DEBUG:
+        print("DEBUG: Starting plot_s2a_mean_and_shading with results keys:", list(results.keys())[:5])
     # Prepare data
     df_psd = prepare_s2a_psd_data_for_mean_and_shading(results)
     df_cdf = prepare_s2a_cdf_data_for_mean_and_shading(results)
@@ -874,68 +1167,109 @@ def plot_s2a_mean_and_shading(results, shade_style='std', cmap=None):
     else:
         group_cmap = cmap
     
-    # Create individual figures
-    fig_psd = plotly_plot_mean_and_shading(
-        df_psd,
-        x='frequency',
-        y='psd',
-        color='group',
-        line_name='Mean',
-        shade_style=shade_style,
-        cmap=group_cmap
-    )
-    fig_psd.update_layout(
-        title="Normalized PSD",
-        xaxis_title="Frequency (Hz)",
-        yaxis_title="Normalized PSD",
-        height=400
+    n_cols = 4
+
+    # Create 2x4 subplot grid
+    fig = make_subplots(
+        rows=2, cols=n_cols,
+        subplot_titles=[f"Condition {i}" for i in range(4)] + [""] * 4,
+        vertical_spacing=0.15,
+        horizontal_spacing=0.1
     )
     
-    fig_cdf = plotly_plot_mean_and_shading(
-        df_cdf,
-        x='frequency',
-        y='cdf',
-        color='group',
-        line_name='Mean',
-        shade_style=shade_style,
-        cmap=group_cmap
-    )
-    fig_cdf.update_layout(
-        title="CDF",
-        xaxis_title="Frequency (Hz)",
-        yaxis_title="CDF",
-        height=400
-    )
+    # Iterate over conditions (0, 1, 2, 3)
+    for col_idx, cond in enumerate([0, 1, 2, 3], start=1):
+        # Filter data for this condition
+        df_psd_cond = df_psd[df_psd['group'].str.contains(f"^{cond} \\|", regex=True)]
+        df_cdf_cond = df_cdf[df_cdf['group'].str.contains(f"^{cond} \\|", regex=True)]
+
+        if DEBUG:
+            print(f"DEBUG: Condition {cond} - PSD rows: {len(df_psd_cond)}, CDF rows: {len(df_cdf_cond)}")
+        
+        # Plot PSD (row 1)
+        if len(df_psd_cond) > 0:
+            fig_psd_cond = plotly_plot_mean_and_shading(
+                df_psd_cond,
+                x='frequency',
+                y='psd',
+                color='group',
+                line_name='Mean',
+                shade_style=shade_style,
+                cmap=group_cmap,
+                DEBUG=DEBUG
+            )
+            # Add traces from individual figure to subplot
+            for trace in fig_psd_cond.data:
+                xref, yref = axis_ref(row_idx=1, col_idx=col_idx, n_cols=n_cols)
+                trace.update(xaxis=xref, yaxis=yref)
+                fig.add_trace(trace, row=1, col=col_idx)
+            
+        
+        # Plot CDF (row 2)
+        if len(df_cdf_cond) > 0:
+            fig_cdf_cond = plotly_plot_mean_and_shading(
+                df_cdf_cond,
+                x='frequency',
+                y='cdf',
+                color='group',
+                line_name='Mean',
+                shade_style=shade_style,
+                cmap=group_cmap,
+                DEBUG=DEBUG
+            )
+            # Add traces from individual figure to subplot
+            for trace in fig_cdf_cond.data:
+                xref, yref = axis_ref(row_idx=1, col_idx=col_idx, n_cols=n_cols)
+                trace.update(xaxis=xref, yaxis=yref)
+                fig.add_trace(trace, row=2, col=col_idx)
     
-    # Combine figures
-    fig = combine_plotly_figures([fig_psd, fig_cdf], horizontal=False)
+    # Update axes
+    fig.update_yaxes(title_text="Normalized PSD", row=1, col=1)
+    fig.update_yaxes(title_text="CDF", row=2, col=1)
+    fig.update_xaxes(title_text="Frequency (Hz)", row=2)
     
-    # Add vertical lines at band edges
-    fig.add_vline(x=F_LOW, line=dict(color='black', dash='dot', width=1))
-    fig.add_vline(x=F_HIGH, line=dict(color='black', dash='dot', width=1))
+    # Add vertical lines at band edges for all subplots
+    for col_idx in range(1, 5):
+        fig.add_vline(x=F_LOW, line=dict(color='black', dash='dot', width=1), 
+                     row=1, col=col_idx)
+        fig.add_vline(x=F_HIGH, line=dict(color='black', dash='dot', width=1), 
+                     row=1, col=col_idx)
+        fig.add_vline(x=F_LOW, line=dict(color='black', dash='dot', width=1), 
+                     row=2, col=col_idx)
+        fig.add_vline(x=F_HIGH, line=dict(color='black', dash='dot', width=1), 
+                     row=2, col=col_idx)
+    
+    # Limit x-axis to 2*F_HIGH for all subplots
+    for col_idx in range(1, 5):
+        fig.update_xaxes(range=[0, 2 * F_HIGH], row=1, col=col_idx)
+        fig.update_xaxes(range=[0, 2 * F_HIGH], row=2, col=col_idx)
     
     fig.update_layout(
-        title="Figure S2A: Averaged normalized PSDs and CDFs per condition [^2]",
-        height=800
+        title="",
+        height=800,
+        width=1400
     )
-    
-    # Limit x-axis to 2*F_HIGH
-    fig.update_xaxes(range=[0, 2 * F_HIGH])
     
     return fig
 
 
 def prepare_s2b_data_for_mean_and_shading(results):
     """
-    Prepare S2B data (percentage of neurons above threshold) for plotly_plot_mean_and_shading.
+    Flatten S2B metrics (% neurons above threshold) for plotly_plot_mean_and_shading.
+    
+    Converts results dict to DataFrame with one row per recording per (condition, wavelength).
+    NO pre-aggregation; plotly_plot_mean_and_shading computes mean/std per wavelength.
     
     Parameters
     ----------
-    results: dict[(condition, wavelength)] -> list of per-recording metrics dicts
+    results : dict[(condition, wavelength)] -> list[dict]
+        From compute_all_metrics. Each dict has 'pct_neurons_above' key.
     
     Returns
     -------
-    df_s2b: pd.DataFrame with columns ['condition', 'wavelength', 'pct_neurons_above']
+    df_s2b : pd.DataFrame
+        Columns: ['condition', 'wavelength', 'pct_neurons_above']
+        Index: one row per recording per (condition, wavelength) pair
     """
     data_list = []
     for (cond, wavelength), recs in results.items():
@@ -951,16 +1285,24 @@ def prepare_s2b_data_for_mean_and_shading(results):
 
 def prepare_s2c_data_for_mean_and_shading(quiet_counts, totals):
     """
-    Prepare S2C data (proportion of quiet recordings) for plotly_plot_mean_and_shading.
+    Flatten S2C metrics (proportion quiet recordings) for plotly_plot_mean_and_shading.
+    
+    Converts quiet_counts and totals dicts to DataFrame with one row per recording
+    per (condition, wavelength). NO pre-aggregation; plotly_plot_mean_and_shading 
+    computes mean/std per wavelength.
     
     Parameters
     ----------
-    quiet_counts: dict[label] -> count of quiet recordings
-    totals: dict[label] -> total count of recordings
+    quiet_counts : dict[label_str] -> int
+        Count of quiet recordings per group, label format "condition | wavelength"
+    totals : dict[label_str] -> int
+        Total recordings per group, label format "condition | wavelength"
     
     Returns
     -------
-    df_s2c: pd.DataFrame with columns ['condition', 'wavelength', 'prop_quiet']
+    df_s2c : pd.DataFrame
+        Columns: ['condition', 'wavelength', 'prop_quiet']
+        Index: one row per group with calculated proportion
     """
     data_list = []
     for label in quiet_counts.keys():
@@ -978,17 +1320,27 @@ def prepare_s2c_data_for_mean_and_shading(quiet_counts, totals):
 
 def plot_s2b_mean_and_shading(df_s2b, shade_style='std', cmap=None):
     """
-    Plot S2B data using mean and shading for each wavelength group.
+    Plot S2B data (% neurons above threshold) with mean lines and confidence shading.
+    
+    Plots each wavelength as a separate line across conditions, with shading showing
+    variability across recordings for that wavelength within each condition.
     
     Parameters
     ----------
-    df_s2b: pd.DataFrame from prepare_s2b_data_for_mean_and_shading
-    shade_style: 'std' or 'quantile'
-    cmap: optional color map
+    df_s2b : pd.DataFrame
+        Output from prepare_s2b_data_for_mean_and_shading.
+        Columns: ['condition', 'wavelength', 'pct_neurons_above']
+        One row per recording per (condition, wavelength) pair.
+    shade_style : {'std', 'quantile'}, default='std'
+        'std' = mean±1σ; 'quantile' = IQR (25th-75th percentile)
+    cmap : dict, optional
+        Color map {wavelength_str -> color}. If None, uses make_wavelength_color_map.
     
     Returns
     -------
-    fig: plotly figure
+    fig : plotly.graph_objects.Figure
+        Single figure with wavelength traces and confidence regions.
+        X-axis: conditions; Y-axis: % neurons above threshold
     """
     if cmap is None:
         cmap = make_wavelength_color_map({('cond', w): None for w in df_s2b['wavelength'].unique()})
@@ -1015,17 +1367,27 @@ def plot_s2b_mean_and_shading(df_s2b, shade_style='std', cmap=None):
 
 def plot_s2c_mean_and_shading(df_s2c, shade_style='std', cmap=None):
     """
-    Plot S2C data using mean and shading for each wavelength group.
+    Plot S2C data (proportion quiet recordings) with mean lines and confidence shading.
+    
+    Plots each wavelength as a separate line across conditions, with shading showing
+    variability across recordings for that wavelength within each condition.
     
     Parameters
     ----------
-    df_s2c: pd.DataFrame from prepare_s2c_data_for_mean_and_shading
-    shade_style: 'std' or 'quantile'
-    cmap: optional color map
+    df_s2c : pd.DataFrame
+        Output from prepare_s2c_data_for_mean_and_shading.
+        Columns: ['condition', 'wavelength', 'prop_quiet']
+        One row per recording per (condition, wavelength) pair.
+    shade_style : {'std', 'quantile'}, default='std'
+        'std' = mean±1σ; 'quantile' = IQR (25th-75th percentile)
+    cmap : dict, optional
+        Color map {wavelength_str -> color}. If None, uses make_wavelength_color_map.
     
     Returns
     -------
-    fig: plotly figure
+    fig : plotly.graph_objects.Figure
+        Single figure with wavelength traces and confidence regions.
+        X-axis: conditions; Y-axis: proportion of quiet recordings [0, 1]
     """
     if cmap is None:
         cmap = make_wavelength_color_map({('cond', w): None for w in df_s2c['wavelength'].unique()})
@@ -1062,44 +1424,83 @@ def reproduce_figures_plotly(
     quiet_threshold: float = QUIET_THRESHOLD,
     use_mean_and_shading: bool = False,
     shade_style: str = 'std',
-    cmap: dict = None
+    cmap: dict = None,
+    fft_length_strategy: str = 'max',
+    DEBUG=False
 ):
     """
-    End-to-end reproduction:
-      - Compute metrics,
-      - Plot S2A (normalized PSD & CDF),
-      - Plot S2B (percentage above threshold) + stats,
-      - Plot S2C (quiet proportions) + stats.
+    Generate S2A/S2B/S2C supplement figures with optional dual-mode visualization.
+    
+    MODES:
+    - default (use_mean_and_shading=False): Original stacked boxplots/bars
+    - mean+shading (use_mean_and_shading=True): Mean lines with confidence regions
+    
+    S2A SPECIAL CASE: 2×4 GRID LAYOUT
+    When use_mean_and_shading=True, S2A displays 2 rows × 4 cols:
+    - Rows: Row 1=PSD (power spectral density), Row 2=CDF (cumulative distribution)
+    - Cols: Condition 0, 1, 2, 3 (side-by-side for easy comparison)
+    Each subplot shows all wavelengths color-coded with mean + shading per wavelength.
+    
+    CRITICAL DATA FORMAT DECISION:
+    Data prep functions (prepare_s2a_*) DO NOT pre-average.
+    They produce one row per (frequency, recording, group).
+    Aggregation happens downstream in plotly_plot_mean_and_shading:
+    - Groups by (condition, wavelength)
+    - Computes mean/std across recordings for that group
+    This keeps concerns separated and avoids cross-condition averaging bugs.
     
     Parameters
     ----------
-    all_dfs: dict of recording dataframes keyed by (condition, wavelength)
-    sampling_intervals_all: dict of sampling intervals (temporal) keyed by (condition, wavelength)
-    apply_delta_ff: whether to apply ΔF/F normalization per neuron
-    quiet_threshold: threshold for classifying quiet recordings
-    use_mean_and_shading: if True, use plotly_plot_mean_and_shading for S2A, S2B, and S2C instead of original plot styles
-    shade_style: 'std' for standard deviation shading, 'quantile' for interquartile range
-    cmap: optional color map for wavelengths
+    all_dfs : dict[(condition, wavelength)] -> list[pd.DataFrame]
+        Recording trace data from compute_all_metrics
+    sampling_intervals_all : dict[(condition, wavelength)] -> list[float]
+        Recording durations (seconds)
+    apply_delta_ff : bool, default=False
+        Apply ΔF/F normalization per neuron
+    quiet_threshold : float, default=QUIET_THRESHOLD
+        Activity threshold for quiet classification
+    use_mean_and_shading : bool, default=False
+        If True: S2A uses 2×4 grid; S2B/S2C use line plots
+        If False: Original stacked plots
+    shade_style : {'std', 'quantile'}, default='std'
+        'std' = mean±1σ; 'quantile' = IQR (25th-75th percentile)
+    cmap : dict, optional
+        Color map {wavelength -> color}. If None, uses make_wavelength_color_map.
+    fft_length_strategy : {'max', 'median'}, default='max'
+        Strategy for determining common FFT length across recordings:
+        - 'max': Use longest recording (finest frequency resolution)
+        - 'median': Use median recording length
     
     Returns
     -------
-    dict with keys: 'results', 'figures', 'stats'
+    dict with keys:
+        'results' : dict[(condition, wavelength)] -> list[dict], metrics per recording
+        'figures' : dict with 'S2A', 'S2B', 'S2C' plotly figures
+        'stats' : dict with statistical test results
     """
-    # Compute metrics per recording
-    results = compute_all_metrics(all_dfs, sampling_intervals_all, apply_delta_ff=apply_delta_ff)
+    if DEBUG:
+        print("DEBUG: Starting figure reproduction with the following parameters:")
+        print(f"apply_delta_ff={apply_delta_ff}, quiet_threshold={quiet_threshold}, use_mean_and_shading={use_mean_and_shading}, shade_style={shade_style}")
+        print(f"fft_length_strategy={fft_length_strategy}")
+        print(f"Number of conditions: {len(all_dfs)}")
+        for key in all_dfs.keys():
+            print(f"Condition {key}: {len(all_dfs[key])} recordings")
+    # Compute metrics per recording with standardized FFT length
+    results = compute_all_metrics(all_dfs, sampling_intervals_all, apply_delta_ff=apply_delta_ff,
+                                  fft_length_strategy=fft_length_strategy)
 
     # Figure S2A-like
     if use_mean_and_shading:
-        fig_s2a = plot_s2a_mean_and_shading(results, shade_style=shade_style, cmap=cmap)
+        fig_s2a = plot_s2a_mean_and_shading(results, shade_style=shade_style, cmap=cmap, DEBUG=DEBUG)
     else:
         fig_s2a = plot_s2a_plotly_simple(results)
 
     # Figure S2B-like
-    if use_mean_and_shading:
-        df_s2b = prepare_s2b_data_for_mean_and_shading(results)
-        fig_s2b = plot_s2b_mean_and_shading(df_s2b, shade_style=shade_style, cmap=cmap)
-    else:
-        fig_s2b = plot_s2b_plotly_simple(results)
+    # if use_mean_and_shading:
+    #     df_s2b = prepare_s2b_data_for_mean_and_shading(results)
+    #     fig_s2b = plot_s2b_mean_and_shading(df_s2b, shade_style=shade_style, cmap=cmap)
+    # else:
+    fig_s2b = plot_s2b_plotly_simple(results)
 
     # S2B stats and annotations (adjacent pairs by default)
     # s2b_stats, annotations = compute_s2b_stats_plotly(cond_labels, data_values, alpha=ALPHA_BH, alternative='greater')
@@ -1125,16 +1526,16 @@ def reproduce_figures_plotly(
     s2c_stats = compute_s2c_stats(quiet_counts, totals)
 
     # Print statistics summaries
-    s2b_stats = dict()
-    print("S2B Welch’s one-sided t-tests with BH correction [^2]:")
-    for k, v in s2b_stats.items():
-        condA, condB = k
-        print(f"{condA} > {condB}: t={v['t_stat']:.3f}, p_raw={v['pval_raw']:.3g}, p_BH={v['pval_adj']:.3g}, pass_FDR={v['passed_fdr']}")
+    # s2b_stats = dict()
+    # print("S2B Welch’s one-sided t-tests with BH correction [^2]:")
+    # for k, v in s2b_stats.items():
+    #     condA, condB = k
+    #     print(f"{condA} > {condB}: t={v['t_stat']:.3f}, p_raw={v['pval_raw']:.3g}, p_BH={v['pval_adj']:.3g}, pass_FDR={v['passed_fdr']}")
 
-    print("\nS2C two-proportion z-tests [^2]:")
-    for k, v in s2c_stats.items():
-        condA, condB = k
-        print(f"{condA} vs {condB}: z={v['z_stat']}, p_two_sided={v['pval_two_sided']}")
+    # print("\nS2C two-proportion z-tests [^2]:")
+    # for k, v in s2c_stats.items():
+    #     condA, condB = k
+    #     print(f"{condA} vs {condB}: z={v['z_stat']}, p_two_sided={v['pval_two_sided']}")
 
     return {
         'results': results,

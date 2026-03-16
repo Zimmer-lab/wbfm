@@ -1,3 +1,4 @@
+import logging
 from typing import List
 
 import numpy as np
@@ -80,7 +81,7 @@ def add_trendline_annotation(fig, x_offset=0, y_offset=0):
 def plotly_plot_mean_and_shading(df, x, y, color=None, line_name='Mean', shade_style='std',
                                  add_individual_lines=False,
                                  cmap=None, x_intersection_annotation=None, annotation_kwargs=None,
-                                 annotation_position=None, fig=None, is_second_plot=False, **kwargs):
+                                 annotation_position=None, fig=None, is_second_plot=False, DEBUG=False, **kwargs):
     """
     Plot the mean of a y column for each x value, and shade the standard deviation
 
@@ -112,6 +113,9 @@ def plotly_plot_mean_and_shading(df, x, y, color=None, line_name='Mean', shade_s
     -------
 
     """
+    if DEBUG:
+        print(f"DEBUG: Starting plot_mean_and_shading with x={x}, y={y}, color={color}, line_name={line_name}, shade_style={shade_style}")
+        print(f"DEBUG: DataFrame head:\n{df.head()}")
     if annotation_kwargs is None:
         annotation_kwargs = dict()
     if annotation_position is None:
@@ -129,12 +133,15 @@ def plotly_plot_mean_and_shading(df, x, y, color=None, line_name='Mean', shade_s
             fig = plotly_plot_mean_and_shading(_df, x, y, color=color, line_name=group,
                                                add_individual_lines=False, cmap=cmap, fig=fig,
                                                x_intersection_annotation=x_intersection_annotation,
-                                               annotation_position=annotation_position, is_second_plot=is_second_plot)
+                                               annotation_position=annotation_position, is_second_plot=is_second_plot, DEBUG=DEBUG)
             is_second_plot = True
         return fig
 
     # Calculate mean and std dev for each x value
     grouped = df.groupby(x)
+    # Sanity check that there are multiple y values for each x value, otherwise the shading will be meaningless
+    if (grouped[y].count() < 2).any():
+        logging.warning(f"WARNING: Some x values have less than 2 y values, which will make the shading meaningless. Counts:\n{grouped[y].count()}")
     mean_y = grouped[y].mean()
     if shade_style == 'std':
         shade_y = grouped[y].std()
@@ -174,15 +181,38 @@ def plotly_plot_mean_and_shading(df, x, y, color=None, line_name='Mean', shade_s
     else:
         opt['fillcolor'] = 'rgba(0,100,80,0.2)'
 
-    # Add two lines in a unique group that will have shading between them
-    fill_opt = dict(hoverinfo="skip", showlegend=False,
-                    line=dict(color='rgba(255,255,255,0)'),
-                    **opt)
+    # Shade the standard deviation area
+    shade_color = opt.get('fillcolor', 'rgba(0,100,80,0.2)')
+    if cmap is not None:
+        if '#' in cmap[line_name]:
+            shade_color = hex2rgba(cmap[line_name])
+        else:
+            shade_color = add_alpha_to_rgb(cmap[line_name])
 
-    # First one, which doesn't show up
-    fig.add_trace(go.Scatter(x=mean_y.index, y=upper_y, **fill_opt))
-    # Second one, which does show up
-    fig.add_trace(go.Scatter(x=mean_y.index, y=lower_y, fill='tonexty', **fill_opt))
+    # Single closed polygon — immune to trace ordering issues
+    fig.add_trace(go.Scatter(
+        x=list(mean_y.index) + list(mean_y.index[::-1]),
+        y=list(upper_y) + list(lower_y[::-1]),
+        fill='toself',
+        fillcolor=shade_color,
+        line=dict(color='rgba(255,255,255,0)'),
+        hoverinfo='skip',
+        showlegend=False,
+        name=f'{line_name}_shade'
+    ))
+
+    if DEBUG:
+        print(f"Adding shading with paired lines: {list(zip(upper_y, lower_y))}")
+
+    # # Add two lines in a unique group that will have shading between them
+    # fill_opt = dict(hoverinfo="skip", showlegend=False,
+    #                 line=dict(color='rgba(255,255,255,0)'),
+    #                 **opt)
+
+    # # First one, which doesn't show up
+    # fig.add_trace(go.Scatter(x=mean_y.index, y=upper_y, **fill_opt))
+    # # Second one, which does show up
+    # fig.add_trace(go.Scatter(x=mean_y.index, y=lower_y, fill='tonexty', **fill_opt))
 
     if x_intersection_annotation is not None:
         y_value_at_x = mean_y.loc[x_intersection_annotation]

@@ -1120,7 +1120,7 @@ def make_summary_interactive_heatmap_with_pca(project_cfg, to_save=True, to_show
 
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     num_pca_modes_to_plot = 3
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_pca_modes_to_plot, trace_opt=trace_opt, **kwargs)
 
     rows = 1 + num_pca_modes_to_plot + 2
@@ -1230,15 +1230,42 @@ def make_summary_heatmap_and_subplots(project_cfg, to_save=True, to_show=False, 
 
     Parameters
     ----------
-    project_cfg
-    to_save
-    to_show
-    trace_opt
-    kwargs
+    project_cfg : ProjectConfig
+        Project configuration object
+    to_save : bool, default True
+        Whether to save the figures
+    to_show : bool, default False
+        Whether to display the figures
+    trace_opt : dict, optional
+        Trace calculation options
+    include_speed_subplot : bool, default True
+        Whether to include a speed subplot
+    ethogram_on_top : bool, default False
+        Whether to place ethogram on top of heatmap
+    output_folder : str, optional
+        Output folder path
+    base_width : float or list, default 0.5
+        Base width for figures
+    base_height : float or list, default 0.3
+        Base height for figures
+    **kwargs
+        Additional keyword arguments
 
     Returns
     -------
-
+    fig1 : plotly.graph_objects.Figure
+        Heatmap figure
+    fig2 : plotly.graph_objects.Figure
+        PCA modes and behavior traces figure
+    plotted_data : dict
+        Dictionary containing plotted time series with keys:
+        - 'neural_activity': Neural activity heatmap (neurons × time)
+        - 'time_axis': Time axis values
+        - 'neuron_names': List of neuron names
+        - 'pca_modes': PCA components dataframe
+        - 'speed': Worm speed time series
+        - 'pca_weights': PCA weights dataframe
+        - 'variance_explained': Explained variance ratios
     """
 
     if trace_opt is None:
@@ -1256,7 +1283,7 @@ def make_summary_heatmap_and_subplots(project_cfg, to_save=True, to_show=False, 
 
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     num_pca_modes_to_plot = 3
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_pca_modes_to_plot, trace_opt=trace_opt, **kwargs)
 
     # Build figure 1: heatmap
@@ -1360,18 +1387,22 @@ def make_summary_heatmap_and_subplots(project_cfg, to_save=True, to_show=False, 
         _save_plotly_all_types(fig1, project_data, fname='summary_only_heatmap_plot.html', output_folder=output_folder)
         _save_plotly_all_types(fig2, project_data, fname='summary_only_pca_plot.html', output_folder=output_folder)
 
-    return fig1, fig2
+    return fig1, fig2, plotted_data
 
 
 def _save_plotly_all_types(fig, project_data, fname='summary_trace_plot.html', output_folder=None):
     trace_cfg = project_data.project_config.get_traces_config()
     # Save in the actual project
-    fname = trace_cfg.resolve_relative_path(fname, prepend_subfolder=True)
-    fig.write_html(str(fname))
-    fname = Path(fname).with_suffix('.png')
-    fig.write_image(str(fname))
-    fname = Path(fname).with_suffix('.svg')
-    fig.write_image(str(fname))
+    try:
+        fname = trace_cfg.resolve_relative_path(fname, prepend_subfolder=True)
+        fig.write_html(str(fname))
+        fname = Path(fname).with_suffix('.png')
+        fig.write_image(str(fname))
+        fname = Path(fname).with_suffix('.svg')
+        fig.write_image(str(fname))
+    except PermissionError:
+        print(f"Permission error when trying to save in project directory; skipping HTML save and saving PNG and SVG in local folder instead")
+        pass
     # Save in a local folder
     if output_folder is not None:
         fname = Path(fname).with_suffix('.svg')
@@ -1424,7 +1455,7 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     behavior_kwargs.update(kwargs['behavior_kwargs']) if 'behavior_kwargs' in kwargs else {}
     kwargs['behavior_kwargs'] = behavior_kwargs
     additional_shaded_states = []#[BehaviorCodes.SLOWING, BehaviorCodes.HEAD_CAST]
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, _row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, _row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_modes_to_plot, use_behavior_traces=True, behavior_alias_dict=behavior_alias_dict,
         additional_shaded_states=additional_shaded_states, showlegend=showlegend, **kwargs)
 
@@ -1744,7 +1775,7 @@ def make_summary_interactive_heatmap_with_kymograph(project_cfg, to_save=True, t
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     num_pca_modes_to_plot = 3
     kwargs['behavior_kwargs'] = dict(fluorescence_fps=False, reset_index=False)
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_pca_modes_to_plot, **kwargs)
 
     # One column with a heatmap, (short) ethogram, and kymograph
@@ -2067,11 +2098,19 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
     # x_for_plots_behavior = project_data.worm_posture_class.x_physical_time_frames
 
     df_traces_no_nan = fill_nan_in_dataframe(df_traces.copy(), do_filtering=True)
-    # Calculate pca modes, and use them to sort
+    # Calculate pca modes and weights using the class method
+    df_pca_weights, df_pca_modes_full, var_explained_full = project_data.calc_pca_modes(n_components=10, 
+                                                                                          **default_trace_opt)
+    # Reconstruct PCA objects to get the sklearn interface we need
+    X = project_data.calc_default_traces(**default_trace_opt)
+    df_mean_subtracted = X - X.mean()
+    
+    # Create pca_weights object for sorting
     pca_weights = PCA(n_components=10)
-    pca_modes = PCA(n_components=10)
-    df_mean_subtracted = df_traces_no_nan - df_traces_no_nan.mean()
     pca_weights.fit(df_mean_subtracted)
+    
+    # Create pca_modes object for phase plot
+    pca_modes = PCA(n_components=10)
     pca_modes.fit(df_mean_subtracted.T)
     # Preprocess
     df_tmp = df_traces
@@ -2297,9 +2336,20 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
     var_explained_line = go.Scatter(x=np.arange(1, len(var_explained)+1), y=var_explained, showlegend=False)
     var_explained_line_opt = dict(row=6, col=2, secondary_y=False)
 
+    # Package the plotted time series data
+    plotted_data = {
+        'neural_activity': dat,
+        'time_axis': x_for_plots_volumes,
+        'neuron_names': neuron_names,
+        'pca_modes': df_pca_modes,
+        'speed': speed,
+        'pca_weights': df_pca_weights,
+        'variance_explained': var_explained,
+    }
+
     return column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, \
         phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, \
-        var_explained_line, var_explained_line_opt, weights_list, weights_opt_list
+        var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data
 
 
 def make_summary_hilbert_triggered_average_grid_plot(project_cfg, i_body_segment=41,

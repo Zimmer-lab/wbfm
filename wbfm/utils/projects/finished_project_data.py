@@ -1382,26 +1382,36 @@ class ProjectData:
         df = df.reindex(sorted(df.columns), axis=1)
         return df
 
-    def calc_pca_modes(self, n_components=10, flip_pc1_to_have_reversals_high=True, return_pca_weights=False,
-                       return_pca_object=False, multiply_by_variance=False, combine_left_right=False, **trace_kwargs) \
-            -> Tuple[pd.DataFrame, np.array]:
+    def calc_pca_modes(self, n_components=10, flip_pc1_to_have_reversals_high=True, 
+                       multiply_by_variance=False, combine_left_right=False, **trace_kwargs) \
+            -> Tuple[pd.DataFrame, pd.DataFrame, np.array]:
         """
-        Calculates the PCA modes of the traces, and optionally flips the first mode to have reversals high
+        Calculates the PCA modes and weights of the traces, and optionally flips the first mode to have reversals high
         This allows comparison of PC1 across datasets
 
-        Returns the modes (or weights if return_pca_weights is True) and the explained variance as a vector
-        OR: returns the PCA object itself, if return_pca_object is True
+        Returns both the PCA weights (loadings) and modes (scores), plus the explained variance
 
         Parameters
         ----------
-        n_components
-        flip_pc1_to_have_reversals_high
-        return_pca_weights
-        trace_kwargs
+        n_components : int, default 10
+            Number of PCA components to compute
+        flip_pc1_to_have_reversals_high : bool, default True
+            Whether to flip PC1 to be anticorrelated with reversals/AVA
+        multiply_by_variance : bool, default False
+            Whether to scale modes by their explained variance
+        combine_left_right : bool, default False
+            Whether to combine left/right neuron pairs
+        trace_kwargs : dict
+            Additional kwargs passed to calc_default_traces
 
         Returns
         -------
-
+        pca_weights : pd.DataFrame
+            PCA loadings (components), shape (n_features, n_components)
+        pca_modes : pd.DataFrame
+            PCA scores (transformed data), shape (n_samples, n_components)
+        explained_variance_ratio : np.array
+            Fraction of variance explained by each component
         """
         trace_kwargs['interpolate_nan'] = True
         trace_kwargs['rename_neurons_using_manual_ids'] = True
@@ -1426,9 +1436,6 @@ class ProjectData:
         if multiply_by_variance:
             pca_modes *= pca.explained_variance_
 
-        if return_pca_object:
-            return pipe
-
         if flip_pc1_to_have_reversals_high:
             # Calculate the speed, and define the sign of the first PC to be anticorrelated to speed
             reversal_time_series = None
@@ -1451,15 +1458,13 @@ class ProjectData:
             if reversal_time_series is not None:
                 correlation = np.corrcoef(pca_modes[:, 0], reversal_time_series)[0, 1]
                 if correlation > 0:
-                    if return_pca_weights:
-                        pca_weights[:, 0] = -pca_weights[:, 0]
-                    else:
-                        pca_modes[:, 0] = -pca_modes[:, 0]
+                    pca_weights[:, 0] = -pca_weights[:, 0]
+                    pca_modes[:, 0] = -pca_modes[:, 0]
 
-        if return_pca_weights:
-            return pd.DataFrame(pca_weights, index=X.columns), pca.explained_variance_ratio_
-        else:
-            return pd.DataFrame(pca_modes, index=X.index), pca.explained_variance_ratio_
+        return pd.DataFrame(pca_weights, index=X.columns), \
+               pd.DataFrame(pca_modes, index=X.index), \
+               pca.explained_variance_ratio_, \
+               pipe
 
     def calc_correlation_to_pc1(self, **trace_kwargs):
         """
