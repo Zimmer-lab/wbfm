@@ -63,6 +63,9 @@ class ClickableGridPlot:
         Must have attributes: project_dir, neuron_names, project_config
     verbose : int, optional (default=3)
         Verbosity level for debug output (higher = more detailed)
+    editor : NeuronNameEditor, optional (default=None)
+        Optional NeuronNameEditor instance for syncing neuron selections to Notes column.
+        When None, grid plot operates independently without editor integration.
 
     Attributes:
     -----------
@@ -95,7 +98,7 @@ class ClickableGridPlot:
     >>> # Interactive selection happens in GUI
     >>> # Files are auto-saved on window close
     """
-    def __init__(self, project_data, verbose=3):
+    def __init__(self, project_data, verbose=3, editor=None):
 
         # Set up grid plot
         opt = dict(channel_mode='ratio',
@@ -109,6 +112,11 @@ class ClickableGridPlot:
 
         self.fig = fig
         self.project_data = project_data
+        if editor is None:
+            editor = self.project_data.build_neuron_editor_gui()
+            editor.setWindowTitle(f"Neuron Name Editor for project: {self.project_data.project_dir}")
+            editor.show()
+        self.editor = editor
 
         # Set up metadata objects
         names = project_data.neuron_names
@@ -191,6 +199,10 @@ class ClickableGridPlot:
                 ax.draw_artist(shading)
 
                 self.selected_neurons[label]["List ID"] = self.current_list_index
+                
+                # Update editor notes if editor is available
+                code_string = self._get_code_string_from_list_index()
+                self._update_editor_notes(label, code_string)
 
         elif button_pressed == 3:
             # Right click = deselect
@@ -214,20 +226,134 @@ class ClickableGridPlot:
             [p.remove() for p in ax.patches]
             # ax.patches = []
 
+    def _get_code_string_from_list_index(self):
+        """
+        Map the current list index to a code string for the Notes column.
+        
+        Returns:
+            str: "Good" (List 1), "Custom" (List 2), or "Invalid" (List 3)
+        """
+        if self.current_list_index == 1:
+            return "Good"
+        elif self.current_list_index == 2:
+            return "Custom"
+        else:  # current_list_index == 3
+            return "Invalid"
+
+    def _find_neuron_row_in_editor(self, neuron_name):
+        """
+        Find the row index of a neuron in the editor's dataframe.
+        
+        Parameters:
+            neuron_name (str): The name of the neuron to find
+            
+        Returns:
+            int or None: Row index if found, None otherwise
+        """
+        if self.editor is None or self.editor.df is None:
+            return None
+            
+        try:
+            matching_rows = self.editor.df.index[
+                self.editor.df[self.editor.original_id_column_name] == neuron_name
+            ].tolist()
+            if matching_rows:
+                return matching_rows[0]
+            else:
+                if self.verbose >= 2:
+                    print(f"Warning: Neuron '{neuron_name}' not found in editor dataframe")
+                return None
+        except Exception as e:
+            if self.verbose >= 2:
+                print(f"Error finding neuron '{neuron_name}' in editor: {e}")
+            return None
+
+    def _update_editor_notes(self, neuron_name, code_string):
+        """
+        Update the Notes column in the editor for a given neuron with smart class replacement.
+        
+        If the Notes field already contains a class string ("Good", "Custom", or "Invalid"),
+        it will be replaced with the new code_string. Otherwise, the code_string is appended
+        with a semicolon separator.
+        
+        Parameters:
+            neuron_name (str): The name of the neuron
+            code_string (str): The code string to add ("Good", "Custom", or "Invalid")
+        """
+        if self.editor is None or self.editor.df is None:
+            if self.verbose >= 2:
+                print(f"Editor not available; skipping notes update for {neuron_name}")
+            return
+            
+        row_idx = self._find_neuron_row_in_editor(neuron_name)
+        if row_idx is None:
+            return
+            
+        try:
+            # Get the current notes content
+            current_notes = str(self.editor.df.at[row_idx, self.editor.notes_column_name])
+            if current_notes == 'nan' or current_notes == '':
+                current_notes = ''
+            
+            # Define the class strings to search for
+            class_strings = ["Good", "Custom", "Invalid"]
+            
+            # Check if any class string exists in current_notes
+            found_class = None
+            for cs in class_strings:
+                if cs in current_notes:
+                    found_class = cs
+                    break
+            
+            # Smart replacement: replace existing class or append if none exists
+            if found_class is not None:
+                # Replace the old class string with the new one
+                new_notes = current_notes.replace(found_class, code_string)
+            else:
+                # Append the new code string
+                if current_notes.strip():
+                    new_notes = current_notes + ";" + code_string
+                else:
+                    new_notes = code_string
+            
+            # Update the dataframe
+            self.editor.df.at[row_idx, self.editor.notes_column_name] = new_notes
+            
+            # Update the table view to reflect the change
+            notes_col_idx = self.editor.notes_column_idx
+            model_item = self.editor.model.item(row_idx, notes_col_idx)
+            if model_item is not None:
+                model_item.setText(new_notes)
+            else:
+                # If item doesn't exist in model, rebuild the table
+                self.editor.update_table_from_dataframe()
+            
+            if self.verbose >= 2:
+                print(f"Updated notes for {neuron_name}: '{current_notes}' -> '{new_notes}'")
+                
+        except Exception as e:
+            if self.verbose >= 1:
+                print(f"Error updating notes for neuron '{neuron_name}': {e}")
+
     def write_file(self, event):
         log_dir = self.project_data.project_config.get_visualization_config(make_subfolder=True).absolute_subfolder
         fname = os.path.join(log_dir, 'selected_neurons.csv')
-        # fname = get_sequential_filename(fname)
         print(f"Saving: {fname}")
 
         df = pd.DataFrame(self.selected_neurons)
         df.T.to_csv(path_or_buf=fname, index=True)
         fname = Path(fname).with_suffix('.xlsx')
         df.T.to_excel(fname, index=True)
-        # df = pd.DataFrame(self.selected_neurons, index=[0])
-        # df.to_csv(path_or_buf=fname, header=True, index=False)
 
-        print(df.T)
+        if self.editor is not None:
+            try:
+                print("Saving editor annotations...")
+                self.editor.save_df_to_disk(also_save_h5=True)
+                print("Editor annotations saved successfully")
+            except PermissionError as e:
+                print(f"Warning: Failed to save editor annotations (file may be open in another program): {e}")
+            except Exception as e:
+                print(f"Error saving editor annotations: {e}")
 
     def load_previous_file(self):
         visualization_directory = self.project_data.project_config.get_visualization_config().absolute_subfolder

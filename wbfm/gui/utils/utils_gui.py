@@ -528,6 +528,14 @@ class NeuronNameEditor(QWidget):
     @property
     def original_id_column_name(self):
         return "Neuron ID"
+    
+    @property
+    def notes_column_idx(self):
+        return list(self.df.columns).index(self.notes_column_name)
+
+    @property
+    def notes_column_name(self):
+        return "Notes"
 
     def update_dataframe_range_from_table(self, top_left, bottom_right):
         for row in range(top_left.row(), bottom_right.row() + 1):

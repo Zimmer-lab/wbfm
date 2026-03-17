@@ -1933,7 +1933,7 @@ class ProjectData:
                                                           prepend_subfolder=True)
         return excel_fname
 
-    def build_neuron_editor_gui(self, neuropal_subproject=False):
+    def build_neuron_editor_gui(self, neuropal_subproject=False) -> Optional['NeuronNameEditor']:
         """
         Initialize a QT table interface for editing neurons
 
