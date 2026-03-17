@@ -45,6 +45,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
                                 color_using_behavior=True,
                                 remove_outliers=False,
                                 bleach_correct=True,
+                                remove_invalid_neurons=True,
                                 behavioral_correlation_shading=None,
                                 direct_shading_dict=None,
                                 df_traces: pd.DataFrame=None,
@@ -78,6 +79,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
     color_using_behavior: if behavioral annotation exists, shade background for reversals and turns
     remove_outliers: trace calculation option; see calc_default_traces
     bleach_correct: trace calculation option; see calc_default_traces
+    remove_invalid_neurons: trace calculation option; see calc_default_traces
     behavioral_correlation_shading: correlate to a particular behavior; see factory_correlate_trace_to_behavior_variable
     direct_shading_dict: instead of dynamic calculation using behavioral_correlation_shading, pass a value per neuron
     share_y_axis: subplot option
@@ -101,7 +103,8 @@ def make_grid_plot_from_project(project_data: ProjectData,
         opt = dict(project_data=project_data,
                    calculation_mode=calculation_mode,
                    color_using_behavior=color_using_behavior,
-                   bleach_correct=bleach_correct)
+                   bleach_correct=bleach_correct,
+                   remove_invalid_neurons=remove_invalid_neurons)
         for mode in all_modes:
             make_grid_plot_from_project(channel_mode=mode, **opt)
         # Second, remove outliers and filter
@@ -126,6 +129,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
     if df_traces is None:
         trace_options = {'channel_mode': channel_mode, 'calculation_mode': calculation_mode, 'filter_mode': filter_mode,
                          'remove_outliers': remove_outliers, 'bleach_correct': bleach_correct,
+                         'remove_invalid_neurons': remove_invalid_neurons,
                          'neuron_names': tuple(neuron_names), 'min_nonnan': min_nonnan}
         trace_options.update(trace_kwargs)
         df_traces = project_data.calc_default_traces(**trace_options)

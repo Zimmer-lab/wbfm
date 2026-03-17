@@ -104,7 +104,8 @@ class ClickableGridPlot:
         opt = dict(channel_mode='ratio',
                    calculation_mode='integration',
                    filter_mode='rolling_mean',
-                   to_save=False)
+                   to_save=False, 
+                   remove_invalid_neurons=False)
 
         mplstyle.use('fast')
         with safe_cd(project_data.project_dir):
@@ -184,6 +185,9 @@ class ClickableGridPlot:
         self.shade_selected_subplot(ax, button_pressed)
 
     def shade_selected_subplot(self, ax, button_pressed):
+        # Skip if the subplot has no lines (e.g., neurons filtered out as invalid)
+        if ax is None or len(ax.lines) == 0:
+            return
 
         line = ax.lines[0]
         label = line.get_label()
@@ -219,6 +223,7 @@ class ClickableGridPlot:
                 self._reset_shading(ax)
                 plt.draw()
                 self.selected_neurons[label]["List ID"] = 0
+                self._update_editor_notes(label, "")  # Remove class string from Notes column
         else:
             print("Button press detected, but did nothing")
         # From: https://stackoverflow.com/questions/29277080/efficient-matplotlib-redrawing
@@ -231,6 +236,65 @@ class ClickableGridPlot:
         if len(ax.patches) > 0:
             [p.remove() for p in ax.patches]
             # ax.patches = []
+
+    def _extract_gui_state_from_manual_annotation(self):
+        """
+        Extract GUI state (List ID and Proposed Names) from the manual annotation file.
+        
+        Parses the Notes column to map GUI selections:
+        - "Good" -> List ID 1 (green)
+        - "Custom" -> List ID 2 (blue)
+        - "Invalid" -> List ID 3 (red)
+        - Not found -> List ID 0 (not selected)
+        
+        Returns:
+            dict: Dictionary with neuron names as keys and {"List ID": int, "Proposed Name": str} as values
+                  Returns None if manual annotation file is not available
+        """
+        import pandas as pd
+        
+        df_manual = self.project_data.df_manual_tracking
+        if df_manual is None:
+            return None
+        
+        if 'Notes' not in df_manual.columns:
+            return None
+            
+        if 'Neuron ID' not in df_manual.columns:
+            return None
+        
+        gui_state = {}
+        
+        try:
+            for idx, row in df_manual.iterrows():
+                neuron_name = str(row['Neuron ID'])
+                notes = str(row.get('Notes', ''))
+                
+                # Map Notes content to List ID
+                list_id = 0
+                if 'Good' in notes:
+                    list_id = 1
+                elif 'Custom' in notes:
+                    list_id = 2
+                elif 'Invalid' in notes:
+                    list_id = 3
+                
+                # Proposed Name is the current Neuron ID or a renamed value
+                proposed_name = row.get('Proposed Name', neuron_name)
+                if pd.isna(proposed_name) or proposed_name == '':
+                    proposed_name = neuron_name
+                else:
+                    proposed_name = str(proposed_name)
+                
+                gui_state[neuron_name] = {
+                    "List ID": list_id,
+                    "Proposed Name": proposed_name
+                }
+        except Exception as e:
+            self.project_data.logger.warning(f"Error extracting GUI state from manual annotation: {e}")
+            return None
+        
+        return gui_state if gui_state else None
 
     def _get_code_string_from_list_index(self):
         """
@@ -342,56 +406,114 @@ class ClickableGridPlot:
                 print(f"Error updating notes for neuron '{neuron_name}': {e}")
 
     def write_file(self, event):
+        """
+        Save GUI state. If editor exists and saves successfully, skip CSV save to prevent desync.
+        Otherwise, save to CSV as fallback.
+        """
+        import os
+        
         log_dir = self.project_data.project_config.get_visualization_config(make_subfolder=True).absolute_subfolder
-        fname = os.path.join(log_dir, 'selected_neurons.csv')
-        print(f"Saving: {fname}")
-
-        df = pd.DataFrame(self.selected_neurons)
-        df.T.to_csv(path_or_buf=fname, index=True)
-        fname = Path(fname).with_suffix('.xlsx')
-        df.T.to_excel(fname, index=True)
-
+        csv_fname = os.path.join(log_dir, 'selected_neurons.csv')
+        
+        editor_saved_successfully = False
+        
+        # Try to save via editor first
         if self.editor is not None:
             try:
                 print("Saving editor annotations...")
                 self.editor.save_df_to_disk(also_save_h5=True)
                 print("Editor annotations saved successfully")
+                editor_saved_successfully = True
             except PermissionError as e:
                 print(f"Warning: Failed to save editor annotations (file may be open in another program): {e}")
+                editor_saved_successfully = False
             except Exception as e:
-                print(f"Error saving editor annotations: {e}")
+                print(f"Warning: Failed to save editor annotations: {e}")
+                editor_saved_successfully = False
             finally:
                 # Close the editor window after saving
                 self.editor.close()
+        
+        # Only save to CSV if editor save failed or editor doesn't exist
+        if not editor_saved_successfully:
+            print(f"Saving GUI state to CSV: {csv_fname}")
+            df = pd.DataFrame(self.selected_neurons)
+            df.T.to_csv(path_or_buf=csv_fname, index=True)
+            fname_xlsx = Path(csv_fname).with_suffix('.xlsx')
+            df.T.to_excel(fname_xlsx, index=True)
+        else:
+            print("Skipping CSV save since editor saved successfully")
 
     def load_previous_file(self):
+        """
+        Load GUI state from the primary source (manual annotation Excel file) or fallback to CSV.
+        
+        Priority:
+        1. Manual annotation Excel file (if available)
+        2. selected_neurons.csv (fallback)
+        3. Warn if both files exist (user should delete one to avoid confusion)
+        """
+        import os
+        
         visualization_directory = self.project_data.project_config.get_visualization_config().absolute_subfolder
-        fname = os.path.join(visualization_directory, 'selected_neurons.csv')
-        if not os.path.exists(fname):
-            print(f"Did not find previous state at: {fname}")
-            return
-        else:
-            # plt.show(block=False)
+        csv_fname = os.path.join(visualization_directory, 'selected_neurons.csv')
+        
+        # Try to load from manual annotation first
+        gui_state = self._extract_gui_state_from_manual_annotation()
+        
+        if gui_state is not None:
+            # Warn if both files exist
+            if os.path.exists(csv_fname):
+                self.project_data.logger.warning(
+                    f"Found both manual annotation file and CSV state file. "
+                    f"Using manual annotation file as source of truth. "
+                    f"Consider deleting: {csv_fname}"
+                )
+            print(f"Loading GUI state from manual annotation file")
             self.fig.canvas.draw()
-            print(f"Reading previous state from: {fname}")
-            df = pd.read_csv(fname, index_col=0)
-
+            
             axes = self.fig.axes
             button_pressed = 1
-
+            
+            for ax, (neuron_name, state_dict) in zip(axes, gui_state.items()):
+                list_id = state_dict["List ID"]
+                proposed_name = state_dict["Proposed Name"]
+                
+                if list_id == 0:
+                    continue
+                
+                print(f"Shading {neuron_name} with index {list_id} and name {proposed_name}")
+                self.current_list_index = list_id
+                self.shade_selected_subplot(ax, button_pressed)
+                
+                # Update the selected neurons dict
+                self.selected_neurons[neuron_name]["List ID"] = list_id
+                self.selected_neurons[neuron_name]["Proposed Name"] = proposed_name
+        
+        elif os.path.exists(csv_fname):
+            # Fallback to CSV if manual annotation not available
+            print(f"Reading previous state from CSV: {csv_fname}")
+            self.fig.canvas.draw()
+            df = pd.read_csv(csv_fname, index_col=0)
+            
+            axes = self.fig.axes
+            button_pressed = 1
+            
             for ax, (name, list_index) in zip(axes, df.iterrows()):
                 if list_index[0] == 0:
                     continue
-
-                # Add the shading to this axis
+                
                 print(f"Shading {name} with index {list_index[0]} and name {list_index[1]}")
                 self.current_list_index = list_index[0]
                 self.shade_selected_subplot(ax, button_pressed)
-
-                # Also add the info to the dict
+                
+                # Update the selected neurons dict
                 self.selected_neurons[name]["List ID"] = list_index[0]
                 self.selected_neurons[name]["Proposed Name"] = list_index[1]
-
+        else:
+            print(f"No previous state found")
+            return
+        
         plt.draw()
         self.current_list_index = 1
 
