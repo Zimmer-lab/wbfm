@@ -403,7 +403,7 @@ def get_nonoverlapping_text_positions(x, y, all_text, fig, weight=100, k=None, a
 
 
 def combine_plotly_figures_old(all_figs, show_legends: List[bool] = None, force_yref_paper=True,
-                           horizontal=True, DEBUG=False, **kwargs):
+                           horizontal=True, custom_subplot_opt=None, DEBUG=False, **kwargs):
     """
     Combine multiple plotly figures into a single figure, all on one row
 
@@ -417,11 +417,13 @@ def combine_plotly_figures_old(all_figs, show_legends: List[bool] = None, force_
     -------
 
     """
-
-    if horizontal:
-        opt = dict(rows=1, cols=len(all_figs), shared_yaxes=True, horizontal_spacing=0.01)
+    if custom_subplot_opt is None:
+        if horizontal:
+            opt = dict(rows=1, cols=len(all_figs), shared_yaxes=True, horizontal_spacing=0.01)
+        else:
+            opt = dict(rows=len(all_figs), cols=1, shared_xaxes=True, vertical_spacing=0.01)
     else:
-        opt = dict(rows=len(all_figs), cols=1, shared_xaxes=True, vertical_spacing=0.01)
+        opt = custom_subplot_opt
 
     fig = make_subplots(
         **opt, **kwargs
@@ -646,7 +648,7 @@ def _update_axis_properties(fig, old_fig, i_col, num_figs, opt, xaxis_name, yaxi
 
 
 def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref_paper=True,
-                           horizontal=True, hide_interior_xlabels=False, DEBUG=False, **kwargs):
+                           horizontal=True, hide_interior_xlabels=False, custom_subplot_opt=None, DEBUG=False, **kwargs):
     """
     Combine multiple plotly figures into a single figure, all on one row or column.
     Handles heatmaps with shared color scales correctly.
@@ -674,12 +676,15 @@ def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref
         Combined figure
     """
     # Setup subplot configuration
-    if horizontal:
-        subplot_opts = dict(rows=1, cols=len(all_figs), shared_yaxes=True, horizontal_spacing=0.01)
+    if custom_subplot_opt is None:
+        if horizontal:
+            opt = dict(rows=1, cols=len(all_figs), shared_yaxes=True, horizontal_spacing=0.01)
+        else:
+            opt = dict(rows=len(all_figs), cols=1, shared_xaxes=True, vertical_spacing=0.01)
     else:
-        subplot_opts = dict(rows=len(all_figs), cols=1, shared_xaxes=True, vertical_spacing=0.02)
+        opt = custom_subplot_opt
     
-    fig = make_subplots(**subplot_opts, **kwargs)
+    fig = make_subplots(**opt, **kwargs)
     
     if DEBUG:
         print(f"Creating subplots with {len(all_figs)} {'columns' if horizontal else 'rows'}")
@@ -818,3 +823,49 @@ def extend_trendline(fig, x_min, x_max, n_points=100, line_opt=None):
             # name="Extended Trendline"
         )
     )
+
+
+def extract_shapes_as_figure(fig, shape_indices=None, include_axes=True):
+    """
+    Extract shapes from a figure and return them as a new figure.
+    
+    Parameters
+    ----------
+    fig : plotly figure
+        Source figure
+    shape_indices : list of int, optional
+        Indices of shapes to extract. If None, extracts all shapes.
+    include_axes : bool, default=True
+        Whether to copy axis properties from the original figure
+    
+    Returns
+    -------
+    new_fig : plotly figure
+        New figure containing only the specified shapes
+    """
+    import plotly.graph_objects as go
+    
+    new_fig = go.Figure()
+    
+    # Extract shapes
+    if shape_indices is None:
+        shapes_to_copy = list(fig.layout.shapes)
+    else:
+        shapes_to_copy = [fig.layout.shapes[i] for i in shape_indices]
+    
+    # Copy shapes to new figure
+    for shape in shapes_to_copy:
+        new_fig.add_shape(shape)
+    
+    # Copy layout properties if requested
+    if include_axes:
+        new_fig.update_layout(
+            xaxis=fig.layout.xaxis,
+            yaxis=fig.layout.yaxis,
+        )
+    
+    # Copy annotations too (often go with shapes)
+    for annotation in fig.layout.annotations:
+        new_fig.add_annotation(annotation)
+    
+    return new_fig
