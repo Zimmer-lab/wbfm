@@ -402,7 +402,7 @@ def get_nonoverlapping_text_positions(x, y, all_text, fig, weight=100, k=None, a
     return fig
 
 
-def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref_paper=True,
+def combine_plotly_figures_old(all_figs, show_legends: List[bool] = None, force_yref_paper=True,
                            horizontal=True, DEBUG=False, **kwargs):
     """
     Combine multiple plotly figures into a single figure, all on one row
@@ -427,7 +427,7 @@ def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref
         **opt, **kwargs
     )
     if DEBUG:
-        print(f"Creating subplots with {len(all_figs)} columns")
+        print(f"Creating subplots with {len(all_figs)} subplots, horizontal={horizontal}")
 
     for old_fig, i_col in zip(all_figs, range(1, len(all_figs) + 1)):
         if horizontal:
@@ -438,9 +438,33 @@ def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref
         for trace in old_fig.data:
             if show_legends is not None:
                 trace.showlegend = show_legends[i_col - 1]
+            
+            # Preserve zmin/zmax for heatmaps and set proper axis anchoring
+            if trace.type == 'heatmap':
+                # Determine the axis names for this subplot
+                xaxis_name = f'x{i_col}' if i_col > 1 else 'x'
+                yaxis_name = f'y{i_col}' if i_col > 1 else 'y'
+                
+                # Explicitly anchor to the correct subplot axes
+                trace.xaxis = xaxis_name
+                trace.yaxis = yaxis_name
+                
+                # Preserve color scale bounds
+                if hasattr(trace, 'zmin') and trace.zmin is not None:
+                    trace.update(zmin=trace.zmin)
+                if hasattr(trace, 'zmax') and trace.zmax is not None:
+                    trace.update(zmax=trace.zmax)
+                
+                if DEBUG:
+                    print(f"Heatmap trace anchored to {xaxis_name}, {yaxis_name}")
+                    print(f"  zmin: {trace.zmin}, zmax: {trace.zmax}")
+
             fig.add_trace(trace, **opt)
             if DEBUG:
-                print(f"Adding trace to row 1, col {i_col}")
+                if horizontal:
+                    print(f"Adding trace to row 1, col {i_col}")
+                else:
+                    print(f"Adding trace to row {i_col}, col 1")
         for annotation in old_fig.layout.annotations:
             fig.add_annotation(annotation, **opt)
         for shape in old_fig.layout.shapes:
@@ -454,6 +478,259 @@ def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref
         for shape in fig.layout.shapes:
             shape['yref'] = 'paper'
 
+    return fig
+
+
+def _extract_global_heatmap_settings(all_figs, DEBUG=False):
+    """
+    Extract zmin, zmax, and colorscale from the first heatmap found.
+    
+    Returns
+    -------
+    tuple of (zmin, zmax, colorscale) or (None, None, None) if no heatmap found
+    """
+    for old_fig in all_figs:
+        for trace in old_fig.data:
+            if trace.type == 'heatmap':
+                # Start with trace-level settings
+                zmin = trace.zmin
+                zmax = trace.zmax
+                colorscale = trace.colorscale
+                
+                # Check the figure layout for coloraxis (overrides trace settings)
+                if hasattr(old_fig.layout, 'coloraxis') and old_fig.layout.coloraxis:
+                    if hasattr(old_fig.layout.coloraxis, 'cmin') and old_fig.layout.coloraxis.cmin is not None:
+                        zmin = old_fig.layout.coloraxis.cmin
+                        zmax = old_fig.layout.coloraxis.cmax
+                        if DEBUG:
+                            print(f"Using layout coloraxis cmin={zmin}, cmax={zmax}")
+                    if hasattr(old_fig.layout.coloraxis, 'colorscale') and old_fig.layout.coloraxis.colorscale is not None:
+                        colorscale = old_fig.layout.coloraxis.colorscale
+                elif DEBUG:
+                    print(f"Using trace zmin={zmin}, zmax={zmax}")
+                
+                return zmin, zmax, colorscale
+    
+    return None, None, None
+
+
+def _configure_heatmap_trace(trace, i_col, num_figs, global_zmin, global_zmax, global_colorscale, DEBUG=False):
+    """
+    Configure a heatmap trace for subplot placement with shared color scale.
+    
+    Parameters
+    ----------
+    trace : plotly trace
+        Original heatmap trace to configure
+    i_col : int
+        Column number (1-indexed)
+    num_figs : int
+        Total number of figures being combined
+    global_zmin, global_zmax, global_colorscale : 
+        Shared color scale settings
+    DEBUG : bool
+        Print debug information
+    
+    Returns
+    -------
+    new_trace : plotly trace
+        Configured copy of the trace
+    """
+    import copy
+    
+    trace_xaxis = f'x{i_col}' if i_col > 1 else 'x'
+    trace_yaxis = f'y{i_col}' if i_col > 1 else 'y'
+    
+    # Create a copy to avoid modifying the original
+    new_trace = copy.deepcopy(trace)
+    new_trace.xaxis = trace_xaxis
+    new_trace.yaxis = trace_yaxis
+    
+    # Use global zmin/zmax from first heatmap
+    new_trace.zauto = False
+    new_trace.zmin = global_zmin
+    new_trace.zmax = global_zmax
+    new_trace.colorscale = global_colorscale if global_colorscale is not None else trace.colorscale
+    
+    # Remove any coloraxis reference
+    if hasattr(new_trace, 'coloraxis'):
+        new_trace.coloraxis = None
+    
+    # Ensure zmid is not set
+    if hasattr(new_trace, 'zmid'):
+        new_trace.zmid = None
+    
+    # Only show colorbar on the LAST heatmap
+    if i_col == num_figs:
+        # This is the last one - show the colorbar
+        if new_trace.colorbar is not None:
+            new_trace.colorbar.update(
+                x=1.02,
+                len=0.9,
+            )
+        else:
+            new_trace.colorbar = dict(
+                x=1.02,
+                len=0.9,
+            )
+    else:
+        # Hide colorbar for all others
+        new_trace.showscale = False
+    
+    if DEBUG:
+        print(f"\nHeatmap {i_col}:")
+        print(f"  Setting zmin={new_trace.zmin}, zmax={new_trace.zmax}, zauto={new_trace.zauto}")
+        print(f"  showscale={new_trace.showscale if hasattr(new_trace, 'showscale') else 'default'}")
+    
+    return new_trace
+
+
+def _update_axis_properties(fig, old_fig, i_col, num_figs, opt, xaxis_name, yaxis_name, horizontal, hide_interior_xlabels, DEBUG=False):
+    """
+    Update axis properties while preserving subplot domains.
+    
+    Parameters
+    ----------
+    fig : plotly figure
+        Target subplot figure
+    old_fig : plotly figure
+        Source figure with axis properties
+    i_col : int
+        Column number (1-indexed)
+    num_figs : int
+        Total number of figures
+    opt : dict
+        Row/col options for update_xaxes/update_yaxes
+    xaxis_name, yaxis_name : str
+        Axis attribute names (e.g., 'xaxis', 'xaxis2')
+    horizontal : bool
+        Whether figures are arranged horizontally
+    hide_interior_xlabels : bool
+        If True and horizontal, hide x-axis labels/titles for all but the last subplot
+    DEBUG : bool
+        Print debug information
+    """
+    # SAVE the domains BEFORE updating axes
+    xaxis_obj = getattr(fig.layout, xaxis_name)
+    yaxis_obj = getattr(fig.layout, yaxis_name)
+    saved_xdomain = xaxis_obj.domain
+    saved_ydomain = yaxis_obj.domain
+    
+    # Update axes properties but DON'T pass domain
+    old_xaxis = old_fig.layout.xaxis.to_plotly_json()
+    old_yaxis = old_fig.layout.yaxis.to_plotly_json()
+    
+    # Remove domain and anchor to preserve subplot positioning
+    old_xaxis.pop('domain', None)
+    old_yaxis.pop('domain', None)
+    old_xaxis.pop('anchor', None)
+    old_yaxis.pop('anchor', None)
+    
+    # Hide x-axis labels and title for interior subplots if requested
+    if horizontal and hide_interior_xlabels and i_col < num_figs:
+        old_xaxis['title'] = None
+        old_xaxis['showticklabels'] = False
+    
+    fig.update_xaxes(old_xaxis, **opt)
+    fig.update_yaxes(old_yaxis, **opt)
+    
+    # RESTORE the domains after update
+    getattr(fig.layout, xaxis_name).domain = saved_xdomain
+    getattr(fig.layout, yaxis_name).domain = saved_ydomain
+    
+    if DEBUG:
+        xaxis_obj = getattr(fig.layout, xaxis_name)
+        yaxis_obj = getattr(fig.layout, yaxis_name)
+        print(f"  {xaxis_name} domain: {xaxis_obj.domain}")
+        print(f"  {yaxis_name} domain: {yaxis_obj.domain}")
+
+
+def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref_paper=True,
+                           horizontal=True, hide_interior_xlabels=False, DEBUG=False, **kwargs):
+    """
+    Combine multiple plotly figures into a single figure, all on one row or column.
+    Handles heatmaps with shared color scales correctly.
+    
+    Parameters
+    ----------
+    all_figs : list of plotly.graph_objects.Figure
+        Figures to combine
+    show_legends : List[bool], optional
+        Whether to show legend for each figure
+    force_yref_paper : bool, default=True
+        Force shapes to use 'paper' y-reference
+    horizontal : bool, default=True
+        If True, arrange figures in a row; if False, arrange in a column
+    hide_interior_xlabels : bool, default=False
+        If True and horizontal=True, hide x-axis labels and titles for all but the last subplot
+    DEBUG : bool, default=False
+        Print debug information
+    **kwargs
+        Additional arguments passed to make_subplots
+    
+    Returns
+    -------
+    fig : plotly.graph_objects.Figure
+        Combined figure
+    """
+    # Setup subplot configuration
+    if horizontal:
+        subplot_opts = dict(rows=1, cols=len(all_figs), shared_yaxes=True, horizontal_spacing=0.01)
+    else:
+        subplot_opts = dict(rows=len(all_figs), cols=1, shared_xaxes=True, vertical_spacing=0.02)
+    
+    fig = make_subplots(**subplot_opts, **kwargs)
+    
+    if DEBUG:
+        print(f"Creating subplots with {len(all_figs)} {'columns' if horizontal else 'rows'}")
+    
+    # Extract global heatmap settings from first heatmap
+    global_zmin, global_zmax, global_colorscale = _extract_global_heatmap_settings(all_figs, DEBUG)
+    
+    # Process each figure
+    for old_fig, i_col in zip(all_figs, range(1, len(all_figs) + 1)):
+        if horizontal:
+            opt = dict(row=1, col=i_col)
+        else:
+            opt = dict(row=i_col, col=1)
+        
+        # Determine axis names for this subplot
+        xaxis_name = f'xaxis{i_col}' if i_col > 1 else 'xaxis'
+        yaxis_name = f'yaxis{i_col}' if i_col > 1 else 'yaxis'
+        
+        # Add traces
+        for trace in old_fig.data:
+            if show_legends is not None:
+                trace.showlegend = show_legends[i_col - 1]
+            
+            if trace.type == 'heatmap':
+                new_trace = _configure_heatmap_trace(
+                    trace, i_col, len(all_figs), 
+                    global_zmin, global_zmax, global_colorscale, 
+                    DEBUG
+                )
+                fig.add_trace(new_trace)
+            else:
+                fig.add_trace(trace, **opt)
+            
+            if DEBUG:
+                print(f"Adding {trace.type} trace to {'row 1, col' if horizontal else 'row'} {i_col}")
+        
+        # Add annotations and shapes
+        for annotation in old_fig.layout.annotations:
+            fig.add_annotation(annotation, **opt)
+        
+        for shape in old_fig.layout.shapes:
+            fig.add_shape(shape, **opt)
+        
+        # Update axis properties while preserving domains
+        _update_axis_properties(fig, old_fig, i_col, len(all_figs), opt, xaxis_name, yaxis_name, horizontal, hide_interior_xlabels, DEBUG)
+        
+    # Force yref for shapes to 'paper'
+    if force_yref_paper:
+        for shape in fig.layout.shapes:
+            shape['yref'] = 'paper'
+    
     return fig
 
 
