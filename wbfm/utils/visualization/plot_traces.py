@@ -5,6 +5,7 @@ from functools import partial
 from pathlib import Path
 from typing import Optional, Union, Callable, List
 import pandas as pd
+from pandas.errors import IndexingError 
 from matplotlib.colors import TwoSlopeNorm
 import numpy as np
 import plotly
@@ -2095,12 +2096,11 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
         default_trace_opt.update(trace_opt)
     df_traces = project_data.calc_default_traces(**default_trace_opt)
     x_for_plots_volumes = project_data.x_for_plots
-    # x_for_plots_behavior = project_data.worm_posture_class.x_physical_time_frames
 
-    df_traces_no_nan = fill_nan_in_dataframe(df_traces.copy(), do_filtering=True)
     # Calculate pca modes and weights using the class method
     df_pca_weights, df_pca_modes_full, var_explained_full, pipe = project_data.calc_pca_modes(n_components=10, 
                                                                                           **default_trace_opt)
+    pca_obj = pipe.named_steps['pca']
     # Preprocess
     df_tmp = df_traces
     # df_tmp -= df_tmp.min()
@@ -2112,6 +2112,7 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
     df_pca_modes = df_pca_modes_full.iloc[:, :num_pca_modes_to_plot].copy()
     df_pca_modes.columns = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
     df_pca_modes.set_index(x_for_plots_volumes, inplace=True)
+    col_names = df_pca_modes.columns
 
     has_behavior = True
     try:
@@ -2136,7 +2137,7 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
     df_pca_weights.columns = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
     df_pca_weights.index = neuron_names
     df_pca_weights = df_pca_weights.iloc[ind_sort, :].reset_index(drop=True)
-    var_explained = pca_modes.explained_variance_ratio_[:7]
+    var_explained = pca_obj.explained_variance_ratio_[:7]
     # Initialize options for all subplots
     subplot_titles = ['Traces sorted by PC1', '', 'PCA weights', '', '', 'Phase plot',
                       'PCA modes', '', '', 'Middle Body Speed', 'Variance Explained']
@@ -2315,12 +2316,12 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
                 # print(f'KeyError: {e} on behavior {state_code.full_name}')
                 pass
 
-    except ValueError as e:
+    except (ValueError, IndexingError) as e:
         # Then we are working in behavioral space, and we don't need a phase plot
         print(f'ValueError: {e}; if only the behavior is being plotted, this is not a problem')
         phase_plot_list = []
 
-    phase_plot_list_opt = dict(row=3, col=2, pca_obj=pca_weights)
+    phase_plot_list_opt = dict(row=3, col=2, pca_obj=pca_obj)
     ### Variance explained
     var_explained_line = go.Scatter(x=np.arange(1, len(var_explained)+1), y=var_explained, showlegend=False)
     var_explained_line_opt = dict(row=6, col=2, secondary_y=False)
