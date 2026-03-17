@@ -114,8 +114,14 @@ class ClickableGridPlot:
         self.project_data = project_data
         if editor is None:
             editor = self.project_data.build_neuron_editor_gui()
-            editor.setWindowTitle(f"Neuron Name Editor for project: {self.project_data.project_dir}")
-            editor.show()
+            if editor is not None:
+                editor.setWindowTitle(f"Neuron Name Editor for project: {self.project_data.project_dir}")
+                editor.show()
+        
+        if editor is None:
+            project_data.logger.warning("No editor available; grid plot will operate without editor integration (metadata syncing to Notes column will be disabled)")
+        else:
+            project_data.logger.info("Editor detected; grid plot will sync neuron selections to editor Notes column with smart class replacement")
         self.editor = editor
 
         # Set up metadata objects
