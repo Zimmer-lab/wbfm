@@ -354,6 +354,9 @@ class ClickableGridPlot:
                 print(f"Warning: Failed to save editor annotations (file may be open in another program): {e}")
             except Exception as e:
                 print(f"Error saving editor annotations: {e}")
+            finally:
+                # Close the editor window after saving
+                self.editor.close()
 
     def load_previous_file(self):
         visualization_directory = self.project_data.project_config.get_visualization_config().absolute_subfolder
