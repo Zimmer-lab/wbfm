@@ -1164,6 +1164,7 @@ class ProjectData:
             Note: iterative algorithm that takes around a minute
         high_pass_bleach_correct: Filters by removing very slow drifts, i.e. a gaussian of sigma = num_frames / 5
         remove_tail_neurons: Removes neurons that are annotated with "tail" in the manual annotation
+        remove_invalid_neurons: Removes neurons that are annotated with "invalid" in the Notes column of the manual annotation
         verbose
         kwargs: Args to pass to calculate_traces; updates the default 'opt' dict above
             See TracePlotter for options
@@ -1184,6 +1185,10 @@ class ProjectData:
                 tail_names = self.tail_neuron_names()
                 tail_names = [n for n in tail_names if n in get_names_from_df(df)]
                 df = df.drop(columns=tail_names)
+            if remove_invalid_neurons:
+                invalid_names = self.invalid_neuron_names()
+                invalid_names = [n for n in invalid_names if n in get_names_from_df(df)]
+                df = df.drop(columns=invalid_names)
             return df
 
         opt = dict(
@@ -1201,7 +1206,7 @@ class ProjectData:
         else:
             user_passed_neuron_names = True
         if remove_invalid_neurons:
-            invalid_names = self.finished_neuron_names(finished_not_invalid=False)
+            invalid_names = self.invalid_neuron_names()
             neuron_names = tuple([n for n in neuron_names if n not in invalid_names])
 
         # TODO: this doesn't work if the only neuron name passed is a manually id'ed name
@@ -1319,6 +1324,10 @@ class ProjectData:
             tail_names = self.tail_neuron_names()
             tail_names = [n for n in tail_names if n in get_names_from_df(df)]
             df = df.drop(columns=tail_names)
+        if remove_invalid_neurons:
+            invalid_names = self.invalid_neuron_names()
+            invalid_names = [n for n in invalid_names if n in get_names_from_df(df)]
+            df = df.drop(columns=invalid_names)
 
         # Optional: rename columns to use manual ids, if found
         if rename_neurons_using_manual_ids:
@@ -2137,6 +2146,21 @@ class ProjectData:
         if self.df_manual_tracking is not None and 'Notes' in self.df_manual_tracking:
             tail_ids = self.df_manual_tracking['Notes'].str.contains('tail', case=False)
             names = list(self.df_manual_tracking['Neuron ID'][tail_ids].values)
+        else:
+            names = []
+        return names
+
+    def invalid_neuron_names(self):
+        """
+        Searches the "Notes" column of the manual annotation file for neurons that have been marked as "invalid"
+
+        Returns
+        -------
+
+        """
+        if self.df_manual_tracking is not None and 'Notes' in self.df_manual_tracking:
+            invalid_ids = self.df_manual_tracking['Notes'].str.contains('invalid', case=False)
+            names = list(self.df_manual_tracking['Neuron ID'][invalid_ids].values)
         else:
             names = []
         return names
