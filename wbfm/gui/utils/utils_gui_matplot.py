@@ -106,7 +106,8 @@ class ClickableGridPlot:
                    filter_mode='rolling_mean',
                    to_save=False, 
                    remove_invalid_neurons=False,
-                   high_pass_bleach_correct=True)
+                   high_pass_bleach_correct=True,
+                   lw=0.5)
 
         mplstyle.use('fast')
         with safe_cd(project_data.project_dir):
