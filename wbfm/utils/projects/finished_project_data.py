@@ -57,7 +57,7 @@ from wbfm.utils.tracklets.tracklet_class import DetectedTrackletsAndNeurons
 from wbfm.utils.projects.plotting_classes import TracePlotter, TrackletAndSegmentationAnnotator
 from wbfm.utils.segmentation.util.utils_metadata import DetectedNeurons
 from wbfm.utils.projects.project_config_classes import ModularProjectConfig, SubfolderConfigFile
-from wbfm.utils.general.utils_filenames import read_if_exists, pickle_load_binary, \
+from wbfm.utils.general.utils_filenames import add_name_suffix, read_if_exists, pickle_load_binary, \
     load_file_according_to_precedence, pandas_read_any_filetype, get_sequential_filename
 from wbfm.utils.projects.utils_project import safe_cd
 # from functools import cached_property # Only from python>=3.8
@@ -2013,6 +2013,10 @@ class ProjectData:
             from wbfm.gui.utils.utils_gui import NeuronNameEditor
             manual_neuron_name_editor = NeuronNameEditor(neurons_to_id=neurons_to_id)
             manual_neuron_name_editor.import_dataframe(df, fname)
+            # Create a backup excel file in the same folder, in case of corruption
+            fname_backup = add_name_suffix(fname, '_backup')
+            df.to_excel(fname_backup, index=False)
+
         except (PermissionError, tables.exceptions.HDF5ExtError):
             self.logger.warning(f"Could not open manual annotation file at ({fname}); "
                                 f"will not be able to save, thus this GUI will not be opened")
