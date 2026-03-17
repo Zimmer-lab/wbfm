@@ -825,7 +825,7 @@ def extend_trendline(fig, x_min, x_max, n_points=100, line_opt=None):
     )
 
 
-def extract_shapes_as_figure(fig, shape_indices=None, include_axes=True):
+def extract_shapes_as_figure(fig, shape_indices=None, include_axes=True, only_include_shapes_with_yref=None):
     """
     Extract shapes from a figure and return them as a new figure.
     
@@ -837,6 +837,8 @@ def extract_shapes_as_figure(fig, shape_indices=None, include_axes=True):
         Indices of shapes to extract. If None, extracts all shapes.
     include_axes : bool, default=True
         Whether to copy axis properties from the original figure
+    only_include_shapes_with_yref : str, optional
+        If not None, only include shapes that have this yref (e.g., 'paper', 'y')
     
     Returns
     -------
@@ -850,8 +852,11 @@ def extract_shapes_as_figure(fig, shape_indices=None, include_axes=True):
     # Extract shapes
     if shape_indices is None:
         shapes_to_copy = list(fig.layout.shapes)
+
+    if only_include_shapes_with_yref is not None:
+        shapes_to_copy = [fig.layout.shapes[i] for i in range(len(fig.layout.shapes)) if fig.layout.shapes[i].yref == only_include_shapes_with_yref]
     else:
-        shapes_to_copy = [fig.layout.shapes[i] for i in shape_indices]
+        shapes_to_copy = [fig.layout.shapes[i] for i in range(len(fig.layout.shapes))]
     
     # Copy shapes to new figure
     for shape in shapes_to_copy:
