@@ -1125,7 +1125,7 @@ class ProjectData:
                             rename_neurons_using_manual_ids: bool = False,
                             manual_id_confidence_threshold: int = 1,
                             use_physical_time: Optional[bool] = None,
-                            remove_tail_neurons: bool = False,
+                            remove_tail_neurons: bool = True,
                             remove_invalid_neurons: bool = True,
                             always_keep_manual_ids: bool = True,
                             use_paper_options: bool = False,
