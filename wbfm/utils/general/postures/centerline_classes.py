@@ -133,9 +133,53 @@ class WormFullVideoPosture:
     def _validate_and_downsample(self, df: Optional[Union[pd.DataFrame, pd.Series]], fluorescence_fps: bool,
                                  reset_index=False, use_physical_time=None,
                                  manual_annotation=False, force_downsampling=False, remove_idx_of_tracking_failures=True) -> Optional[Union[pd.DataFrame, pd.Series]]:
+        """
+        Final postprocessing step for any annotation or data vector: removes tracking failure indices,
+        downsamples to fluorescence frame rate if needed, shortens to trace length, and assigns the
+        output index.
+
+        This is the single place where index assignment happens for processed data. All internal
+        computation should use reset integer indexing; this function converts to the correct output
+        index at the end.
+
+        Parameters
+        ----------
+        df : pd.DataFrame, pd.Series, or None
+            The data to process. Returned as-is if None.
+        fluorescence_fps : bool
+            Whether the output should be at the fluorescence frame rate. If True and the data is not
+            already at fluorescence fps, downsampling is performed via subsample_indices.
+        reset_index : bool
+            If True, output index is reset to default integer indexing. Mutually exclusive with
+            use_physical_time.
+        use_physical_time : bool or None
+            If True, output index is converted to physical time. Mutually exclusive with reset_index.
+        manual_annotation : bool
+            Whether the input comes from manual annotation. Affects which conversion flag is checked
+            when determining whether downsampling is needed.
+        force_downsampling : bool
+            If True, downsampling is always performed regardless of the conversion flags.
+        remove_idx_of_tracking_failures : bool
+            If True, frames corresponding to tracking failures are removed before downsampling.
+
+        Returns
+        -------
+        pd.DataFrame, pd.Series, or None
+            Processed data with the correct output index. Same type as input.
+
+        Raises
+        ------
+        DataSynchronizationError
+            If both reset_index and use_physical_time are True, since these are mutually exclusive
+            output index modes.
+        NotImplementedError
+            If df has more than 2 dimensions.
+        """
         if df is None:
             return df
         else:
+            if reset_index and use_physical_time:
+                raise DataSynchronizationError("reset_index", "use_physical_time")
             df = df.copy()
 
             self.check_requested_frame_rate(fluorescence_fps, manual_annotation=manual_annotation)
@@ -166,23 +210,20 @@ class WormFullVideoPosture:
                 print(self.tracking_failure_idx)
                 print(self.subsample_indices)
                 raise e
-            # Optional postprocessing
-            if reset_index:
-                df.reset_index(drop=True, inplace=True)
-            if use_physical_time is None:
-                use_physical_time = not reset_index
-            elif use_physical_time and reset_index:
-                raise DataSynchronizationError("reset_index", "use_physical_time")
             # Shorten to the correct length, if necessary. Note that we have to check for series or dataframe
             if needs_subsampling:
                 df = self._shorten_to_trace_length(df)
 
-        df = self.convert_index_to_physical_time(df, fluorescence_fps, use_physical_time)
+            # Index postprocessing
+            if reset_index:
+                df.reset_index(drop=True, inplace=True)
+            else:
+                df = self.convert_index_to_physical_time(df, fluorescence_fps, use_physical_time)
 
         return df
 
     def convert_index_to_physical_time(self, df, fluorescence_fps, use_physical_time=None):
-        # Convert to physical time, if requested
+        # Convert to physical time, if requested OR set in the class itself
         if use_physical_time is None:
             use_physical_time = self.use_physical_time
             self.use_physical_time = use_physical_time  # Save the value
@@ -955,9 +996,17 @@ class WormFullVideoPosture:
         1. Multiple states can be active at once
         2. Integer values can be different for different pipelines, and need documentation to interpret
 
+        
+        The main complication of this function is that it needs to be able to handle different inputs with potentially different formats, indexing, and frame rates.
+        Common challenges include:
+        - Immobilized recordings could have manual annotations or AVA based annotations, which have different formats
+        - Manual annotations are annotated at the fluorescence frame rate; should raise an error if the user requests fluorescence_fps=False
+        - Manual annotations are annotated in frame indexing
+
         Note: Name is shortened to avoid US-UK spelling confusion
 
         Note that _raw_beh_annotation raises NoBehaviorAnnotationsError if no behavior annotation is found
+
         """
         if not use_manual_annotation:
             beh = self._raw_beh_annotation
@@ -975,15 +1024,19 @@ class WormFullVideoPosture:
                 beh = self._raw_beh_annotation
                 is_already_fluorescence_fps = self.beh_annotation_already_converted_to_fluorescence_fps
                 use_manual_annotation = False
-        if is_already_fluorescence_fps:
-            reset_index = True
+        # if is_already_fluorescence_fps:
+        #     reset_index = True
+            
         self.check_requested_frame_rate(fluorescence_fps, manual_annotation=use_manual_annotation)
         beh = beh.copy()
-        if reset_index:
-            beh.reset_index(inplace=True, drop=True)
-        else:
-            beh = self.convert_index_to_physical_time(beh, fluorescence_fps=is_already_fluorescence_fps,
-                                                      use_physical_time=True)
+        # Initialize all indexes to be the same, so that we can sum them together without worrying about misalignment
+        beh_index = beh.index
+        beh.reset_index(inplace=True, drop=True)
+        # if reset_index:
+            # beh.reset_index(inplace=True, drop=True)
+        # else:
+        #     beh = self.convert_index_to_physical_time(beh, fluorescence_fps=is_already_fluorescence_fps,
+        #                                               use_physical_time=True)
 
         # Add additional annotations from other files
         # These functions might give an error when called, so loop as a list of functions first
@@ -1007,14 +1060,16 @@ class WormFullVideoPosture:
         if DEBUG:
             print("Behavior before any additional annotations")
             print(beh)
-        correct_index = beh.index
+
+        correct_index = beh.index  # This should be reset, but is still an important check
         for beh_func in beh_funcs_to_add:
             if DEBUG:
                 print("Attempting to add behavior: ", beh_func.__name__)
             try:
                 # This should not be fluorescence fps, unless the downsampling below is not used
                 # i.e. unless the entire behavior annotation is low-res, meaning there is no downsampling
-                this_beh = beh_func(fluorescence_fps=is_already_fluorescence_fps, reset_index=reset_index)
+                # Ignore any indexing in these behaviors, and correct it at the end
+                this_beh = beh_func(fluorescence_fps=is_already_fluorescence_fps, reset_index=True)
                 if DEBUG:
                     print("Attempting to add behavior: ", beh)
                 if this_beh is None:
@@ -1961,6 +2016,7 @@ class WormFullVideoPosture:
 
         # Add class for converting physical units
         opt['physical_unit_conversion'] = project_data.physical_unit_conversion
+        opt['_use_physical_time'] = project_data.use_physical_time
 
         # Even if no files found, at least save the fps
         return WormFullVideoPosture(**all_files, **opt)
