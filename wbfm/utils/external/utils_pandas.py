@@ -1582,3 +1582,17 @@ def convert_binary_columns_to_one_hot(df: pd.DataFrame, column_hierarchy: List[s
             # Set the lower columns to 0 if the current column is 1
             df.loc[df[col].astype(bool), lower_cols] = 0
     return df
+
+def select_if_present(df, names_to_keep, warn_missing=True):
+    """Selects columns from a dataframe if they are present, and gives warning if they are not"""
+    missing = set(names_to_keep) - set(df.columns)
+    if warn_missing and missing:
+        logging.warning("select_if_present: expected columns not found: %s", missing)
+    return df.loc[:, df.columns.intersection(names_to_keep)]
+
+def drop_if_present(df, names_to_drop, warn_missing=True):
+    """Drops columns from a dataframe if they are present, and gives warning if they are not"""
+    missing = set(names_to_drop) - set(df.columns)
+    if warn_missing and missing:
+        logging.warning("drop_if_present: expected columns not found: %s", missing)
+    return df.drop(columns=names_to_drop)

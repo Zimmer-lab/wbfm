@@ -8,7 +8,7 @@ from copy import copy
 from typing import Sequence, List, Optional
 import numpy as np
 import dask.array as da
-from wbfm.utils.external.utils_pandas import combine_columns_with_suffix
+from wbfm.utils.external.utils_pandas import combine_columns_with_suffix, drop_if_present, select_if_present
 
 import tables
 from methodtools import lru_cache
@@ -1184,11 +1184,11 @@ class ProjectData:
             if remove_tail_neurons:
                 tail_names = self.tail_neuron_names()
                 tail_names = [n for n in tail_names if n in get_names_from_df(df)]
-                df = df.drop(columns=tail_names)
+                df = drop_if_present(df, tail_names)
             if remove_invalid_neurons:
                 invalid_names = self.invalid_neuron_names()
                 invalid_names = [n for n in invalid_names if n in get_names_from_df(df)]
-                df = df.drop(columns=invalid_names)
+                df = drop_if_present(df, invalid_names)
             return df
 
         opt = dict(
@@ -1220,7 +1220,7 @@ class ProjectData:
             if not user_passed_neuron_names:
                 names = self.well_tracked_neuron_names(min_nonnan, remove_invalid_neurons,
                                                        always_keep_manual_ids=always_keep_manual_ids)
-                df_drop = df.loc[:, names].copy()
+                df_drop = select_if_present(df, names)
                 # df_drop = df[names].copy()
             else:
                 self.logger.warning("min_nonnan was passed, but neuron_names was also passed. Ignoring min_nonnan")
@@ -1323,11 +1323,11 @@ class ProjectData:
         if remove_tail_neurons:
             tail_names = self.tail_neuron_names()
             tail_names = [n for n in tail_names if n in get_names_from_df(df)]
-            df = df.drop(columns=tail_names)
+            df = drop_if_present(df, tail_names)
         if remove_invalid_neurons:
             invalid_names = self.invalid_neuron_names()
             invalid_names = [n for n in invalid_names if n in get_names_from_df(df)]
-            df = df.drop(columns=invalid_names)
+            df = drop_if_present(df, invalid_names)
 
         # Optional: rename columns to use manual ids, if found
         if rename_neurons_using_manual_ids:
