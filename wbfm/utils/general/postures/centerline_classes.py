@@ -678,8 +678,7 @@ class WormFullVideoPosture:
         """
         if self._beh_annotation is None:
             template_vector = self.template_vector(fluorescence_fps=self.beh_annotation_already_converted_to_fluorescence_fps)
-            self._beh_annotation, _ = parse_behavior_annotation_file(behavior_fname=self.filename_beh_annotation,
-                                                                     template_vector=template_vector, volumes_per_second=self.physical_unit_conversion.volumes_per_second)
+            self._beh_annotation, _ = parse_behavior_annotation_file(behavior_fname=self.filename_beh_annotation, template_vector=template_vector)
         if isinstance(self._beh_annotation, pd.DataFrame):
             self._beh_annotation = self._beh_annotation.annotation
         if self._beh_annotation is not None:
@@ -719,8 +718,7 @@ class WormFullVideoPosture:
             # Thus the behavior annotation file should be a full time series, and not need a template
             template_vector = None
         df, _ = parse_behavior_annotation_file(behavior_fname=self.filename_manual_beh_annotation,
-                                               template_vector=template_vector,
-                                               convert_to_behavior_codes=True, volumes_per_second=self.physical_unit_conversion.volumes_per_second)
+                                               template_vector=template_vector, convert_to_behavior_codes=True)
         if df is None:
             raise NoManualBehaviorAnnotationsError(self.filename_manual_beh_annotation)
         return df
@@ -2409,13 +2407,13 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
 
 
 def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fname: str = None,
-                                   template_vector = None, convert_to_behavior_codes = True, volumes_per_second = None) -> Tuple[pd.Series, bool]:
+                                   template_vector = None, convert_to_behavior_codes = True) -> Tuple[pd.Series, bool]:
     """
-    Reads from a directly passed filename, or from the config file if that fails
+    Reads from a directly passed filename, or from the config file if that fails. Attempts to convert various saved file formats to a uniform output of a pandas Series with the behavior annotations
 
-    Attempts to convert various saved file formats to a uniform output of a pandas Series with the behavior annotations
-
-    Note: all integer-based manual annotation should be in the Ulises format (see BehaviorCodes._ulises_int_2_flag)
+    Assumes:
+    - all integer-based manual annotation should be in the Ulises format (see BehaviorCodes._ulises_int_2_flag)
+    - Units are in frames (most relevant when file is only starts and ends)
 
     Parameters
     ----------
@@ -2425,6 +2423,7 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
 
     Returns
     -------
+    behavior_annotations, is_fluorescence_fps
 
     """
     # Try to read it
@@ -2446,14 +2445,11 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
                 df_behavior_annotations = pd.read_csv(behavior_fname)
                 behavior_annotations = df_behavior_annotations['Annotation']
             elif "AVAL_manual_annotation" in str(behavior_fname) or "AVAR_manual_annotation" in str(behavior_fname):
-                logging.warning(f"Reading using manual annotation from Itamar's tracify package")
+                logging.warning(f"Reading using manual annotation from Itamar's tracify package ")
                 # From Itamar's tracify package, which saves only the starts and ends
-                # IN THE SECONDS, not trace frame rate
-                if volumes_per_second is None:
-                    raise MissingAnalysisError("Must pass fps if reading from Itamar's tracify package")
-                starts_ends = (pd.read_csv(behavior_fname) * volumes_per_second).astype(int)
-                behavior_annotations = make_binary_vector_from_starts_and_ends(starts_ends['start'], starts_ends['end'],
-                                                                               original_vals=template_vector)
+                # UNITS ARE FRAMES
+                starts_ends = pd.read_csv(behavior_fname).astype(int)
+                behavior_annotations = make_binary_vector_from_starts_and_ends(starts_ends['start'], starts_ends['end'], original_vals=template_vector)
                 # Change the integers to match Ulises' original annotation; see _ulises_int_2_flag
                 behavior_annotations = pd.Series(behavior_annotations, name='annotation')
                 behavior_annotations.replace(0, -1, inplace=True)
