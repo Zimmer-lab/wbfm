@@ -584,6 +584,14 @@ def options_for_ethogram(beh_vec, shading=False, include_reversal_turns=False, i
 
     if shading is True, then the ethogram will be partially transparent, to be drawn on top of a trace
 
+    Example usage to make a standalone ethogram:
+    fig = go.Figure()
+    ethogram_opt = options_for_ethogram(beh_vector, shading=False, include_reversal_turns=True)
+    for opt in ethogram_opt:
+        fig.add_shape(**opt)
+    fig.show()  # Note that this will be zoomed in
+
+
     Parameters
     ----------
     beh_vec

@@ -1553,9 +1553,60 @@ def rebuttal_trace_opt():
             'high_pass_bleach_correct': True, 'remove_invalid_neurons': True}
 
 
-def load_laser_switch_experiments_as_subprojects(all_projects_505_488_505, all_projects_488_505_488, immob=True):
+def load_laser_switch_experiments_as_subprojects(all_projects_505_488_505, all_projects_488_505_488, 
+                                                 immob=True, dataset_as_outer_key=False, DEBUG=False):
     """Uses manually annotated or automatically detected laser switch times to split the 505-488-505 and 488-505-488 projects into sub-projects for each laser wavelength segment. Returns a dict of sub-projects keyed by (segment_index, laser_wavelength)."""
     all_sub_projects = defaultdict(dict)
+    manual_split_annotation = manual_annotation_of_dataset_splits(immob)
+
+    laser_wavelengths = [505, 488, 505]
+    for name, p in all_projects_505_488_505.items():
+        # For each project, split it into 3 and then append to the appropriate list
+        
+        starts_stops = manual_split_annotation.get(p.shortened_name, None)
+        if starts_stops is None:
+            starts_stops = split_time_series_with_laser_switches(p.green_traces, brightness_threshold=605e3)
+        all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
+
+        for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
+            all_sub_projects[(i, laser_wavelength)][seg.shortened_name] = seg
+        
+        if DEBUG:
+            print(f"Only returning one project: {name} split into segments with laser wavelengths: {laser_wavelengths}")
+            for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
+                print(f"  Segment {i}: Laser {laser_wavelength} nm, Name: {seg.shortened_name}, Time range: {starts_stops[i]}")
+            break
+    
+    laser_wavelengths = [488, 505, 488]
+    for name, p in all_projects_488_505_488.items():
+        # For each project, split it into 3 and then append to the appropriate list
+
+        starts_stops = manual_split_annotation.get(p.shortened_name, None)
+        if starts_stops is None:
+            starts_stops = split_time_series_with_laser_switches(p.green_traces, brightness_threshold=605e3)
+        all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
+        
+        for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
+            all_sub_projects[(i, laser_wavelength)][seg.shortened_name] = seg
+
+        if DEBUG:
+            print(f"Only returning one project: {name} split into segments with laser wavelengths: {laser_wavelengths}")
+            for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
+                print(f"  Segment {i}: Laser {laser_wavelength} nm, Name: {seg.shortened_name}, Time range: {starts_stops[i]}")
+            break
+    
+    if dataset_as_outer_key:
+        # Switch to dataset as outer key: {dataset_name: {(segment_index, laser_wavelength): {project_name: project}}}
+        all_sub_projects_by_dataset = defaultdict(dict)
+        for (segment_index, laser_wavelength), projects in all_sub_projects.items():
+            for project_name, project in projects.items():
+                all_sub_projects_by_dataset[project_name][(segment_index, laser_wavelength)] = project
+        return all_sub_projects_by_dataset
+    else:
+        return all_sub_projects
+
+
+def manual_annotation_of_dataset_splits(immob):
     if immob:
         manual_split_annotation = {'2025-09-15_17-12_505_6min_488_6min_561_6min_worm2-2025-09-15':
                                     [[0, 774], [776, 1527], [1529, 2269]],
@@ -1566,7 +1617,10 @@ def load_laser_switch_experiments_as_subprojects(all_projects_505_488_505, all_p
                                 '2025-09-15_15-55_488_6min_505_6min_488_6min_worm5-2025-09-15':
                                     [[0, 776], [778, 1402], [1404, 2269]],
                                 '2025-09-15_15-30_488_6min_505_6min_488_6min_worm4-2025-09-15':
-                                    [[0, 774], [781, 1540], [1542, 2269]]}
+                                    [[0, 774], [781, 1540], [1542, 2269]],
+                                '2025-10-02_14-11_505_6min_488_6min_561_6min_worm1_100uW-2025-10-02':
+                                    [[0, 773], [783, 1520], [1531, 2269]],
+                                }
     else:
         manual_split_annotation = {'2025-11-20_12-56_shifts_505_488_505_worm3-2025-11-20':
                                 [[0, 797], [813, 1660], [1675, 2499]],
@@ -1581,33 +1635,5 @@ def load_laser_switch_experiments_as_subprojects(all_projects_505_488_505, all_p
                             '2025-11-20_12-39_shifts_488_505_488_worm3-2025-11-20':
                                 [[0, 811], [829, 1645], [1662, 2499]],
                             }
-
-    laser_wavelengths = [505, 488, 505]
-    for name, p in all_projects_505_488_505.items():
-        # For each project, split it into 3 and then append to the appropriate list
-        
-        starts_stops = manual_split_annotation.get(p.shortened_name, None)
-        if starts_stops is None:
-            starts_stops = split_time_series_with_laser_switches(p.green_traces, brightness_threshold=605e3)
-        all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
-        print(starts_stops)
-
-        for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
-            print(i, laser_wavelength, seg.shortened_name)
-            all_sub_projects[(i, laser_wavelength)][seg.shortened_name] = seg
-    
-    laser_wavelengths = [488, 505, 488]
-    for name, p in all_projects_488_505_488.items():
-        # For each project, split it into 3 and then append to the appropriate list
-
-        starts_stops = manual_split_annotation.get(p.shortened_name, None)
-        if starts_stops is None:
-            starts_stops = split_time_series_with_laser_switches(p.green_traces, brightness_threshold=605e3)
-        all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
-        print(starts_stops)
-        
-        for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
-            print(i, laser_wavelength, seg.shortened_name)
-            all_sub_projects[(i, laser_wavelength)][seg.shortened_name] = seg
-    
-    return all_sub_projects
+                            
+    return manual_split_annotation

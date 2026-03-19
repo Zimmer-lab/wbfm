@@ -2170,6 +2170,7 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
         'speed': speed,
         'pca_weights': df_pca_weights,
         'variance_explained': var_explained,
+        'beh_vec': beh_vec
     }
 
     return column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, \
