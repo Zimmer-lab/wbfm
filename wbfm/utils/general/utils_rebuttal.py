@@ -82,13 +82,14 @@ ERROR PREVENTION NOTES:
 - Use direct results dict keys for cmap, not derived values
 """
 from collections import defaultdict
+import os
 from typing import Any, Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from scipy.stats import ttest_ind, norm
 
-from wbfm.utils.external.utils_plotly import combine_plotly_figures, plotly_plot_mean_and_shading
-from wbfm.utils.general.utils_paper import split_time_series_with_laser_switches
+from wbfm.utils.external.utils_plotly import combine_plotly_figures, extract_shapes_as_figure, plotly_plot_mean_and_shading
+from wbfm.utils.general.utils_paper import apply_figure_settings, split_time_series_with_laser_switches
 from wbfm.utils.projects.finished_project_data import split_project_data_in_time
 
 
@@ -1637,3 +1638,38 @@ def manual_annotation_of_dataset_splits(immob):
                             }
                             
     return manual_split_annotation
+
+
+def make_heatmap_stack(these_heatmaps: dict, these_ethograms: dict, output_folder=None, prefix='', DEBUG=False):
+        
+    n = len(these_heatmaps)
+    base_row_heights = np.array([0.85, 0.1, 0.05])
+    base_row_heights = list(base_row_heights / base_row_heights.sum())
+    
+    all_row_heights = list(np.array(n*base_row_heights) / n)
+    
+    subplot_opt = dict(rows=len(all_row_heights), row_heights=all_row_heights, 
+                    vertical_spacing=0.0
+                    )
+    
+    all_figs = []
+    for k in these_heatmaps.keys():
+        all_figs.append(these_heatmaps[k])
+        all_figs.append(extract_shapes_as_figure(these_ethograms[k], only_include_shapes_with_yref='y'))
+        all_figs.append(go.Figure())  # Dummy empty figure
+    
+    fig = combine_plotly_figures(all_figs, horizontal=False, custom_subplot_opt=subplot_opt, hide_interior_xlabels=True,
+                                force_yref_paper=False)
+    
+    fig.update_yaxes(title="", showticklabels=False, overwrite=True)
+    fig.update_xaxes(title="", showticklabels=False, overwrite=True)
+    fig.update_xaxes(title="Seconds", showticklabels=True, row=len(all_row_heights), overwrite=True)
+    
+    apply_figure_settings(fig=fig, width_factor=0.15, height_factor=1.0)
+    
+    if output_folder is not None:
+        fname = os.path.join(output_folder, f'stacked_heatmaps_with_ethograms-{prefix}.png')
+        fig.write_image(fname, scale=3)
+
+    # fig.show()
+    return fig
