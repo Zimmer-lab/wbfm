@@ -91,7 +91,7 @@ def plot_pc1_comparison(df_both, df_significant_diff, minimum_number_neurons=2, 
     fig = px.box(df_both, y='PC1 weight', x=x_name, 
                  color='Dataset Type', 
                  color_discrete_map=plotly_paper_color_discrete_map(),
-                 category_orders={'Dataset Type': ['Immobilized (GCaMP)', 'Freely Moving (GCaMP)']})
+                 category_orders={'Dataset Type': ['Immobilized (GCaMP)', 'Freely Moving (GCaMP)', 488, 505, '488', '505']})
 
     # add_p_value_annotation(fig, x_label='all', show_ns=False, show_only_stars=True, permutations=1000,
     #                       height_mode='top_of_data')#, _format=dict(text_height=0.075))

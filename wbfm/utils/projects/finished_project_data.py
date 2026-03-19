@@ -3249,5 +3249,3 @@ def split_project_data_in_time(project_data: "ProjectData",
         segments.append(new_pd)
 
     return segments
-
-

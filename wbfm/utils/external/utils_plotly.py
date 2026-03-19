@@ -845,7 +845,6 @@ def extract_shapes_as_figure(fig, shape_indices=None, include_axes=True, only_in
     new_fig : plotly figure
         New figure containing only the specified shapes
     """
-    import plotly.graph_objects as go
     
     new_fig = go.Figure()
     

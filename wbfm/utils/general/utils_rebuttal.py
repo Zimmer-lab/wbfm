@@ -81,12 +81,15 @@ ERROR PREVENTION NOTES:
 - Check wavelength type consistency in color map building
 - Use direct results dict keys for cmap, not derived values
 """
+from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from scipy.stats import ttest_ind, norm
 
 from wbfm.utils.external.utils_plotly import combine_plotly_figures, plotly_plot_mean_and_shading
+from wbfm.utils.general.utils_paper import split_time_series_with_laser_switches
+from wbfm.utils.projects.finished_project_data import split_project_data_in_time
 
 
 F_LOW = 0.007    # Hz, lower bound of band [^1]
@@ -470,7 +473,7 @@ def plot_s2a_plotly_simple(results):
     """
     color_map = make_wavelength_color_map(results)
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                        subplot_titles=("Normalized PSD", "CDF"),
+                        subplot_titles=("Normalized<br>PSD", "CDF"),
                         vertical_spacing=0.1)
 
     # Build averaged curves per condition (within identical frequency-grid groups)
@@ -513,10 +516,10 @@ def plot_s2a_plotly_simple(results):
         fig.add_vline(x=F_HIGH, line=dict(color='black', dash='dot', width=1), row=row, col=1)
 
     # Axes and layout
-    fig.update_yaxes(title_text="Normalized PSD", row=1, col=1)
+    fig.update_yaxes(title_text="Normalized<br>PSD", row=1, col=1)
     fig.update_yaxes(title_text="CDF", row=2, col=1)
     fig.update_xaxes(title_text="Frequency (Hz)", range=[0, 2 * F_HIGH], row=2, col=1)
-    fig.update_layout(title="Figure S2A: Averaged normalized PSDs and CDFs per condition [^2]",
+    fig.update_layout(title="",
                       height=600)
     return fig
 
@@ -629,7 +632,7 @@ def plot_s2a_plotly(results: Dict[Tuple[str, str], List[Dict[str, Any]]]) -> go.
     For each condition, averages curves across recordings that share identical frequency grids.
     """
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                        subplot_titles=("Normalized PSD", "CDF"),
+                        subplot_titles=("Normalized<br>PSD", "CDF"),
                         vertical_spacing=0.1)
 
     for (cond_name, wavelength), recs in results.items():
@@ -661,10 +664,10 @@ def plot_s2a_plotly(results: Dict[Tuple[str, str], List[Dict[str, Any]]]) -> go.
                 row=2, col=1
             )
 
-    fig.update_yaxes(title_text="Normalized PSD", row=1, col=1)
+    fig.update_yaxes(title_text="Normalized<br>PSD", row=1, col=1)
     fig.update_yaxes(title_text="CDF", row=2, col=1)
     fig.update_xaxes(title_text="Frequency (Hz)", row=2, col=1)
-    fig.update_layout(title="Figure S2A-like: Averaged normalized PSDs and CDFs per condition [^1]",
+    fig.update_layout(title="",
                       height=600)
     return fig
 
@@ -1224,7 +1227,7 @@ def plot_s2a_mean_and_shading(results, shade_style='std', cmap=None, DEBUG=False
                 fig.add_trace(trace, row=2, col=col_idx)
     
     # Update axes
-    fig.update_yaxes(title_text="Normalized PSD", row=1, col=1)
+    fig.update_yaxes(title_text="Normalized<br>PSD", row=1, col=1)
     fig.update_yaxes(title_text="CDF", row=2, col=1)
     fig.update_xaxes(title_text="Frequency (Hz)", row=2)
     
@@ -1526,7 +1529,7 @@ def reproduce_figures_plotly(
     s2c_stats = compute_s2c_stats(quiet_counts, totals)
 
     # Print statistics summaries
-    # s2b_stats = dict()
+    s2b_stats = dict()
     # print("S2B Welch’s one-sided t-tests with BH correction [^2]:")
     # for k, v in s2b_stats.items():
     #     condA, condB = k
@@ -1542,3 +1545,69 @@ def reproduce_figures_plotly(
         'figures': {'S2A': fig_s2a, 'S2B': fig_s2b, 'S2C': fig_s2c},
         'stats': {'S2B': s2b_stats, 'S2C': s2c_stats}
     }
+
+
+def rebuttal_trace_opt():
+    return {'use_paper_options': False, 'interpolate_nan': True, 
+            'rename_neurons_using_manual_ids': True, 'manual_id_confidence_threshold': 0,
+            'high_pass_bleach_correct': True, 'remove_invalid_neurons': True}
+
+
+def load_laser_switch_experiments_as_subprojects(all_projects_505_488_505, all_projects_488_505_488, immob=True):
+    """Uses manually annotated or automatically detected laser switch times to split the 505-488-505 and 488-505-488 projects into sub-projects for each laser wavelength segment. Returns a dict of sub-projects keyed by (segment_index, laser_wavelength)."""
+    all_sub_projects = defaultdict(dict)
+    if immob:
+        manual_split_annotation = {'2025-09-15_17-12_505_6min_488_6min_561_6min_worm2-2025-09-15':
+                                    [[0, 774], [776, 1527], [1529, 2269]],
+                                '2025-09-15_16-47_505_6min_488_6min_561_6min_worm1-2025-09-15':
+                                    [[0, 777], [778, 1525], [1527, 2269]],
+                                '2025-09-15_17-38_505_6min_488_6min_561_6min_worm3-2025-09-15':
+                                    [[0, 774], [776, 1526], [1528, 2269]],
+                                '2025-09-15_15-55_488_6min_505_6min_488_6min_worm5-2025-09-15':
+                                    [[0, 776], [778, 1402], [1404, 2269]],
+                                '2025-09-15_15-30_488_6min_505_6min_488_6min_worm4-2025-09-15':
+                                    [[0, 774], [781, 1540], [1542, 2269]]}
+    else:
+        manual_split_annotation = {'2025-11-20_12-56_shifts_505_488_505_worm3-2025-11-20':
+                                [[0, 797], [813, 1660], [1675, 2499]],
+                            '2025-11-20_11-35_shifts_505_488_505_worm1-2025-11-20':
+                                [[0, 835], [852, 1668], [1685, 2499]],
+                            '2025-09-15_17-38_505_6min_488_6min_561_6min_worm3-2025-09-15':
+                                [[0, 779], [818, 1680], [1689, 2499]],
+                            '2025-11-20_11-52_shifts_488_505_488_worm2-2025-11-20':
+                                [[0, 839], [859, 1668], [1685, 2499]],
+                            '2025-11-20_11-08_shifts_488_505_488_worm1-2025-11-20':
+                                [[0, 870], [892, 1725], [1742, 2499]],
+                            '2025-11-20_12-39_shifts_488_505_488_worm3-2025-11-20':
+                                [[0, 811], [829, 1645], [1662, 2499]],
+                            }
+
+    laser_wavelengths = [505, 488, 505]
+    for name, p in all_projects_505_488_505.items():
+        # For each project, split it into 3 and then append to the appropriate list
+        
+        starts_stops = manual_split_annotation.get(p.shortened_name, None)
+        if starts_stops is None:
+            starts_stops = split_time_series_with_laser_switches(p.green_traces, brightness_threshold=605e3)
+        all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
+        print(starts_stops)
+
+        for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
+            print(i, laser_wavelength, seg.shortened_name)
+            all_sub_projects[(i, laser_wavelength)][seg.shortened_name] = seg
+    
+    laser_wavelengths = [488, 505, 488]
+    for name, p in all_projects_488_505_488.items():
+        # For each project, split it into 3 and then append to the appropriate list
+
+        starts_stops = manual_split_annotation.get(p.shortened_name, None)
+        if starts_stops is None:
+            starts_stops = split_time_series_with_laser_switches(p.green_traces, brightness_threshold=605e3)
+        all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
+        print(starts_stops)
+        
+        for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
+            print(i, laser_wavelength, seg.shortened_name)
+            all_sub_projects[(i, laser_wavelength)][seg.shortened_name] = seg
+    
+    return all_sub_projects
