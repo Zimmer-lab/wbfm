@@ -1446,22 +1446,22 @@ class ProjectData:
             pca_modes *= pca.explained_variance_
 
         if flip_pc1_to_have_reversals_high:
-            # Calculate the speed, and define the sign of the first PC to be anticorrelated to speed
-            reversal_time_series = None
-            try:
-                reversal_time_series = self.worm_posture_class.worm_speed(fluorescence_fps=True, reset_index=True,
-                                                                          signed=True)
-            except (NoBehaviorAnnotationsError, ValueError):
-                pass
-
             # Instead of behavior, see if there is an ID'ed AVA neuron
+            for candidate_name in ['AVA', 'AVAL', 'AVAR']:
+                if candidate_name in X:
+                    reversal_time_series = -X[candidate_name]
+                    break
+            else:
+                self.logger.warning("Could not calculate speed or AVA, so not flipping PC1")
+
+            # Calculate the speed, and define the sign of the first PC to be anticorrelated to speed
             if reversal_time_series is None:
-                for candidate_name in ['AVA', 'AVAL', 'AVAR']:
-                    if candidate_name in X:
-                        reversal_time_series = -X[candidate_name]
-                        break
-                else:
-                    self.logger.warning("Could not calculate speed or AVA, so not flipping PC1")
+                reversal_time_series = None
+                try:
+                    reversal_time_series = self.worm_posture_class.worm_speed(fluorescence_fps=True, reset_index=True,
+                                                                            signed=True)
+                except (NoBehaviorAnnotationsError, ValueError):
+                    pass
 
             # If we have a reversal time series, flip the first PC to be anticorrelated with it
             if reversal_time_series is not None:
