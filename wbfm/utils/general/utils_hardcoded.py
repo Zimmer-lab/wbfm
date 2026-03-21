@@ -249,6 +249,10 @@ def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/505_488_505'
     elif data_type == '488_505_488_immob_inactive':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/488_505_488'
+        # One bad project
+        bad_path = '2025-09-15_13-40_488_6min_505_6min_488_6min_worm1-2025-09-15'
+        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
+        good_projects = {k: p for k, p in good_projects.items() if bad_path not in p.project_folder}
     elif data_type == '488_leifer_conditions':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/488_leifer_only'
     elif data_type == '505_leifer_conditions':
