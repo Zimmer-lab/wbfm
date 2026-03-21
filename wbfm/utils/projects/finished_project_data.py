@@ -1448,12 +1448,10 @@ class ProjectData:
         if flip_pc1_to_have_reversals_high:
             reversal_time_series = None
             # Instead of behavior, see if there is an ID'ed AVA neuron
-            for candidate_name in ['AVA', 'AVAL', 'AVAR']:
+            for candidate_name in ['AVA', 'AVAL', 'AVAR', 'RIM', 'RIML', 'RIMR']:
                 if candidate_name in X:
                     reversal_time_series = -X[candidate_name]
                     break
-            else:
-                self.logger.warning("Could not calculate speed or AVA, so not flipping PC1")
 
             # Calculate the speed, and define the sign of the first PC to be anticorrelated to speed
             if reversal_time_series is None:
@@ -1469,6 +1467,8 @@ class ProjectData:
                 if correlation > 0:
                     pca_weights[:, 0] = -pca_weights[:, 0]
                     pca_modes[:, 0] = -pca_modes[:, 0]
+            else:
+                self.logger.warning("Could not calculate speed or AVA, so not flipping PC1")
 
         return pd.DataFrame(pca_weights, index=X.columns), \
                pd.DataFrame(pca_modes, index=X.index), \
