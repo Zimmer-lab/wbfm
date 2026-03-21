@@ -3000,6 +3000,14 @@ def get_time_length_from_object(obj) -> Optional[int]:
                 return int(val)
             except (TypeError, ValueError):
                 print(f"get_time_length_from_object: num_frames present but not coercible to int ({val})")
+    if hasattr(obj, "num_volumes"):
+        val = getattr(obj, "num_volumes")
+        if val is not None:
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                print(f"get_time_length_from_object: num_volumes present but not coercible to int ({val})")
+                
     for v in vars(obj).values():
         if isinstance(v, (pd.DataFrame, pd.Series)):
             return len(v)
