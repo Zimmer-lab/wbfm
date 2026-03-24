@@ -56,6 +56,7 @@ class WormFullVideoPosture:
 
     filename_curvature: str = None
     filename_curvature_backup: str = None
+    filename_curvature_equidistant: str = None
     filename_x: str = None
     filename_y: str = None
     filename_beh_annotation: str = None
@@ -132,9 +133,53 @@ class WormFullVideoPosture:
     def _validate_and_downsample(self, df: Optional[Union[pd.DataFrame, pd.Series]], fluorescence_fps: bool,
                                  reset_index=False, use_physical_time=None,
                                  manual_annotation=False, force_downsampling=False, remove_idx_of_tracking_failures=True) -> Optional[Union[pd.DataFrame, pd.Series]]:
+        """
+        Final postprocessing step for any annotation or data vector: removes tracking failure indices,
+        downsamples to fluorescence frame rate if needed, shortens to trace length, and assigns the
+        output index.
+
+        This is the single place where index assignment happens for processed data. All internal
+        computation should use reset integer indexing; this function converts to the correct output
+        index at the end.
+
+        Parameters
+        ----------
+        df : pd.DataFrame, pd.Series, or None
+            The data to process. Returned as-is if None.
+        fluorescence_fps : bool
+            Whether the output should be at the fluorescence frame rate. If True and the data is not
+            already at fluorescence fps, downsampling is performed via subsample_indices.
+        reset_index : bool
+            If True, output index is reset to default integer indexing. Mutually exclusive with
+            use_physical_time.
+        use_physical_time : bool or None
+            If True, output index is converted to physical time. Mutually exclusive with reset_index.
+        manual_annotation : bool
+            Whether the input comes from manual annotation. Affects which conversion flag is checked
+            when determining whether downsampling is needed.
+        force_downsampling : bool
+            If True, downsampling is always performed regardless of the conversion flags.
+        remove_idx_of_tracking_failures : bool
+            If True, frames corresponding to tracking failures are removed before downsampling.
+
+        Returns
+        -------
+        pd.DataFrame, pd.Series, or None
+            Processed data with the correct output index. Same type as input.
+
+        Raises
+        ------
+        DataSynchronizationError
+            If both reset_index and use_physical_time are True, since these are mutually exclusive
+            output index modes.
+        NotImplementedError
+            If df has more than 2 dimensions.
+        """
         if df is None:
             return df
         else:
+            if reset_index and use_physical_time:
+                raise DataSynchronizationError("reset_index", "use_physical_time")
             df = df.copy()
 
             self.check_requested_frame_rate(fluorescence_fps, manual_annotation=manual_annotation)
@@ -165,23 +210,20 @@ class WormFullVideoPosture:
                 print(self.tracking_failure_idx)
                 print(self.subsample_indices)
                 raise e
-            # Optional postprocessing
-            if reset_index:
-                df.reset_index(drop=True, inplace=True)
-            if use_physical_time is None:
-                use_physical_time = not reset_index
-            elif use_physical_time and reset_index:
-                raise DataSynchronizationError("reset_index", "use_physical_time")
             # Shorten to the correct length, if necessary. Note that we have to check for series or dataframe
             if needs_subsampling:
                 df = self._shorten_to_trace_length(df)
 
-        df = self.convert_index_to_physical_time(df, fluorescence_fps, use_physical_time)
+            # Index postprocessing
+            if reset_index:
+                df.reset_index(drop=True, inplace=True)
+            else:
+                df = self.convert_index_to_physical_time(df, fluorescence_fps, use_physical_time)
 
         return df
 
     def convert_index_to_physical_time(self, df, fluorescence_fps, use_physical_time=None):
-        # Convert to physical time, if requested
+        # Convert to physical time, if requested OR set in the class itself
         if use_physical_time is None:
             use_physical_time = self.use_physical_time
             self.use_physical_time = use_physical_time  # Save the value
@@ -197,7 +239,7 @@ class WormFullVideoPosture:
         try:
             return len(self._raw_stage_position)
         except NoBehaviorAnnotationsError as e:
-            if self.has_full_kymograph and self._raw_centerlineX is not None:
+            if self._raw_centerlineX is not None:
                 return len(self._raw_centerlineX)
             else:
                 raise e
@@ -309,10 +351,20 @@ class WormFullVideoPosture:
             if df is None:
                 raise NoBehaviorAnnotationsError("(curvature)")
             else:
-                # Regnerate processing steps
-                logging.warning(f"No smoothed curvature file found; recreating from raw curvature")
-                raw_data_config_fname = self.project_config.get_raw_data_config().absolute_self_path
-                df = _regenerate_smoothed_curvature_file(df, raw_data_config_fname)
+                try:
+                    # Regnerate processing steps
+                    raw_data_config_fname = self.project_config.get_raw_data_config().absolute_self_path
+                    logging.warning(f"No smoothed curvature file found at location {self.filename_curvature}; recreating from raw curvature ({self.filename_curvature_backup}) and raw data config ({raw_data_config_fname})")
+                    df = _regenerate_smoothed_curvature_file(df, raw_data_config_fname)
+                except FileNotFoundError:
+                    logging.warning(f"Could not find raw data config file at location {raw_data_config_fname}; cannot regenerate smoothed curvature file")
+                    pass
+
+        if df is None:
+            # Finally, try the equidistant curvature file
+            df = read_if_exists(self.filename_curvature_equidistant, reader=pd.read_csv, header=None)
+            if df is not None:
+                logging.warning(f"Using equidistant curvature file at location {self.filename_curvature_equidistant} as fallback. Note that this is different from the paper!")
 
         # Remove the first column, which is the frame number
         df = df.iloc[:, 1:]
@@ -440,16 +492,11 @@ class WormFullVideoPosture:
     @cached_property
     def _raw_pause(self) -> Optional[pd.Series]:
         # Ulises does not really believe in this one
-        if self.curvature() is None:
+        try:
+            if self.worm_speed(fluorescence_fps=False) is None:
+                return None
+        except (FileNotFoundError, NoBehaviorAnnotationsError):
             return None
-
-        # Hardcoded thresholds for what "slow" body curvature is
-        # df_freq = self.hilbert_frequency(fluorescence_fps=False)
-        # df_pause = df_freq.T
-        # df_pause[df_pause.abs() > 0.05] = 0
-        # df_pause[df_pause.abs() > 0] = 1
-        # _raw_vector = df_pause.iloc[5:10].mean()
-        # _raw_vector = _raw_vector > 0.25
 
         # Simpler: just a threshold on the speed
         _raw_vector = self.worm_speed(fluorescence_fps=False, signed=False, strong_smoothing=True) < 0.01
@@ -672,8 +719,7 @@ class WormFullVideoPosture:
         """
         if self._beh_annotation is None:
             template_vector = self.template_vector(fluorescence_fps=self.beh_annotation_already_converted_to_fluorescence_fps)
-            self._beh_annotation, _ = parse_behavior_annotation_file(behavior_fname=self.filename_beh_annotation,
-                                                                     template_vector=template_vector)
+            self._beh_annotation, _ = parse_behavior_annotation_file(behavior_fname=self.filename_beh_annotation, template_vector=template_vector)
         if isinstance(self._beh_annotation, pd.DataFrame):
             self._beh_annotation = self._beh_annotation.annotation
         if self._beh_annotation is not None:
@@ -713,8 +759,7 @@ class WormFullVideoPosture:
             # Thus the behavior annotation file should be a full time series, and not need a template
             template_vector = None
         df, _ = parse_behavior_annotation_file(behavior_fname=self.filename_manual_beh_annotation,
-                                               template_vector=template_vector,
-                                               convert_to_behavior_codes=True)
+                                               template_vector=template_vector, convert_to_behavior_codes=True)
         if df is None:
             raise NoManualBehaviorAnnotationsError(self.filename_manual_beh_annotation)
         return df
@@ -951,9 +996,17 @@ class WormFullVideoPosture:
         1. Multiple states can be active at once
         2. Integer values can be different for different pipelines, and need documentation to interpret
 
+        
+        The main complication of this function is that it needs to be able to handle different inputs with potentially different formats, indexing, and frame rates.
+        Common challenges include:
+        - Immobilized recordings could have manual annotations or AVA based annotations, which have different formats
+        - Manual annotations are annotated at the fluorescence frame rate; should raise an error if the user requests fluorescence_fps=False
+        - Manual annotations are annotated in frame indexing
+
         Note: Name is shortened to avoid US-UK spelling confusion
 
         Note that _raw_beh_annotation raises NoBehaviorAnnotationsError if no behavior annotation is found
+
         """
         if not use_manual_annotation:
             beh = self._raw_beh_annotation
@@ -971,15 +1024,19 @@ class WormFullVideoPosture:
                 beh = self._raw_beh_annotation
                 is_already_fluorescence_fps = self.beh_annotation_already_converted_to_fluorescence_fps
                 use_manual_annotation = False
-        if is_already_fluorescence_fps:
-            reset_index = True
+        # if is_already_fluorescence_fps:
+        #     reset_index = True
+            
         self.check_requested_frame_rate(fluorescence_fps, manual_annotation=use_manual_annotation)
         beh = beh.copy()
-        if reset_index:
-            beh.reset_index(inplace=True, drop=True)
-        else:
-            beh = self.convert_index_to_physical_time(beh, fluorescence_fps=is_already_fluorescence_fps,
-                                                      use_physical_time=True)
+        # Initialize all indexes to be the same, so that we can sum them together without worrying about misalignment
+        beh_index = beh.index
+        beh.reset_index(inplace=True, drop=True)
+        # if reset_index:
+            # beh.reset_index(inplace=True, drop=True)
+        # else:
+        #     beh = self.convert_index_to_physical_time(beh, fluorescence_fps=is_already_fluorescence_fps,
+        #                                               use_physical_time=True)
 
         # Add additional annotations from other files
         # These functions might give an error when called, so loop as a list of functions first
@@ -1003,14 +1060,16 @@ class WormFullVideoPosture:
         if DEBUG:
             print("Behavior before any additional annotations")
             print(beh)
-        correct_index = beh.index
+
+        correct_index = beh.index  # This should be reset, but is still an important check
         for beh_func in beh_funcs_to_add:
             if DEBUG:
                 print("Attempting to add behavior: ", beh_func.__name__)
             try:
                 # This should not be fluorescence fps, unless the downsampling below is not used
                 # i.e. unless the entire behavior annotation is low-res, meaning there is no downsampling
-                this_beh = beh_func(fluorescence_fps=is_already_fluorescence_fps, reset_index=reset_index)
+                # Ignore any indexing in these behaviors, and correct it at the end
+                this_beh = beh_func(fluorescence_fps=is_already_fluorescence_fps, reset_index=True)
                 if DEBUG:
                     print("Attempting to add behavior: ", beh)
                 if this_beh is None:
@@ -1463,7 +1522,7 @@ class WormFullVideoPosture:
         fig = plt.figure(figsize=(15, 15))
         ax = fig.add_subplot(111, projection='3d')
         c = np.arange(self.num_volumes) / 1e6
-        eig = self.eigenworms().values
+        eig = self.eigenworms(fluorescence_fps=True).values
         ax.scatter(eig[:, 0], eig[:, 1], eig[:, 2], c=c)
         plt.colorbar()
 
@@ -1957,6 +2016,7 @@ class WormFullVideoPosture:
 
         # Add class for converting physical units
         opt['physical_unit_conversion'] = project_data.physical_unit_conversion
+        opt['_use_physical_time'] = project_data.use_physical_time
 
         # Even if no files found, at least save the fps
         return WormFullVideoPosture(**all_files, **opt)
@@ -1970,7 +2030,6 @@ class WormFullVideoPosture:
         elif len(fnames) > 1:
             logging.warning(f"Found multiple stage position files in {_folder}: {fnames}")
         return _filename_table_position
-
 
     @staticmethod
     def _check_ulises_pipeline_files_in_subfolder(behavior_subfolder):
@@ -1988,6 +2047,8 @@ class WormFullVideoPosture:
                 all_files['filename_curvature'] = str(file)
             elif file.name.endswith('skeleton_spline_K.csv'):
                 all_files['filename_curvature_backup'] = str(file)
+            elif file.name.endswith('equi_dist_segment_2D_smoothed_signed.csv'):
+                all_files['filename_curvature_equidistant'] = str(file)
             elif file.name.endswith('skeleton_spline_X_coords_avg.csv') or \
                     (file.name.endswith('skeleton_spline_X_coords.csv') and all_files['filename_x'] is None):
                 all_files['filename_x'] = str(file)
@@ -2404,11 +2465,11 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
 def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fname: str = None,
                                    template_vector = None, convert_to_behavior_codes = True) -> Tuple[pd.Series, bool]:
     """
-    Reads from a directly passed filename, or from the config file if that fails
+    Reads from a directly passed filename, or from the config file if that fails. Attempts to convert various saved file formats to a uniform output of a pandas Series with the behavior annotations
 
-    Attempts to convert various saved file formats to a uniform output of a pandas Series with the behavior annotations
-
-    Note: all integer-based manual annotation should be in the Ulises format (see BehaviorCodes._ulises_int_2_flag)
+    Assumes:
+    - all integer-based manual annotation should be in the Ulises format (see BehaviorCodes._ulises_int_2_flag)
+    - Units are in frames (most relevant when file is only starts and ends)
 
     Parameters
     ----------
@@ -2418,6 +2479,7 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
 
     Returns
     -------
+    behavior_annotations, is_fluorescence_fps
 
     """
     # Try to read it
@@ -2439,14 +2501,11 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
                 df_behavior_annotations = pd.read_csv(behavior_fname)
                 behavior_annotations = df_behavior_annotations['Annotation']
             elif "AVAL_manual_annotation" in str(behavior_fname) or "AVAR_manual_annotation" in str(behavior_fname):
-                logging.warning(f"Reading using manual annotation from Itamar's tracify package")
+                logging.warning(f"Reading using manual annotation from Itamar's tracify package ")
                 # From Itamar's tracify package, which saves only the starts and ends
-                # IN THE SECONDS, not trace frame rate
-                fps = 3.47
-                logging.warning(f"Assuming that the manual annotation is the seconds, and using fps={fps}")
-                starts_ends = (pd.read_csv(behavior_fname) * fps).astype(int)
-                behavior_annotations = make_binary_vector_from_starts_and_ends(starts_ends['start'], starts_ends['end'],
-                                                                               original_vals=template_vector)
+                # UNITS ARE FRAMES
+                starts_ends = pd.read_csv(behavior_fname).astype(int)
+                behavior_annotations = make_binary_vector_from_starts_and_ends(starts_ends['start'], starts_ends['end'], original_vals=template_vector)
                 # Change the integers to match Ulises' original annotation; see _ulises_int_2_flag
                 behavior_annotations = pd.Series(behavior_annotations, name='annotation')
                 behavior_annotations.replace(0, -1, inplace=True)
@@ -2833,6 +2892,7 @@ def calculate_dataframe_for_export(worm):
     df = pd.concat([curvature, trajectory, df_beh], axis=1, keys=['Curvature', 'Trajectory', 'Behavior'])
 
     return df
+
 
 def _regenerate_smoothed_curvature_file(df_raw: Union[str, Path],
                                         raw_data_config_fname: Union[str, Path],):

@@ -55,10 +55,11 @@ for f in "${folders[@]}"; do
         echo "Dispatching on folder: $f with EXPERIMENTER: $EXPERIMENTER"
         if [ "$run_in_background" == "True" ]; then
             # shellcheck disable=SC2086
-            python $COMMAND with $ARGS &
+            OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python $COMMAND with $ARGS &
+            sleep 0.1 # Stagger the jobs slightly to avoid overwhelming the cluster scheduler
         else
             # shellcheck disable=SC2086
-            python $COMMAND with $ARGS
+            OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python $COMMAND with $ARGS
         fi
     fi
 done

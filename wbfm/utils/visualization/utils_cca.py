@@ -1,3 +1,4 @@
+from ast import Not
 import logging
 import os
 from collections import defaultdict
@@ -40,7 +41,7 @@ class CCAPlotter:
     # Preprocessing options. Goal: more interpretable CCA weights
     preprocess_traces_using_pca: bool = True
     truncate_traces_to_n_components: int = None  # Not used if preprocess_traces_using_pca is False
-    preprocess_behavior_using_pca: bool = True
+    preprocess_behavior_using_pca: bool = False
     truncate_behavior_to_n_components: int = None  # Not used if preprocess_behavior_using_pca is False
     _df_traces_truncated: pd.DataFrame = None
     _df_beh_truncated: pd.DataFrame = None
@@ -113,7 +114,8 @@ class CCAPlotter:
             return self._df_beh
 
     @lru_cache(maxsize=16)
-    def calc_cca(self, n_components=3, binary_behaviors=False, sparse_tau=None):
+    def calc_cca(self, n_components=3, binary_behaviors=False, sparse_tau=None, return_dataframes=False,
+                 anchor_modes_with_defined_behaviors=True):
         """
         Does regular or sparse CCA. Returns the transformed data and the CCA object
 
@@ -138,9 +140,43 @@ class CCAPlotter:
             cca = CCA(n_components=n_components)
             X_r, Y_r = cca.fit_transform(X, Y)
         else:
-            import cca_zoo.models as scc_mod
-            cca = scc_mod.SCCA_IPLS(latent_dims=n_components, tau=sparse_tau)
-            X_r, Y_r = cca.fit_transform([X, Y])
+            raise NotImplementedError("Sparse CCA not implemented")
+        
+        if anchor_modes_with_defined_behaviors and self.preprocess_behavior_using_pca:
+            logging.warning("Anchoring modes with defined behaviors will not work when behavior PCA preprocessing is used; skipping")
+            anchor_modes_with_defined_behaviors = False
+        
+        if anchor_modes_with_defined_behaviors:
+            # Given known information about what the first and second modes should be, flip the modes if needed
+            anchor_col = 'signed_middle_body_speed' if not binary_behaviors else 'rev'
+            # First mode should be forward movement (speed)
+            first_mode_beh_weights = cca.y_weights_[:, 0]
+            anchor_idx = Y.columns.get_loc(anchor_col)
+            if (binary_behaviors and first_mode_beh_weights[anchor_idx] < 0) or \
+                (not binary_behaviors and first_mode_beh_weights[anchor_idx] > 0):
+                # We want the 'rev' behavior to be positively weighted, but the velocity to be negatively weighted
+                X_r[:, 0] *= -1
+                Y_r[:, 0] *= -1
+                cca.x_weights_[:, 0] *= -1
+                cca.y_weights_[:, 0] *= -1
+            
+            # Second mode should be ventral turning
+            if n_components > 1:
+                anchor_col = 'ventral_only_body_curvature' if not binary_behaviors else 'ventral_turn'
+                second_mode_beh_weights = cca.y_weights_[:, 1]
+                anchor_idx = Y.columns.get_loc(anchor_col)
+                # We want both to be positively weighted this time
+                if second_mode_beh_weights[anchor_idx] < 0:
+                    X_r[:, 1] *= -1
+                    Y_r[:, 1] *= -1
+                    cca.x_weights_[:, 1] *= -1
+                    cca.y_weights_[:, 1] *= -1
+        
+        if return_dataframes:
+            # Basically just set up the indices to be the same as the input dataframes
+            X_r = pd.DataFrame(X_r, index=X.index, columns=[f'CCA_neural_mode_{i+1}' for i in range(X_r.shape[1])])
+            Y_r = pd.DataFrame(Y_r, index=Y.index, columns=[f'CCA_behavior_mode_{i+1}' for i in range(Y_r.shape[1])])
+
         return X_r, Y_r, cca
 
     def calc_cca_scores(self, n_components=3, binary_behaviors=False, sparse_tau=None):
@@ -195,16 +231,16 @@ class CCAPlotter:
         if use_pca:
             if use_behavior:
                 # Get the PCA modes from the neuronal activity
-                X_r, _ = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, **self.trace_kwargs)
+                _, X_r, _, _ = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, **self.trace_kwargs)
                 # Transform the neuronal PCA modes to behavior space using linear regression
                 reg = LinearRegression().fit(X_r, y)
                 y_r_recon = reg.predict(X_r)
 
             else:
                 # Just reconstruct the traces
-                pipe = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, 
-                                                        return_pca_object=True, **self.trace_kwargs)
-                y_r_recon = pipe.inverse_transform(pipe.fit_transform(y))
+                _, _, _, pipe = self.project_data.calc_pca_modes(n_components=n_components, multiply_by_variance=False, 
+                                                        **self.trace_kwargs)
+                y_r_recon = pipe.inverse_transform(pipe.transform(y))
 
         else:
             # Only use the neuronal latent space to reconstruct
@@ -379,8 +415,11 @@ class CCAPlotter:
             self._save_plotly_all_formats(fig, fname)
 
     def calc_pca_mode(self, i_mode, return_pca_weights=False) -> Tuple[pd.DataFrame, np.array]:
-        X_r, var_explained = self.project_data.calc_pca_modes(n_components=i_mode + 1, multiply_by_variance=True,
-                                                              return_pca_weights=return_pca_weights, **self.trace_kwargs)
+        df_weights, X_r, var_explained, _ = self.project_data.calc_pca_modes(n_components=i_mode + 1, multiply_by_variance=True,
+                                                              **self.trace_kwargs)
+        if return_pca_weights:
+            df_weights.index.name = None
+            return df_weights, var_explained
         X_r = np.array(X_r)
         df = pd.DataFrame({f'PCA mode {i_mode + 1}': X_r[:, i_mode] / X_r[:, i_mode].max()})
         return df, var_explained
@@ -427,7 +466,7 @@ class CCAPlotter:
             modes_to_plot = [0, 1, 2]
         if use_pca:
             # Multiply just to help the plotting
-            X_r, var_explained = self.project_data.calc_pca_modes(n_components=3, multiply_by_variance=False)
+            _, X_r, var_explained, _ = self.project_data.calc_pca_modes(n_components=3, multiply_by_variance=False)
             X_r = 3*X_r
             var_explained = 100*var_explained
             df_latents = pd.DataFrame(X_r)
@@ -805,7 +844,7 @@ def calc_pca_weights_for_all_projects(all_projects, which_mode=0, correct_sign_u
     trace_opt = kwargs.copy()
 
     for name, p in tqdm(all_projects.items()):
-        trace_weights, _ = p.calc_pca_modes(return_pca_weights=True, combine_left_right=combine_left_right, **trace_opt)
+        trace_weights, _, _, _ = p.calc_pca_modes(combine_left_right=combine_left_right, **trace_opt)
         all_weights[name] = trace_weights.T.loc[which_mode, :]
 
     df_weights = pd.DataFrame(all_weights).T

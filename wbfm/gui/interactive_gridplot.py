@@ -1,6 +1,6 @@
 import argparse
 from wbfm.utils.projects.finished_project_data import ProjectData
-from wbfm.utils.visualization.plot_traces import ClickableGridPlot
+from wbfm.gui.utils.utils_gui_matplot import ClickableGridPlot
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Build interactive gridplot')

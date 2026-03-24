@@ -110,7 +110,7 @@ def get_project_parent_folder():
 
 
 def get_hierarchical_modeling_dir(gfp=False, immobilized=False, o2_stimulus=False, mutant=False,
-                                  suffix=None):
+                                  avb_hiscl=False, suffix=None):
     parent_folder = "/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/"
     base_name = "hierarchical_modeling"
     if suffix is None:
@@ -118,6 +118,8 @@ def get_hierarchical_modeling_dir(gfp=False, immobilized=False, o2_stimulus=Fals
             base_name += "_gfp"
         elif immobilized:
             base_name += "_immob"
+        elif avb_hiscl:
+            base_name += "_avb_hiscl"
         if mutant:
             base_name += "_mutant"
         if o2_stimulus:
@@ -134,7 +136,7 @@ def get_triggered_average_modeling_dir():
 
 
 def all_paper_datatype_codes():
-    return ['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant']
+    return ['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant', 'avb_hiscl']
 
 
 def load_all_data_as_dataframe():
@@ -247,8 +249,21 @@ def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/505_488_505'
     elif data_type == '488_505_488_immob_inactive':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/488_505_488'
+        # One bad project
+        bad_path = '2025-09-15_13-40_488_6min_505_6min_488_6min_worm1-2025-09-15'
+        good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
+        good_projects = {k: p for k, p in good_projects.items() if bad_path not in p.shortened_name}
+    elif data_type == '488_leifer_conditions':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/488_leifer_only'
+    elif data_type == '505_leifer_conditions':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/505_leifer_only'
     elif data_type == 'no_light_control_fm':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/not_light_control'
+    elif data_type == 'avb_hiscl':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/zihaozhai/WBFM/project/AVBhiscl_all/histamin'
+    elif data_type == 'avb_hiscl_control':
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/zihaozhai/WBFM/project/AVBhiscl_all/control'
+
     else:
         raise NotImplementedError(f"Data type {data_type} not recognized for paper datasets")
 
@@ -426,7 +441,7 @@ def default_raw_data_config():
             }
 
 
-def neurons_with_confident_ids(combine_left_right=False):
+def neurons_with_confident_ids(combine_left_right=False, add_parentheses_for_less_confident=False):
     neuron_names = ['AVAL', 'AVAR', 'BAGL', 'BAGR', 'RIMR', 'RIML', 'AVEL', 'AVER',
                     'URYVL', 'URYVR', 'URADL', 'URADR', 'URYDL', 'URYDR',
                     'RIVR', 'RIVL', 'SMDVL', 'SMDVR', 'SMDDR', 'SMDDL',
@@ -437,9 +452,32 @@ def neurons_with_confident_ids(combine_left_right=False):
                     'ALA', 'RIS', 'AQR', 'RMDVL', 'RMDVR', 'URXL', 'URXR',
                     'VB01', 'VB02', 'VB03', 'DB01', 'DB02', 'VA01', 'VA02', 'DA01', 'DD01',
                     'RIBL', 'RIBR', 'RMEL', 'RMER', 'RMED', 'RMEV', 'RID', 'AVBL', 'AVBR']
+    # Always add less confident, but optionally add parentheses around them
     if combine_left_right:
         neuron_names = [n[:-1] if (n[-1] in ['L', 'R'] and len(n) > 3) else n for n in neuron_names]
         neuron_names = list(set(neuron_names))
+    
+    less_confident = neurons_with_less_confident_ids(combine_left_right=combine_left_right)
+    if add_parentheses_for_less_confident:
+        neuron_names = [f"({n})" if n in less_confident else n for n in neuron_names]
+    else:
+        neuron_names.extend(less_confident)
+    return neuron_names
+
+
+def neurons_with_less_confident_ids(combine_left_right=False, return_mapping=False):
+
+    neuron_names = ['SAAVL', 'SAAVR', 'AWBL', 'AWBR', 'RIBL', 'RIBR', #'AVBL', 'AVBR', 
+                    'AUAL', 'AUAR',
+                    'SIADL', 'SIADR', 'DB02', 'VB01', 'DA01']
+    if combine_left_right:
+        neuron_names = [n[:-1] if (n[-1] in ['L', 'R'] and len(n) > 3) else n for n in neuron_names]
+        neuron_names = list(set(neuron_names))
+    if return_mapping:
+        # Map from all confident names to themselves, except those that are less confident
+        all_neuron_names = neurons_with_confident_ids(combine_left_right=combine_left_right)
+        mapping = {n: f"({n})" if n in neuron_names else n for n in all_neuron_names}
+        return mapping
     return neuron_names
 
 
@@ -449,7 +487,7 @@ def _role_of_neurons():
     'Sensory': [
             'ASI', 'AWA', 'AWB', 'AWC', 'ASH', 'ASJ', 'ASG', 'ASK', 'ADF', 'PDE',
             'IL2L', 'IL2R', 'IL2', 'IL1L', 'IL1R', 'IL1', 'OLQD', 'OLQV', 'CEP', 'ADE', 'PVD', 'FLP', 'PHA', 'PHB', 'URX', 'BAG',
-            'AQR', 'SDQ', 'PQR', 'URB', 'SAA', 'URYD', 'URYV', 'URAD', 'URAV'
+            'AQR', 'SDQ', 'PQR', 'URB', 'SAA', 'URYD', 'URYV', #'URAD', 'URAV'
         ],
     'Interneuron': [
             'AIA', 'AIB', 'AIZ', 'AVA', 'AVE', 'AVB', 'AVD', 'AVG', 'RIM', 'ALA',
@@ -458,7 +496,8 @@ def _role_of_neurons():
     'Motor': [
             'DA1-DA9', 'DB1-DB7', 'DD1-DD6', 'VD1-VD13', 'VA1-VA12', 'VB1-VB11',
             'AS1-AS11', 'VC1-VC6', 'SAB', 'DVB', 'PDA', 'SIAD', 'SIAV', 'SMDD', 'SMDV',
-            'PDB', 'PVC', 'SMB', 'SIB', 'RMF', 'RMDD', 'RMDV', 'RMEV', 'RMED', 'RME', 'RIV'
+            'PDB', 'PVC', 'SMB', 'SIB', 'RMF', 'RMDD', 'RMDV', 'RMEV', 'RMED', 'RME', 'RIV',
+            'URAD', 'URAV'
         ],
     'Modulatory': [
             'RID', 'RIM'
@@ -466,9 +505,9 @@ def _role_of_neurons():
     'Forward': [
         'AVB', 'RIB', 'DB1-DB7', 'VB1-VB11', 'RME', 'RMEV', 'RMED', 'RID', 'SIAV', 'SIAD',
         'RMDD',
-        'SMDD', 'SMDV', 'URAD',  # Only in freely moving
+        'SMDD', 'SMDV', #'URAD',  # Only in freely moving
         ],
-    'Reverse': [
+    'Backward': [
         'AVA', 'AIB', 'RIM', 'DA1-DA9', 'VA1-VA12', 'AVE', 'RIA', 'URYD', 'URYV',
         'RMDV',
         ],
@@ -501,7 +540,7 @@ def role_of_neuron_dict(only_fwd_rev=False, include_fwd_rev=False, include_basic
     role_dict = defaultdict(list)
     for role, info in _role_of_neurons().items():
 
-        if role in ['Forward', 'Reverse']:
+        if role in ['Forward', 'Backward']:
             if not only_fwd_rev and not include_fwd_rev:
                 continue
         elif only_fwd_rev:
@@ -591,7 +630,7 @@ def intrinsic_definition(x):
 
     Specifically:
     If the freely moving condition is not significantly different from 0, then it is "No manifold."
-    Otherwise, if the difference between the two conditions is significant, then it is "Intrinsic" if the sign is the same and "Encoding switches" if the sign is different.
+    Otherwise, if the difference between the two conditions is significant, then it is "Encoding modulated" if the sign is the same and "Encoding switches" if the sign is different.
     If the immobilized is not significantly different from 0, but the difference is significant, then it is "Freely moving only".
     Finally, regardless of the 0-comparison significance of the immobilized condition, if the difference is not significant, then it is "Intrinsic".
 
@@ -601,14 +640,17 @@ def intrinsic_definition(x):
         return 'No manifold'
     elif 'gcamp_True_immob_True' in x:
         if 'same_sign_True' in x:
-            # Ignore that the difference is significant
-            return 'Intrinsic'
+            if 'diff_True' in x:
+                return 'Intrinsic (modulated)'
+            else:
+                # Difference not significant, so intrinsic
+                return 'Intrinsic'
         elif 'same_sign_False_diff_True' in x:
             # Diff must be significant, AND they must be both significantly different from 0
             return 'Encoding switches'
         else:
-            # Both different from 0, but not from each other... should not happen
-            raise ValueError
+            # Both different from 0, but not from each other... should not happen, but is most similar to encoding switches
+            return "Encoding switches"
     elif 'gcamp_True_immob_False' in x:
         # Might be a new encoding, or might just be on the edge of immob encoding
         if 'diff_True' in x:
@@ -616,7 +658,7 @@ def intrinsic_definition(x):
             return 'Freely moving only'
         else:
             # Ignore the 0-comparison significance of the immob if the difference is not significant
-            return 'Intrinsic'  # 'Intrinsic (stronger)'
+            return 'Intrinsic'
     elif 'gcamp_False_immob_True' in x:
         # Might be a removed encoding, or might just be on the edge of immob encoding
         if 'diff_True' in x:
@@ -624,7 +666,7 @@ def intrinsic_definition(x):
             return 'Immobilized only'
         else:
             # Ignore the 0-comparison significance of the immob if the difference is not significant
-            return 'Intrinsic'  # 'Intrinsic (stronger)'
+            return 'Intrinsic'
     else:
         return ValueError
 
@@ -674,7 +716,7 @@ def excel_event_full_description():
 
 def intrinsic_categories_long_description():
     return {
-            "gcamp_True_immob_True_same_sign_True_diff_True":    "Intrinsic. Statistically significant difference between a) conditions; b) freely moving and 0; and c) immobilized and 0. The medians have the same sign.",
+            "gcamp_True_immob_True_same_sign_True_diff_True":    "Modulated encoding. Statistically significant difference between a) conditions; b) freely moving and 0; and c) immobilized and 0. The medians have the same sign.",
             "gcamp_True_immob_True_same_sign_True_diff_False":   "Intrinsic. Statistically insignificant difference between conditions. Statistically significant between a) freely moving and 0 and b) 0 and immobilized. The medians have a different sign.",
             "gcamp_True_immob_False_same_sign_True_diff_False":  "Intrinsic. Statistically insignificant difference between a) conditions; and b) 0 and immobilized. Statistically significant between freely moving and 0. The medians have the same sign.",
             "gcamp_True_immob_False_same_sign_False_diff_False": "Intrinsic. Statistically insignificant difference between a) conditions; and b) 0 and immobilized. Statistically significant between freely moving and 0. The medians have the same sign.",
@@ -689,7 +731,7 @@ def intrinsic_categories_long_description():
 
 def intrinsic_categories_short_description():
     return {
-            "gcamp_True_immob_True_same_sign_True_diff_True":    "Intrinsic. Statistically significant difference between conditions, BUT The medians have the same sign.",
+            "gcamp_True_immob_True_same_sign_True_diff_True":    "Modulated encoding. Statistically significant difference between conditions, BUT the medians have the same sign.",
             "gcamp_True_immob_True_same_sign_True_diff_False":   "Intrinsic. Statistically insignificant difference between conditions.",
             "gcamp_True_immob_False_same_sign_True_diff_False":  "Intrinsic. Statistically insignificant difference between conditions.",
             "gcamp_True_immob_False_same_sign_False_diff_False": "Intrinsic. Statistically insignificant difference between conditions.",
@@ -814,3 +856,8 @@ def get_neuron_base(neuron_name:str) -> str:
         if (possible_base + "L" in all_neurons) and (possible_base + "R" in all_neurons):
             return possible_base
     return neuron_name
+
+
+def default_discrete_behaviors():
+    discrete_behavior_names = ['rev', 'ventral_turn', 'dorsal_turn', 'pause', 'self_collision']
+    return discrete_behavior_names

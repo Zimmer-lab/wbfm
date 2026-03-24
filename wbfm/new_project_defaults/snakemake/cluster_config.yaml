@@ -33,27 +33,27 @@ alt_segmentation:
 match_frame_pairs:
     time: 0-12:00:00
     mem: 128G
-    gres: shard:1
+    gres: gpu:1
     constraint: "l40s|a30|t4|l4"
 
 build_frame_objects:
     time: 0-12:00:00
     cpus_per_task: 20
     mem: 128G
-    gres: shard:1
+    gres: gpu:1
     constraint: "l40s|a30|t4|l4"
 
 alt_build_frame_objects:
     time: 0-12:00:00
     cpus_per_task: 20
     mem: 128G
-    gres: shard:1
+    gres: gpu:1
     constraint: "l40s|a30|t4|l4"
 
 postprocess_matches_to_tracklets:
     cpus_per_task: 1
     time: 0-2:00:00
-    gres: shard:1
+    gres: gpu:1
     constraint: "l40s|a30|t4|l4"
 
 combine_tracking_and_tracklets:
@@ -62,7 +62,7 @@ combine_tracking_and_tracklets:
 
 tracking:
     cpus_per_task: 16
-    gres: shard:1
+    gres: gpu:1
     constraint: "l40s|a30|t4|l4"
 
 barlow_tracking:
@@ -70,12 +70,12 @@ barlow_tracking:
 
 barlow_embedding:
     cpus_per_task: 16
-    gres: shard:1
+    gres: gpu:1
     constraint: "l40s|a30|t4|l4"
 
 alt_barlow_embedding: 
     cpus_per_task: 16
-    gres: shard:1
+    gres: gpu:1
     constraint: "l40s|a30|t4|l4"
 
 # Behavior

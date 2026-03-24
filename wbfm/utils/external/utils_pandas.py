@@ -4,8 +4,10 @@ from typing import Tuple, List, Union, Dict, Optional
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LinearRegression
 
 from wbfm.utils.external.custom_errors import DataSynchronizationError
+from wbfm.utils.general.utils_hardcoded import default_discrete_behaviors
 
 
 def fix_extra_spaces_in_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -1463,37 +1465,65 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
         _Xy = Xy
     if curvature_terms is None:
         curvature_terms = ['eigenworm0', 'eigenworm1', 'eigenworm2', 'eigenworm3']
-    # First, extract data, z-score, and drop na values
+
+    def _z_score(z):
+        return (z - z.mean()) / z.std()
+
+    # First, extract data without z-scoring yet (will z-score after dropna to preserve the property)
     # Allow gating based on the global component of the neuron itself (not used)
     x = _Xy[f'{neuron_name}_manifold']
-    x = (x - x.mean()) / x.std()  # z-score
     # Alternative: include the pca modes (currently used)
     x_pca0 = _Xy[f'pca_0']
-    x_pca0 = (x_pca0 - x_pca0.mean()) / x_pca0.std()  # z-score
     x_pca1 = _Xy[f'pca_1']
-    x_pca1 = (x_pca1 - x_pca1.mean()) / x_pca1.std()  # z-score
     if residual_mode == 'pca_global' or residual_mode == 'pca_global_2':
-        # Predict the residual
+        # Predict the residual, subtracting 2 pca modes
         y = _Xy[f'{neuron_name}'] - _Xy[f'{neuron_name}_manifold']
     elif residual_mode == 'pca_global_1':
         # Subtract only pc1
         y = _Xy[f'{neuron_name}'] - _Xy[f'{neuron_name}_manifold1']
     elif residual_mode is None:
         y = _Xy[f'{neuron_name}']
+    elif residual_mode == 'cca_continuous':
+        # Predict the residual, subtracting cca modes
+        # Use 2 CCA modes, column name = CCA_neural_mode_{i}
+        _x = _Xy[[f'CCA_neural_mode_{i+1}' for i in range(2)]].values
+        # I don't have the subtracted version, so do a linear regression to get it
+        # Remove NaN values for fitting
+        mask = ~(np.isnan(_x).any(axis=1) | _Xy[f'{neuron_name}'].isna())
+        y_pred = LinearRegression().fit(_x[mask], _Xy[f'{neuron_name}'][mask]).predict(_x)
+        y = _Xy[f'{neuron_name}'] - y_pred
+        y = pd.Series(y, index=_Xy.index)
+
+        # Overwrite x_pca0 and x_pca1 with the cca modes (will z-score after dropna)
+        x_pca0 = _Xy[f'CCA_neural_mode_1']
+        x_pca1 = _Xy[f'CCA_neural_mode_2']
+    elif residual_mode == 'discrete' or residual_mode == 'binary':
+        # Predict the residual, subtracting discrete modes
+        cols = default_discrete_behaviors()
+        _x = _Xy[cols].values
+        # I don't have the subtracted version, so do a linear regression to get it
+        # Remove NaN values for fitting
+        mask = ~(np.isnan(_x).any(axis=1) | _Xy[f'{neuron_name}'].isna())
+        y_pred = LinearRegression().fit(_x[mask], _Xy[f'{neuron_name}'][mask]).predict(_x)
+        y = _Xy[f'{neuron_name}'] - y_pred
+        y = pd.Series(y, index=_Xy.index)
+
+        # Overwrite x_pca0 and x_pca1 with the interpretable discrete behaviors
+        x_pca0 = _Xy['rev']
+        x_pca1 = _Xy['ventral_turn']
     else:
         raise ValueError(f"Unknown residual mode {residual_mode}; should be None, 'pca_global', or 'pca_global_1'")
-    y = (y - y.mean()) / y.std()  # z-score
-    if y.std() == 0:
-        raise ValueError(f"Standard deviation of y is 0 for {neuron_name} in {dataset_name} and residual_mode {residual_mode}... "
-                         f"This could be due to no data, or a bug in the residual calculation")
-    # Interesting covariate
+
+    # Covariate: get without z-scoring yet
     curvature = _Xy[curvature_terms]
-    curvature = (curvature - curvature.mean()) / curvature.std()  # z-score
+    
     # State
-    fwd = _Xy['fwd'].astype(str)
-    # Package as dataframe again, and drop na values
-    all_dfs = [pd.DataFrame({'y': y, 'x': x, 'x_pca0': x_pca0, 'x_pca1': x_pca1,
-                             'dataset_name': _Xy['dataset_name'], 'fwd': fwd}),
+    rev = _Xy['rev'].astype(str)
+    
+    # Package as dataframe and drop na values BEFORE z-scoring
+    all_dfs = [pd.DataFrame({'y': y, 'x': x, 
+                             'x_pca0': x_pca0, 'x_pca1': x_pca1,
+                             'dataset_name': _Xy['dataset_name'], 'rev': rev}),
                pd.DataFrame(curvature)]
     if additional_columns is not None:
         all_dfs.append(_Xy[additional_columns])
@@ -1501,6 +1531,16 @@ def get_dataframe_for_single_neuron(Xy, neuron_name, curvature_terms=None, datas
     if verbose >= 1:
         print(f"Number of non-nan values per column: {df_model.count()}")
     df_model = df_model.dropna()
+    
+    # z-score per dataset AFTER dropping NaNs to preserve the property
+    cols_to_zscore = ['y', 'x', 'x_pca0', 'x_pca1'] + curvature_terms
+    for col in cols_to_zscore:
+        if col in df_model.columns:
+            df_model[col] = df_model.groupby('dataset_name')[col].transform(_z_score)
+    
+    if df_model['y'].std() == 0:
+        raise ValueError(f"Standard deviation of y is 0 for {neuron_name} in {dataset_name} and residual_mode {residual_mode}... "
+                         f"This could be due to no data, or a bug in the residual calculation")
     if verbose >= 1:
         print(f"Loaded {df_model.shape[0]} samples for {neuron_name} in {dataset_name}")
     return df_model
@@ -1542,3 +1582,17 @@ def convert_binary_columns_to_one_hot(df: pd.DataFrame, column_hierarchy: List[s
             # Set the lower columns to 0 if the current column is 1
             df.loc[df[col].astype(bool), lower_cols] = 0
     return df
+
+def select_if_present(df, names_to_keep, warn_missing=True):
+    """Selects columns from a dataframe if they are present, and gives warning if they are not"""
+    missing = set(names_to_keep) - set(df.columns)
+    if warn_missing and missing:
+        logging.warning("select_if_present: expected columns not found: %s", missing)
+    return df.loc[:, df.columns.intersection(names_to_keep)]
+
+def drop_if_present(df, names_to_drop, warn_missing=True):
+    """Drops columns from a dataframe if they are present, and gives warning if they are not"""
+    missing = set(names_to_drop) - set(df.columns)
+    if warn_missing and missing:
+        logging.warning("drop_if_present: expected columns not found: %s", missing)
+    return df.drop(columns=names_to_drop)

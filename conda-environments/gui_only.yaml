@@ -11,14 +11,6 @@ channels:
 dependencies:
   - python=3.8
   - pip
-  - scikit-image
-  - lmfit
-  - zarr
-  - matplotlib
-  - scikit-learn
-  - napari[all]
-  - openpyxl
-  - plotly
   - pip:
     - tables
     - opencv-python-headless
@@ -35,3 +27,11 @@ dependencies:
     - ndstorage
     - pynwb
     - ndx_multichannel_volume
+    - scikit-image
+    - lmfit
+    - zarr
+    - matplotlib
+    - scikit-learn
+    - napari[all]
+    - openpyxl
+    - plotly

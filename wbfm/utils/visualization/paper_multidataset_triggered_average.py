@@ -410,10 +410,10 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                          'raw_dt': 'Time relative to\nDorsal Turn (s)',
                          'global_rev': 'Time relative to\nReversal (s)',
                          'global_fwd': 'Time relative to\nForward (s)',
-                         'residual': 'Time relative to\nventral undulation (s)',
+                         'residual': 'Time relative to\ndorsal undulation (s)',
                          'residual_collision': 'Time relative to\nself-collision (s)',
-                         'residual_rectified_fwd': 'Time relative to\nventral undulation (s)',
-                         'residual_rectified_rev': 'Time relative to\nventral undulation (s)',
+                         'residual_rectified_fwd': 'Time relative to\ndorsal undulation (s)',
+                         'residual_rectified_rev': 'Time relative to\ndorsal undulation (s)',
                          'kymo': 'Time (s)',
                          'stimulus': 'Time (s)',
                          'self_collision': 'Time relative to\nself-collision (s)',}
@@ -888,19 +888,22 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                                                                 color=color, **kwargs)
         return fig, ax
 
-    def plot_events_over_trace(self, neuron_name, trigger_type, dataset_name=None, output_foldername=None, **kwargs):
+    def plot_events_over_trace(self, neuron_name, trigger_type, dataset_name=None, output_foldername=None, 
+                               fig_opt=None, **kwargs):
         """
         Plot the full trace with the event
 
         Loops through individual triggered average objects and plots the full trace with the event.
         """
+        if fig_opt is None:
+            fig_opt = dict()
 
         these_intermediates = self.intermediates_dict[trigger_type][0]
         for _dataset, triggered_average_class in these_intermediates.items():
             if dataset_name is not None and dataset_name != _dataset:
                 continue
 
-            fig, ax = plt.subplots(dpi=100)
+            fig, ax = plt.subplots(dpi=100, **fig_opt)
             try:
                 triggered_average_class.plot_events_over_trace(neuron_name, ax=ax, **kwargs)
                 if 'rev' in trigger_type:
@@ -1043,7 +1046,7 @@ class PaperExampleTracePlotter(PaperColoredTracePlotter):
         return dict(dpi=300, figsize=(10/3, 10/2), gridspec_kw={'wspace': 0.0, 'hspace': 0.0})
 
     def plot_triple_traces(self, neuron_name, title=False, legend=False, round_y_ticks=False,
-                           output_foldername=None, combine_lr=False, **kwargs):
+                           output_foldername=None, combine_lr=False, shading_kwargs=None, **kwargs):
         """
         Plot the three traces (raw, global, residual) on the same plot.
         If output_foldername is not None, save the plot in that folder.
@@ -1057,6 +1060,8 @@ class PaperExampleTracePlotter(PaperColoredTracePlotter):
         -------
 
         """
+        if shading_kwargs is None:
+            shading_kwargs = dict()
         df_traces, df_traces_residual, df_traces_global = self._load_triple_traces(combine_lr=combine_lr)
 
         fig_opt = self.get_figure_opt()
@@ -1090,7 +1095,7 @@ class PaperExampleTracePlotter(PaperColoredTracePlotter):
                 ax.set_xticks([])
             else:
                 ax.set_xlabel("Time (s)")
-            self.project.shade_axis_using_behavior(ax)
+            self.project.shade_axis_using_behavior(ax, **shading_kwargs)
 
         # Remove space between subplots
         plt.subplots_adjust(hspace=0)

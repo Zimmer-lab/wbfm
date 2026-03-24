@@ -4,13 +4,14 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import reduce
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Tuple
 import plotly.express as px
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 from numpy.linalg import LinAlgError
 from scipy.signal import detrend
+from sklearn.cross_decomposition import CCA
 from sklearn.decomposition import PCA
 from sklearn.metrics import explained_variance_score
 from tqdm.auto import tqdm
@@ -27,6 +28,7 @@ from wbfm.utils.general.high_performance_pandas import get_names_from_df
 from wbfm.utils.visualization.behavior_comparison_plots import NeuronToMultivariateEncoding
 from wbfm.utils.visualization.filtering_traces import remove_outliers_using_std
 from wbfm.utils.general.utils_hardcoded import list_of_gas_sensing_neurons, list_neurons_manifold_in_immob
+from wbfm.utils.visualization.utils_cca import CCAPlotter
 
 
 @dataclass
@@ -339,6 +341,8 @@ def build_cross_dataset_eigenworms(all_projects: Dict[str, ProjectData], i_eigen
     df_eigenworms = pd.DataFrame(df_eigenworms, columns=[f'eigenworm{i}' for i in range(n_components)])
     df_eigenworms['local_time'] = df_curvature['local_time']
     df_eigenworms['dataset_name'] = df_curvature['dataset_name']
+    # Z-score per dataset (currently z-scored for all datasets together)
+    df_eigenworms = df_eigenworms.groupby('dataset_name').apply(lambda x: (x - x.mean()) / x.std())
     return df_eigenworms
 
 
@@ -364,11 +368,39 @@ def build_pca_time_series_from_multiple_projects(all_projects: Dict[str, Project
 
     all_dfs = {}
     for dataset_name, p in all_projects.items():
-        df, _ = p.calc_pca_modes(n_components=n_components, **kwargs)
+        df, _, _, _ = p.calc_pca_modes(n_components=n_components, **kwargs)
         all_dfs[dataset_name] = df
     df_traces = pd.concat(all_dfs)
     df_traces = df_traces.reset_index(names=['dataset_name', 'local_time'])
     return df_traces
+
+
+def build_cca_time_series_from_multiple_projects(all_projects: Dict[str, ProjectData], n_components=2,
+                                                 **trace_kwargs) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Like build_pca_time_series_from_multiple_projects, but for CCA modes
+
+    Uses the CCAPlotter class (same as the paper)
+    """
+    # Options in the paper (continuous behaviors)
+    beh_kwargs = dict(additional_behaviors=[f"eigenworm{i}" for i in range(4)])
+    cca_opt = dict(truncate_traces_to_n_components=3, preprocess_behavior_using_pca=False, trace_kwargs=trace_kwargs,
+                   beh_kwargs=beh_kwargs)
+
+    # Calculate for all projects
+    all_dfs_neural = {}
+    all_dfs_beh = {}
+    for dataset_name, p in all_projects.items():
+        p.use_physical_x_axis = True
+        cca_obj = CCAPlotter(p, **cca_opt)
+        df_neural, df_beh, _ = cca_obj.calc_cca(n_components=n_components, return_dataframes=True)
+        all_dfs_neural[dataset_name] = df_neural
+        all_dfs_beh[dataset_name] = df_beh
+    df_traces_neural = pd.concat(all_dfs_neural)
+    df_traces_beh = pd.concat(all_dfs_beh)
+    df_traces_neural = df_traces_neural.reset_index(names=['dataset_name', 'local_time'])
+    df_traces_beh = df_traces_beh.reset_index(names=['dataset_name', 'local_time'])
+    return df_traces_neural, df_traces_beh
 
 
 def build_dataframe_of_variance_explained(all_projects: Dict[str, ProjectData], n_components=2,

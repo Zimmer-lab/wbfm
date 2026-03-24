@@ -26,50 +26,50 @@ import seaborn as sns
 import plotly.express as px
 
 
-# In[2]:
+# In[5]:
 
 
 from sklearn.decomposition import PCA
 from wbfm.utils.visualization.plot_traces import make_grid_plot_from_dataframe
 import seaborn as sns
 from wbfm.utils.visualization.behavior_comparison_plots import NeuronToMultivariateEncoding
-from wbfm.utils.traces.gui_kymograph_correlations import build_all_gui_dfs_multineuron_correlations
+# from wbfm.utils.traces.gui_kymograph_correlations import build_all_gui_dfs_multineuron_correlations
 
 
-# In[3]:
+# In[9]:
 
 
-fname = "/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-27_spacer_7b_2per_agar/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
+fname = "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-27_spacer_7b_2per_agar/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
 # Manually corrected version
 # fname = "/scratch/neurobiology/zimmer/Charles/dlc_stacks/manually_annotated/paper_data/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
 project_data_gcamp = ProjectData.load_final_project_data_from_config(fname)
 
 
-# In[4]:
+# In[11]:
 
 
-fname = "/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-10_spacer_7b_2per_agar_GFP/ZIM2319_GFP_worm1-2022-12-10/project_config.yaml"
+fname = "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-10_spacer_7b_2per_agar_GFP/ZIM2319_GFP_worm1-2022-12-10/project_config.yaml"
 project_data_gfp = ProjectData.load_final_project_data_from_config(fname)
 
 
-# In[5]:
+# In[12]:
 
 
 # fname = "/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-12_immob/2022-12-13_15-16_ZIM2165_immob_worm9-2022-12-13/project_config.yaml"
-fname = "/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-12_immob/2022-12-13_10-38_ZIM2165_immob_worm8-2022-12-13/project_config.yaml"
+fname = "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-12_immob/2022-12-13_10-38_ZIM2165_immob_worm8-2022-12-13/project_config.yaml"
 project_data_immob = ProjectData.load_final_project_data_from_config(fname)
 
 
-# In[6]:
+# In[14]:
 
 
 # Load multiple datasets
-from wbfm.utils.general.hardcoded_paths import load_paper_datasets
+from wbfm.utils.general.utils_hardcoded import load_paper_datasets
 all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 all_projects_gfp = load_paper_datasets('gfp')
 
 
-# In[7]:
+# In[15]:
 
 
 all_projects_immob = load_paper_datasets('immob')
@@ -79,13 +79,13 @@ all_projects_immob = load_paper_datasets('immob')
 
 # ## Example: WBFM
 
-# In[8]:
+# In[16]:
 
 
 from wbfm.utils.visualization.paper_multidataset_triggered_average import PaperExampleTracePlotter
 
 
-# In[9]:
+# In[17]:
 
 
 # wbfm_plotter = PaperExampleTracePlotter(project_data_gcamp, xlim=[0, 120], ylim=[-0.33, 0.24])
@@ -93,7 +93,7 @@ from wbfm.utils.visualization.paper_multidataset_triggered_average import PaperE
 wbfm_plotter = PaperExampleTracePlotter(all_projects_gcamp['ZIM2165_Gcamp7b_worm3-2022_11_28'], xlim=[65, 145], ylim=[-0.19, 0.3])
 
 
-# In[30]:
+# In[18]:
 
 
 output_foldername = '/home/charles/Current_work/repos/dlc_for_wbfm/wbfm/notebooks/paper/multiplexing/wbfm'
@@ -107,7 +107,7 @@ for n in ['VB02', 'DB01', 'DD01', 'AVB']:
     
 
 
-# In[34]:
+# In[19]:
 
 
 # For the supp
@@ -118,7 +118,7 @@ wbfm_plotter.plot_triple_traces('BAG', ylim=None, title=True, legend=True, combi
 #                                    trace_options=dict(trace_type='raw'), width_factor=0.4, height_factor=0.2)
 
 
-# In[12]:
+# In[20]:
 
 
 # wbfm_plotter.project.neuron_name_to_manual_id_mapping(remove_unnamed_neurons=True, confidence_threshold=0)
@@ -140,7 +140,7 @@ wbfm_plotter.plot_triple_traces('BAG', ylim=None, title=True, legend=True, combi
 
 # ## Initial calculations
 
-# In[13]:
+# In[21]:
 
 
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
@@ -148,19 +148,19 @@ from wbfm.utils.visualization.paper_multidataset_triggered_average import PaperM
 from wbfm.utils.general.utils_behavior_annotation import approximate_behavioral_annotation_using_pc1
 
 
-# In[14]:
+# In[22]:
 
 
 triggered_average_gcamp_plotter = PaperMultiDatasetTriggeredAverage(all_projects_gcamp)
 
 
-# In[15]:
+# In[23]:
 
 
 # %debug
 
 
-# In[16]:
+# In[24]:
 
 
 # from wbfm.utils.general.utils_behavior_annotation import approximate_behavioral_annotation_using_ava
@@ -173,7 +173,7 @@ triggered_average_gcamp_plotter = PaperMultiDatasetTriggeredAverage(all_projects
 #         print(p.shortened_name)
 
 
-# In[17]:
+# In[25]:
 
 
 # triggered_average_immob_plotter = PaperMultiDatasetTriggeredAverage(all_projects_immob)
@@ -181,7 +181,7 @@ triggered_average_gcamp_plotter = PaperMultiDatasetTriggeredAverage(all_projects
 
 # ## Motor (ACTUALLY PLOTTED BELOW)
 
-# In[18]:
+# In[26]:
 
 
 # trigger_types = [('global_rev', ''), 
@@ -196,7 +196,7 @@ triggered_average_gcamp_plotter = PaperMultiDatasetTriggeredAverage(all_projects
 #                                                                         i_figure=4)
 
 
-# In[19]:
+# In[27]:
 
 
 # trigger_types = [('global_rev', ''), 
@@ -211,7 +211,7 @@ triggered_average_gcamp_plotter = PaperMultiDatasetTriggeredAverage(all_projects
 #                                                                         i_figure=4)
 
 
-# In[20]:
+# In[28]:
 
 
 from wbfm.utils.general.utils_paper import apply_figure_settings
@@ -251,7 +251,7 @@ for i, neuron in tqdm(enumerate(neurons)):
 
 # ## BAG
 
-# In[22]:
+# In[30]:
 
 
 # Actually plotted in the O2 multiplexing notebook
@@ -268,7 +268,7 @@ for i, neuron in tqdm(enumerate(neurons)):
 
 # ## All O2 neurons
 
-# In[24]:
+# In[31]:
 
 
 # from wbfm.utils.general.hardcoded_paths import list_of_gas_sensing_neurons
@@ -295,7 +295,7 @@ for i, neuron in tqdm(enumerate(neurons)):
 
 # ## Additional triple plots (example dataset)
 
-# In[ ]:
+# In[32]:
 
 
 # wbfm_plotter.plot_triple_traces('RID', output_foldername='/home/charles/Current_work/repos/dlc_for_wbfm/wbfm/notebooks/paper/multiplexing/wbfm')
@@ -303,14 +303,14 @@ for i, neuron in tqdm(enumerate(neurons)):
 
 # # Triggered averages (multiple datasets, ACTUALLY USED)
 
-# In[25]:
+# In[33]:
 
 
 from wbfm.utils.visualization.utils_plot_traces import convert_channel_mode_to_axis_label
 convert_channel_mode_to_axis_label(triggered_average_gcamp_plotter.trace_opt)
 
 
-# In[33]:
+# In[34]:
 
 
 trigger_types = [('global_rev', ''), 
@@ -345,7 +345,7 @@ for neuron in [#'VB01', 'VB03', 'DB02', 'VA02', 'VA01', 'DA01',
         plt.show()
 
 
-# In[28]:
+# In[35]:
 
 
 # STACKED residual triggered averages
@@ -385,7 +385,7 @@ for neuron in [#'VB01', 'VB03', 'DB02', 'VA02', 'VA01', 'DA01',
     plt.show(fig)
 
 
-# In[ ]:
+# In[36]:
 
 
 # %debug

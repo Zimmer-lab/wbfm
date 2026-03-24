@@ -209,7 +209,7 @@ def lexigraphically_sort(strs_with_numbers):
 
 def load_file_according_to_precedence(fname_precedence: list,
                                       possible_fnames: Dict[str, str],
-                                      reader_func: callable = read_if_exists, dryrun=False, **kwargs):
+                                      reader_func: callable = read_if_exists, recover_from_errors=True, dryrun=False, **kwargs):
     """
     Load a file according to a dict of possible filenames, ordered by fname_precedence
 
@@ -241,8 +241,16 @@ def load_file_according_to_precedence(fname_precedence: list,
                 data = None
                 logging.debug(f"Dryrun: would have read data from: {fname}")
             else:
-                data = reader_func(fname, **kwargs)
+                try:
+                    data = reader_func(fname, **kwargs)
+                except Exception as e:
+                    logging.error(f"Error reading file {fname} with reader {reader_func}; continuing. Full error: {e}")
+                    if recover_from_errors:
+                        continue
+                    else:
+                        raise e
                 logging.debug(f"Read data from: {fname}")
+
             if key != most_recent_modified_key:
                 logging.debug(f"Not using most recently modified file (mode {most_recent_modified_key})")
             else:

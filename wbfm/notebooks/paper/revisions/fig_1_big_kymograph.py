@@ -7,7 +7,7 @@
 
 
 
-# In[2]:
+# In[1]:
 
 
 get_ipython().run_line_magic('load_ext', 'autoreload')
@@ -25,7 +25,7 @@ import os
 import seaborn as sns
 
 
-# In[3]:
+# In[2]:
 
 
 from sklearn.decomposition import PCA
@@ -37,7 +37,7 @@ from wbfm.utils.general.utils_paper import plotly_paper_color_discrete_map
 import plotly.express as px
 
 
-# In[4]:
+# In[3]:
 
 
 # fname = "/scratch/neurobiology/zimmer/Charles/dlc_stacks/2022-11-27_spacer_7b_2per_agar/ZIM2165_Gcamp7b_worm1-2022_11_28/project_config.yaml"
@@ -48,7 +48,7 @@ fname = "/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-11-2
 project_data_gcamp = ProjectData.load_final_project_data_from_config(fname)
 
 
-# In[5]:
+# In[4]:
 
 
 # Load multiple datasets
@@ -56,13 +56,13 @@ from wbfm.utils.general.utils_hardcoded import load_paper_datasets
 all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 
 
-# In[6]:
+# In[5]:
 
 
 all_projects_gfp = load_paper_datasets('gfp')
 
 
-# In[7]:
+# In[6]:
 
 
 output_folder = "multiproject_behavior_quantifications"
@@ -70,35 +70,48 @@ output_folder = "multiproject_behavior_quantifications"
 
 # # Example dataset no zoom-in
 
-# In[10]:
+# In[7]:
 
 
 from wbfm.utils.visualization.plot_traces import make_summary_interactive_heatmap_with_pca, make_summary_heatmap_and_subplots, make_summary_interactive_kymograph_with_behavior
 
 
-# In[11]:
+# In[83]:
 
 
 # First: not zoomed in
 fps = project_data_gcamp.physical_unit_conversion.frames_per_second
 vps = project_data_gcamp.physical_unit_conversion.volumes_per_second
-fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=False,
+fig_kymo, fig_beh = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=False,
                                                       apply_figure_size_settings=True, showlegend=True,
                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
-                                                      x_range=[0/vps, 1666/vps])
+                                                      x_range=[0/vps, 1666/vps],
+                                                      plot_separately=True)
 
-apply_figure_settings(fig, width_factor=1.0, height_factor=0.2, plotly_not_matplotlib=True)
+apply_figure_settings(fig_kymo, width_factor=1.0, height_factor=0.2, plotly_not_matplotlib=True)
+apply_figure_settings(fig_beh, width_factor=1.0, height_factor=0.5, plotly_not_matplotlib=True)
 # fig.show()
 
 to_save = True
 if to_save:
     fname = os.path.join("fig1", "long_kymograph.png")
-    fig.write_image(fname, scale=5)
+    fig_kymo.write_image(fname, scale=5)
     fname = str(Path(fname).with_suffix('.svg'))
-    fig.write_image(fname)
+    fig_kymo.write_image(fname)
+    
+    fname = os.path.join("fig1", "long_behaviors.png")
+    fig_beh.write_image(fname, scale=5)
+    fname = str(Path(fname).with_suffix('.svg'))
+    fig_beh.write_image(fname)
 
 
-# In[12]:
+# In[84]:
+
+
+# %debug
+
+
+# In[9]:
 
 
 # USED: different figures for each
@@ -109,14 +122,14 @@ fig1, fig2 = make_summary_heatmap_and_subplots(project_data_gcamp, trace_opt=dic
 
 # # Example dataset with zoom in
 
-# In[13]:
+# In[10]:
 
 
 from wbfm.utils.visualization.plot_traces import make_summary_interactive_kymograph_with_behavior, plot_stacked_neurons
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 
 
-# In[14]:
+# In[11]:
 
 
 # from wbfm.utils.visualization.plot_traces import build_all_plot_variables_for_summary_plot
@@ -131,21 +144,22 @@ from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 #         additional_shaded_states=additional_shaded_states, showlegend=False)
 
 
-# In[15]:
+# In[12]:
 
 
 # import plotly.graph_objects as go
 # go.Figure(kymograph, **kymograph_opt)
 
 
-# In[97]:
+# In[67]:
 
 
-x_range = [1300/vps, 1650/vps]
+# x_range = [1300/vps, 1650/vps]
 # x_range = [60, 150]
+x_range = [0, 120]
 
 
-# In[93]:
+# In[ ]:
 
 
 fps = project_data_gcamp.physical_unit_conversion.frames_per_second
@@ -156,8 +170,17 @@ fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_sa
                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
                                                       x_range=x_range)
 
+
+# In[88]:
+
+
 apply_figure_settings(fig, width_factor=0.75, height_factor=0.35, plotly_not_matplotlib=True)
 # fig.show()
+fig.update_yaxes(dict(showticklabels=True, showgrid=True, griddash='dash', gridcolor='black'),
+                         zerolinecolor='black', zerolinewidth=2,
+                         range=[-0.22, 0.14],
+                         tickmode='array', tickvals=[-0.22, 0],
+                         row=5, overwrite=True)
 
 to_save = True
 if to_save:
@@ -167,151 +190,97 @@ if to_save:
     fig.write_image(fname)
 
 
-# In[94]:
+# In[69]:
 
 
 fps = project_data_gcamp.physical_unit_conversion.frames_per_second
 vps = project_data_gcamp.physical_unit_conversion.volumes_per_second
 
-fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=False,
+fig_eigenworms = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=False,
                                                        eigenworm_behaviors=True,
                                                       apply_figure_size_settings=True, showlegend=True,
                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
                                                       x_range=x_range)
 
-apply_figure_settings(fig, width_factor=0.75, height_factor=0.35, plotly_not_matplotlib=True)
+apply_figure_settings(fig_eigenworms, width_factor=0.75, height_factor=0.35, plotly_not_matplotlib=True)
 # fig.show()
 
 to_save = True
 if to_save:
     fname = os.path.join("fig1", "long_kymograph_eigenworms_zoom.png")
-    fig.write_image(fname, scale=5)
+    fig_eigenworms.write_image(fname, scale=5)
     fname = str(Path(fname).with_suffix('.svg'))
-    fig.write_image(fname)
+    fig_eigenworms.write_image(fname)
 
 
-# In[114]:
+# In[65]:
 
-
-# neurons_to_plot = ['AVAR', 'AVAL',
-#                    # 'RIMR', 'RIML',
-#                    'AVER', 'AVEL',
-#                'RID', 
-#                'BAGR', 'BAGL',  
-#                # 'RIVR', 'RIVL',
-#                'AVBR', 'AVBL',
-#                    'RIS',
-#                    # 'SIAVR', 'SIAVL',
-#                    'RMER', 'RMEL',
-#                    'RMEV', 'RMED',
-#                    'VB02',
-#                    'DB01'
-# ]
 
 neurons_to_plot = [#['AVAL', 'AVAR'],
                    'AVAR',
                    # 'AVE',
                    # 'RIM',
+                   # ['AVBL','AVBR',],
                    'AVBR',
                    # 'RIS',
                    # 'RMEV',
                    # ['RMEV', 'RMED'],
-                   # ['VB02', 'DB01'],
-                   'VB02',
+                   ['VB02', 'DB01'],
+                   # 'VB02',
                    # 'DD01',
                    # ['RMEL', 'RMER'],
                    # ['RMDD', 'RMDV'],
                    # ['VB02', 'SMDD'],
-                   # 'VB02',
                    # 'SMDD',
                    # ['VB02', 'SMDV'],
                    # ['SIAD', 'SIAV'],
                    # ['SMDD', 'SMDV'],
 ]
 
-# x_range = [0, 60]
-x_range = [60, 150]
-# x_range = [390, 470]
-fig = plot_stacked_neurons(project_data_gcamp, neurons_to_plot, x_range=x_range, 
+x_range = [0, 120]
+# x_range = [180, 280]
+fig_neurons = plot_stacked_neurons(project_data_gcamp, neurons_to_plot, x_range=x_range, 
                            to_show=False,
-                          trace_opt=dict(interpolate_nan=True), DEBUG=False)
-
+                          trace_opt=dict(interpolate_nan=True), DEBUG=True)
+fig_neurons.update_layout(showlegend=True)
 # apply_figure_settings(fig, width_factor=1.5, height_factor=0.8, plotly_not_matplotlib=True)
-apply_figure_settings(fig, width_factor=0.5, height_factor=0.25, plotly_not_matplotlib=True)
-fig.show()
+fig_neurons.update_xaxes(dict(showticklabels=False, title=''), col=1, overwrite=True, )
+apply_figure_settings(fig_neurons, width_factor=0.75, height_factor=0.25, plotly_not_matplotlib=True)
+fig_neurons.show()
 
 to_save = True
 if to_save:
     fname = os.path.join("fig1", "example_neurons.png")
-    fig.write_image(fname, scale=5)
+    fig_neurons.write_image(fname, scale=5)
     fname = str(Path(fname).with_suffix('.svg'))
-    fig.write_image(fname)
+    fig_neurons.write_image(fname)
 
 
-# In[96]:
+# In[66]:
 
 
-# project_data_gcamp.neuron_name_to_manual_id_mapping(confidence_threshold=0, remove_unnamed_neurons=True)
+# from wbfm.utils.external.utils_plotly import combine_plotly_figures
+# # Combine into one stacked figure
 
+# fig_combined = combine_plotly_figures([fig_neurons, fig_eigenworms], horizontal=False)
 
-# In[33]:
-
-
-# fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=True,
-#                                                       apply_figure_size_settings=True, showlegend=False,
-#                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2])
-
-# to_save = False
+# to_save = True
 # if to_save:
-#     fname = os.path.join("behavior", "kymograph_with_time_series.png")
-#     fig.write_image(fname, scale=5)
+#     fname = os.path.join("fig1", "zoomed_kymograph_combined.png")
+#     fig_combined.write_image(fname, scale=5)
 #     fname = str(Path(fname).with_suffix('.svg'))
-#     fig.write_image(fname)
+#     fig_combined.write_image(fname)
 
 
-# In[22]:
+# In[ ]:
 
 
-# fps = project_data_gcamp.physical_unit_conversion.frames_per_second
-# fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=True,
-#                                                       apply_figure_size_settings=True, discrete_behaviors=True,
-#                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
-#                                                       x_range=[31000/fps, 35000/fps])
 
-# to_save = False
-# if to_save:
-#     fname = os.path.join("behavior", "kymograph_with_discrete_time_series.png")
-#     fig.write_image(fname, scale=5)
-#     fname = str(Path(fname).with_suffix('.svg'))
-#     fig.write_image(fname)
-
-
-# In[23]:
-
-
-# fig = make_summary_interactive_kymograph_with_behavior(project_data_gcamp, to_save=False, to_show=True,
-#                                                       apply_figure_size_settings=True, eigenworm_behaviors=True,
-#                                                        row_heights=[0.25, 0.05, 0.2, 0.2, 0.2],
-#                                                       #x_range=[31000, 35000]
-#                                                       )
-
-# to_save = False
-# if to_save:
-#     fname = os.path.join("behavior", "kymograph_with_eigenworm_time_series.png")
-#     fig.write_image(fname, scale=5)
-#     fname = str(Path(fname).with_suffix('.svg'))
-#     fig.write_image(fname)
-
-
-# In[27]:
-
-
-# %debug
 
 
 # ## Trajectory
 
-# In[25]:
+# In[22]:
 
 
 from wbfm.utils.visualization.utils_plot_traces import modify_dataframe_to_allow_gaps_for_plotly
@@ -319,7 +288,7 @@ from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 from wbfm.utils.general.utils_paper import behavior_name_mapping
 
 
-# In[26]:
+# In[23]:
 
 
 xy = project_data_gcamp.worm_posture_class.calc_behavior_from_alias('worm_center_position').copy()
@@ -335,7 +304,7 @@ df_xy['Behavior'] = beh.values
 df_xy.head()
 
 
-# In[ ]:
+# In[24]:
 
 
 # import plotly.graph_objects as go
@@ -367,7 +336,7 @@ df_xy.head()
 # fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[ ]:
+# In[26]:
 
 
 import plotly.graph_objects as go
@@ -409,7 +378,7 @@ fig.show()
 
     
 fname = f"trajectory.png"
-fname = os.path.join("behavior", fname)
+fname = os.path.join("fig1", fname)
 fig.write_image(fname, scale=3)
 fig.write_image(fname.replace(".png", ".svg"))
 
@@ -978,16 +947,21 @@ fig.write_image(fname, scale=3)
 fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[ ]:
+# # Legends
+
+# In[89]:
 
 
+from wbfm.utils.general.utils_paper import export_legend_for_paper
 
 
-
-# In[ ]:
-
+# In[93]:
 
 
+fname = f"legend_reversal.png"
+fname = os.path.join("fig1", fname)
+
+export_legend_for_paper(fname, o2=False)
 
 
 # In[ ]:
@@ -1324,79 +1298,34 @@ model.plot()
 
 
 
-# # Scratch: other distributions
-
-# In[ ]:
-
-
-model = surpyval.Exponential.fit(x=duration_vec, c=censored_vec)
-print(model)
-print(model.aic())
-model.plot()
-
-
-# In[ ]:
-
-
-# NO CENSORING
-import surpyval
-
-model = surpyval.Weibull.fit(x=duration_vec)
-print(model)
-print(model.aic())
-model.plot()
-
-
-# In[ ]:
-
-
-# See: https://surpyval.readthedocs.io/en/latest/applications.html
-from autograd import numpy as np_auto
-
-bounds = ((0, None), (0, None), (0, None),)
-support = (0, np_auto.inf)
-param_names = ['lambda', 'alpha', 'beta']
-def Hf(x, *params):
-    Hf = params[0] * x + (params[1]/params[2])*(np_auto.exp(params[2]*x))
-    return Hf
-GompertzMakeham = surpyval.Distribution('GompertzMakeham', Hf, param_names, bounds, support)
-
-model = GompertzMakeham.fit(x=duration_vec / np.max(duration_vec), c=censored_vec, how='MLE')
-model.plot(alpha_ci=0.95)
-print(model)
-print(model.aic())
-
-
-# In[ ]:
-
-
-# See: https://surpyval.readthedocs.io/en/latest/applications.html
-from autograd import numpy as np_auto
-
-bounds = ((0, None), (0, None), (0, None), (0, None))
-support = (0, np_auto.inf)
-param_names = ['alpha1', 'lambda1', 'alpha2', 'lambda2']
-def Hf(x, *params):
-    Hf = params[0]*(np_auto.exp(params[1]*x)) + params[2]*(np_auto.exp(params[3]*x))
-    return Hf
-DoubleExponential = surpyval.Distribution('double_exponential', Hf, param_names, bounds, support)
-
-# model = DoubleExponential.fit(x=duration_vec, c=censored_vec, init=initial)
-initial = (0.5, 0.01, 0.5, 0.5)
-model = DoubleExponential.fit(x=duration_vec / np.max(duration_vec), c=censored_vec, init=initial, how='MLE')
-model.plot(alpha_ci=0.95, heuristic='Nelson-Aalen')
-print(model)
-
-
-# In[ ]:
-
-
-y = surpyval.Weibull.random(1000, 34, 0.63)
-n = plt.hist(y, cumulative=True, bins=1000, log=True);
-
+# # Scratch
 
 # In[ ]:
 
 
 
+
+
+# In[94]:
+
+
+from wbfm.utils.visualization.multiproject_wrappers import build_cca_time_series_from_multiple_projects
+
+
+# In[98]:
+
+
+_df = build_cca_time_series_from_multiple_projects(all_projects_gfp)
+
+
+# In[106]:
+
+
+# px.line(_df[0][_df[0]['dataset_name']=='ZIM2319_GFP_worm8-2022-12-10'])
+
+
+# In[105]:
+
+
+_df[0][_df[0]['dataset_name']=='ZIM2319_GFP_worm8-2022-12-10']
 

@@ -5,6 +5,7 @@ from functools import partial
 from pathlib import Path
 from typing import Optional, Union, Callable, List
 import pandas as pd
+from pandas.errors import IndexingError 
 from matplotlib.colors import TwoSlopeNorm
 import numpy as np
 import plotly
@@ -22,10 +23,8 @@ from matplotlib import transforms, pyplot as plt
 from matplotlib.ticker import NullFormatter, MultipleLocator
 from tqdm.auto import tqdm
 from wbfm.utils.projects.finished_project_data import ProjectData
-from wbfm.utils.projects.utils_project import safe_cd
 from wbfm.utils.traces.triggered_averages import FullDatasetTriggeredAverages
 from wbfm.utils.general.high_performance_pandas import get_names_from_df
-import matplotlib.style as mplstyle
 from plotly.subplots import make_subplots
 from plotly import graph_objects as go
 from wbfm.utils.visualization.filtering_traces import fill_nan_in_dataframe
@@ -46,6 +45,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
                                 color_using_behavior=True,
                                 remove_outliers=False,
                                 bleach_correct=True,
+                                remove_invalid_neurons=True,
                                 behavioral_correlation_shading=None,
                                 direct_shading_dict=None,
                                 df_traces: pd.DataFrame=None,
@@ -79,6 +79,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
     color_using_behavior: if behavioral annotation exists, shade background for reversals and turns
     remove_outliers: trace calculation option; see calc_default_traces
     bleach_correct: trace calculation option; see calc_default_traces
+    remove_invalid_neurons: trace calculation option; see calc_default_traces
     behavioral_correlation_shading: correlate to a particular behavior; see factory_correlate_trace_to_behavior_variable
     direct_shading_dict: instead of dynamic calculation using behavioral_correlation_shading, pass a value per neuron
     share_y_axis: subplot option
@@ -102,7 +103,8 @@ def make_grid_plot_from_project(project_data: ProjectData,
         opt = dict(project_data=project_data,
                    calculation_mode=calculation_mode,
                    color_using_behavior=color_using_behavior,
-                   bleach_correct=bleach_correct)
+                   bleach_correct=bleach_correct,
+                   remove_invalid_neurons=remove_invalid_neurons)
         for mode in all_modes:
             make_grid_plot_from_project(channel_mode=mode, **opt)
         # Second, remove outliers and filter
@@ -127,6 +129,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
     if df_traces is None:
         trace_options = {'channel_mode': channel_mode, 'calculation_mode': calculation_mode, 'filter_mode': filter_mode,
                          'remove_outliers': remove_outliers, 'bleach_correct': bleach_correct,
+                         'remove_invalid_neurons': remove_invalid_neurons,
                          'neuron_names': tuple(neuron_names), 'min_nonnan': min_nonnan}
         trace_options.update(trace_kwargs)
         df_traces = project_data.calc_default_traces(**trace_options)
@@ -195,6 +198,8 @@ def make_grid_plot_from_project(project_data: ProjectData,
         except ValueError as e:
             logger.warning(f"Couldn't save dataframe to {fname}; likely due to a duplicate column")
             logger.warning(f"Error: {e}")
+        # Close figure after saving to free memory; figure is already on disk
+        plt.close(fig)
 
     return fig
 
@@ -437,7 +442,6 @@ def make_grid_plot_from_callables(get_data_func: callable,
 
     """
     
-    
     if fig_opt is None:
         fig_opt = {}
     if shade_plot_kwargs is None:
@@ -492,6 +496,8 @@ def make_grid_plot_from_callables(get_data_func: callable,
     if logger is not None:
         logger.info(f"Found {num_neurons} neurons; shaping to grid of shape {(num_rows, num_columns)}")
     if fig is None:
+        # Disable interactive mode to suppress "GUI outside main thread" warning in batch contexts
+        plt.ioff()
         fig, original_axes = plt.subplots(num_rows, num_columns, **default_fig_opt)
         new_fig = True
     else:
@@ -671,173 +677,6 @@ def get_measurement_channel(t_dict):
 ## For interactivity
 ##
 
-class ClickableGridPlot:
-    def __init__(self, project_data, verbose=3):
-
-        # Set up grid plot
-        opt = dict(channel_mode='ratio',
-                   calculation_mode='integration',
-                   filter_mode='rolling_mean',
-                   to_save=False)
-
-        mplstyle.use('fast')
-        with safe_cd(project_data.project_dir):
-            fig = make_grid_plot_from_project(project_data, **opt)
-
-        self.fig = fig
-        self.project_data = project_data
-
-        # Set up metadata objects
-        names = project_data.neuron_names
-        self.selected_neurons = {n: {"List ID": 0, "Proposed Name": n} for n in names}
-        self.current_list_index = 1
-        self.current_selected_label = None
-        self.verbose = verbose
-
-        # Set up text box for modifying names
-        # plt.subplots_adjust(bottom=0.2)
-        # axbox = plt.axes([0.1, 0.05, 0.8, 0.075])
-        # self.text_box = TextBox(axbox, 'Modify neuron name', initial="initial_text")
-        # self.text_box.on_submit(self.modify_neuron_name)
-
-        # Finish
-        self.connect()
-        # Load file and add initial colors, if any
-        self.load_previous_file()
-        plt.show()
-
-    def connect(self):
-        cid = self.fig.canvas.mpl_connect('button_press_event', self.shade_selected_subplot_callback)
-        cid = self.fig.canvas.mpl_connect('key_press_event', self.update_current_list_index)
-        cid = self.fig.canvas.mpl_connect('close_event', self.write_file)
-
-    def update_current_list_index(self, event):
-        if event.key in ['1', '2', '3']:
-            self.current_list_index = int(event.key)
-        else:
-            self.current_list_index = 0
-
-        print(f"Current list index: {self.current_list_index}")
-
-    def modify_neuron_name(self, text):
-        self.selected_neurons[self.current_selected_label]["Proposed Name"] = text
-
-    def update_selected_label(self, new_label):
-        self.current_selected_label = new_label
-        # self.text_box.set_val(new_label)
-
-    def get_color_from_list_index(self):
-        print(f"Getting color: {self.current_list_index}")
-        if self.current_list_index == 1:
-            return 'green'
-        elif self.current_list_index == 2:
-            return 'blue'
-        else:
-            return 'red'
-
-    def shade_selected_subplot_callback(self, event):
-        ax = event.inaxes
-        if self.verbose >= 3:
-            print(event)
-            print(ax)
-        if ax is None or len(ax.lines) == 0:
-            return
-        button_pressed = event.button
-
-        self.shade_selected_subplot(ax, button_pressed)
-
-    def shade_selected_subplot(self, ax, button_pressed):
-
-        line = ax.lines[0]
-        label = line.get_label()
-        self.update_selected_label(label)
-
-        # Button codes: https://matplotlib.org/stable/api/backend_bases_api.html#matplotlib.backend_bases.MouseButton
-        if button_pressed == 1:
-            # Left click = select neuron
-            if self.selected_neurons[label]["List ID"] == self.current_list_index:
-                print(f"{label} already selected")
-            else:
-                print(f"Selecting {label}")
-                self._reset_shading(ax)
-
-                y = line.get_ydata()
-                color = self.get_color_from_list_index()
-
-                shading = ax.axhspan(np.nanmin(y), np.nanmax(y), xmax=len(y), facecolor=color, alpha=0.25, zorder=-100)
-                ax.draw_artist(shading)
-
-                self.selected_neurons[label]["List ID"] = self.current_list_index
-
-        elif button_pressed == 3:
-            # Right click = deselect
-            if self.selected_neurons[label]["List ID"] == 0:
-                print(f"{label} not selected")
-            else:
-                print(f"Deselecting {label}")
-                self._reset_shading(ax)
-                plt.draw()
-                self.selected_neurons[label]["List ID"] = 0
-        else:
-            print("Button press detected, but did nothing")
-        # From: https://stackoverflow.com/questions/29277080/efficient-matplotlib-redrawing
-        ax.figure.canvas.blit(ax.bbox)
-        # if verbose >= 2:
-        #     print("Currently selected neuron:")
-        #     print(self.selected_neurons)
-
-    def _reset_shading(self, ax):
-        if len(ax.patches) > 0:
-            [p.remove() for p in ax.patches]
-            # ax.patches = []
-
-    def write_file(self, event):
-        log_dir = self.project_data.project_config.get_visualization_config(make_subfolder=True).absolute_subfolder
-        fname = os.path.join(log_dir, 'selected_neurons.csv')
-        # fname = get_sequential_filename(fname)
-        print(f"Saving: {fname}")
-
-        df = pd.DataFrame(self.selected_neurons)
-        df.T.to_csv(path_or_buf=fname, index=True)
-        fname = Path(fname).with_suffix('.xlsx')
-        df.T.to_excel(fname, index=True)
-        # df = pd.DataFrame(self.selected_neurons, index=[0])
-        # df.to_csv(path_or_buf=fname, header=True, index=False)
-
-        print(df.T)
-
-    def load_previous_file(self):
-        visualization_directory = self.project_data.project_config.get_visualization_config().absolute_subfolder
-        fname = os.path.join(visualization_directory, 'selected_neurons.csv')
-        if not os.path.exists(fname):
-            print(f"Did not find previous state at: {fname}")
-            return
-        else:
-            # plt.show(block=False)
-            self.fig.canvas.draw()
-            print(f"Reading previous state from: {fname}")
-            df = pd.read_csv(fname, index_col=0)
-
-            axes = self.fig.axes
-            button_pressed = 1
-
-            for ax, (name, list_index) in zip(axes, df.iterrows()):
-                if list_index[0] == 0:
-                    continue
-
-                # Add the shading to this axis
-                print(f"Shading {name} with index {list_index[0]} and name {list_index[1]}")
-                self.current_list_index = list_index[0]
-                self.shade_selected_subplot(ax, button_pressed)
-
-                # Also add the info to the dict
-                self.selected_neurons[name]["List ID"] = list_index[0]
-                self.selected_neurons[name]["Proposed Name"] = list_index[1]
-
-        plt.draw()
-        self.current_list_index = 1
-
-
 def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwargs=None, trace_kwargs=None,
                                also_plot_zscore=False, neuron_names_to_plot=None):
     """
@@ -910,6 +749,11 @@ def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwa
             fname = 'heatmap_zscore.png'
             fname = traces_cfg.resolve_relative_path(fname, prepend_subfolder=True)
             fig_zscore.savefig(fname)
+        
+        # Close figures after saving to free memory; figures are already on disk
+        plt.close(fig)
+        if also_plot_zscore:
+            plt.close(fig_zscore)
 
     return fig
 
@@ -917,6 +761,8 @@ def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwa
 def make_default_summary_plots_using_config(proj_dat: ProjectData):
     # Note: reloads the project data to properly read the new trace h5 files
     logger = proj_dat.logger
+    # Disable interactive mode for batch processing to prevent matplotlib threading warnings
+    plt.ioff()
     logger.info("Making default grid plots")
     grid_opt = paper_trace_settings()
     grid_opt['channel_mode'] = 'all'
@@ -945,6 +791,22 @@ def make_default_summary_plots_using_config(proj_dat: ProjectData):
         logger.warning("Failed to make PC1 grid plot; if this is a test project this may be expected")
         logger.info(e)
         pass
+    
+    # Aggressively close all remaining figures after batch processing to prevent memory exhaustion
+    logger.info("Summary plots complete; clearing matplotlib figure cache")
+    try:
+        logging.info(f"Currently open figures: {plt.get_fignums()}")
+        # Close figures individually first to avoid segfaults with seaborn clustermap figures
+        for fig_num in plt.get_fignums():
+            try:
+                plt.close(fig_num)
+            except Exception as e:
+                logger.debug(f"Error closing figure {fig_num}: {e}")
+        # Final cleanup
+        plt.close('all')
+    except Exception as e:
+        logger.warning(f"Error during matplotlib cleanup: {e}. Continuing anyway.")
+        # Suppress segfaults during cleanup since figures are already on disk
 
 
 def make_default_triggered_average_plots(project_cfg, to_save=True):
@@ -1094,7 +956,7 @@ def make_summary_interactive_heatmap_with_pca(project_cfg, to_save=True, to_show
 
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     num_pca_modes_to_plot = 3
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_pca_modes_to_plot, trace_opt=trace_opt, **kwargs)
 
     rows = 1 + num_pca_modes_to_plot + 2
@@ -1204,15 +1066,42 @@ def make_summary_heatmap_and_subplots(project_cfg, to_save=True, to_show=False, 
 
     Parameters
     ----------
-    project_cfg
-    to_save
-    to_show
-    trace_opt
-    kwargs
+    project_cfg : ProjectConfig
+        Project configuration object
+    to_save : bool, default True
+        Whether to save the figures
+    to_show : bool, default False
+        Whether to display the figures
+    trace_opt : dict, optional
+        Trace calculation options
+    include_speed_subplot : bool, default True
+        Whether to include a speed subplot
+    ethogram_on_top : bool, default False
+        Whether to place ethogram on top of heatmap
+    output_folder : str, optional
+        Output folder path
+    base_width : float or list, default 0.5
+        Base width for figures
+    base_height : float or list, default 0.3
+        Base height for figures
+    **kwargs
+        Additional keyword arguments
 
     Returns
     -------
-
+    fig1 : plotly.graph_objects.Figure
+        Heatmap figure
+    fig2 : plotly.graph_objects.Figure
+        PCA modes and behavior traces figure
+    plotted_data : dict
+        Dictionary containing plotted time series with keys:
+        - 'neural_activity': Neural activity heatmap (neurons × time)
+        - 'time_axis': Time axis values
+        - 'neuron_names': List of neuron names
+        - 'pca_modes': PCA components dataframe
+        - 'speed': Worm speed time series
+        - 'pca_weights': PCA weights dataframe
+        - 'variance_explained': Explained variance ratios
     """
 
     if trace_opt is None:
@@ -1230,7 +1119,7 @@ def make_summary_heatmap_and_subplots(project_cfg, to_save=True, to_show=False, 
 
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     num_pca_modes_to_plot = 3
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_pca_modes_to_plot, trace_opt=trace_opt, **kwargs)
 
     # Build figure 1: heatmap
@@ -1334,18 +1223,22 @@ def make_summary_heatmap_and_subplots(project_cfg, to_save=True, to_show=False, 
         _save_plotly_all_types(fig1, project_data, fname='summary_only_heatmap_plot.html', output_folder=output_folder)
         _save_plotly_all_types(fig2, project_data, fname='summary_only_pca_plot.html', output_folder=output_folder)
 
-    return fig1, fig2
+    return fig1, fig2, plotted_data
 
 
 def _save_plotly_all_types(fig, project_data, fname='summary_trace_plot.html', output_folder=None):
     trace_cfg = project_data.project_config.get_traces_config()
     # Save in the actual project
-    fname = trace_cfg.resolve_relative_path(fname, prepend_subfolder=True)
-    fig.write_html(str(fname))
-    fname = Path(fname).with_suffix('.png')
-    fig.write_image(str(fname))
-    fname = Path(fname).with_suffix('.svg')
-    fig.write_image(str(fname))
+    try:
+        fname = trace_cfg.resolve_relative_path(fname, prepend_subfolder=True)
+        fig.write_html(str(fname))
+        fname = Path(fname).with_suffix('.png')
+        fig.write_image(str(fname))
+        fname = Path(fname).with_suffix('.svg')
+        fig.write_image(str(fname))
+    except PermissionError:
+        print(f"Permission error when trying to save in project directory; skipping HTML save and saving PNG and SVG in local folder instead")
+        pass
     # Save in a local folder
     if output_folder is not None:
         fname = Path(fname).with_suffix('.svg')
@@ -1398,7 +1291,7 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     behavior_kwargs.update(kwargs['behavior_kwargs']) if 'behavior_kwargs' in kwargs else {}
     kwargs['behavior_kwargs'] = behavior_kwargs
     additional_shaded_states = []#[BehaviorCodes.SLOWING, BehaviorCodes.HEAD_CAST]
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, _row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, _row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_modes_to_plot, use_behavior_traces=True, behavior_alias_dict=behavior_alias_dict,
         additional_shaded_states=additional_shaded_states, showlegend=showlegend, **kwargs)
 
@@ -1596,12 +1489,12 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     else:
         if plot_separately:
             base = 1
-            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature'), col=1, row=base+1)
-            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature'), col=1, row=base+2)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature<br>(1/mm)'), col=1, row=base+1)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature<br>(1/mm)'), col=1, row=base+2)
             fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=base+3)
         else:
-            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature'), col=1, row=3)
-            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature'), col=1, row=4)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature<br>(1/mm)'), col=1, row=3)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature<br>(1/mm)'), col=1, row=4)
             fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=5)
 
     if not discrete_behaviors:
@@ -1618,6 +1511,7 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
         # Put zero line on the bottom-most behavior row when separate, otherwise keep original row
         target_row = rows_behavior if plot_separately else 5
         fig.update_yaxes(dict(showticklabels=True, showgrid=True, griddash='dash', gridcolor='black'),
+                         zerolinecolor='black', zerolinewidth=2,
                          range=[-0.22, 0.14],
                          tickmode='array', tickvals=[-0.22, 0],
                          row=target_row, overwrite=True)
@@ -1717,7 +1611,7 @@ def make_summary_interactive_heatmap_with_kymograph(project_cfg, to_save=True, t
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     num_pca_modes_to_plot = 3
     kwargs['behavior_kwargs'] = dict(fluorescence_fps=False, reset_index=False)
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_pca_modes_to_plot, **kwargs)
 
     # One column with a heatmap, (short) ethogram, and kymograph
@@ -2037,25 +1931,23 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
         default_trace_opt.update(trace_opt)
     df_traces = project_data.calc_default_traces(**default_trace_opt)
     x_for_plots_volumes = project_data.x_for_plots
-    # x_for_plots_behavior = project_data.worm_posture_class.x_physical_time_frames
 
-    df_traces_no_nan = fill_nan_in_dataframe(df_traces.copy(), do_filtering=True)
-    # Calculate pca modes, and use them to sort
-    pca_weights = PCA(n_components=10)
-    pca_modes = PCA(n_components=10)
-    df_mean_subtracted = df_traces_no_nan - df_traces_no_nan.mean()
-    pca_weights.fit(df_mean_subtracted)
-    pca_modes.fit(df_mean_subtracted.T)
+    # Calculate pca modes and weights using the class method
+    df_pca_weights, df_pca_modes_full, var_explained_full, pipe = project_data.calc_pca_modes(n_components=10, 
+                                                                                          **default_trace_opt)
+    pca_obj = pipe.named_steps['pca']
     # Preprocess
     df_tmp = df_traces
     # df_tmp -= df_tmp.min()
-    ind_sort = np.argsort(pca_weights.components_[0, :])
+    ind_sort = np.argsort(df_pca_weights.iloc[:, 0].values)
     dat = df_tmp.T.iloc[ind_sort, :]
     neuron_names = list(dat.index)
-    df_pca_modes = pd.DataFrame(pca_modes.components_[0:num_pca_modes_to_plot, :].T)
-    col_names = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
-    df_pca_modes.columns = col_names
+    
+    # Use the already-computed modes from the method
+    df_pca_modes = df_pca_modes_full.iloc[:, :num_pca_modes_to_plot].copy()
+    df_pca_modes.columns = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
     df_pca_modes.set_index(x_for_plots_volumes, inplace=True)
+    col_names = df_pca_modes.columns
 
     has_behavior = True
     try:
@@ -2076,12 +1968,11 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
         # Then we are working in behavioral space, and the x axis should be set properly in the worm_posture class
         pass
 
-    df_pca_weights = pd.DataFrame(pca_weights.components_[0:num_pca_modes_to_plot, :].T)
-    col_names = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
-    df_pca_weights.columns = col_names
+    df_pca_weights = df_pca_weights.iloc[:, :num_pca_modes_to_plot].copy()
+    df_pca_weights.columns = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
     df_pca_weights.index = neuron_names
     df_pca_weights = df_pca_weights.iloc[ind_sort, :].reset_index(drop=True)
-    var_explained = pca_modes.explained_variance_ratio_[:7]
+    var_explained = pca_obj.explained_variance_ratio_[:7]
     # Initialize options for all subplots
     subplot_titles = ['Traces sorted by PC1', '', 'PCA weights', '', '', 'Phase plot',
                       'PCA modes', '', '', 'Middle Body Speed', 'Variance Explained']
@@ -2260,19 +2151,31 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
                 # print(f'KeyError: {e} on behavior {state_code.full_name}')
                 pass
 
-    except ValueError as e:
+    except (ValueError, IndexingError) as e:
         # Then we are working in behavioral space, and we don't need a phase plot
         print(f'ValueError: {e}; if only the behavior is being plotted, this is not a problem')
         phase_plot_list = []
 
-    phase_plot_list_opt = dict(row=3, col=2, pca_obj=pca_weights)
+    phase_plot_list_opt = dict(row=3, col=2, pca_obj=pca_obj)
     ### Variance explained
     var_explained_line = go.Scatter(x=np.arange(1, len(var_explained)+1), y=var_explained, showlegend=False)
     var_explained_line_opt = dict(row=6, col=2, secondary_y=False)
 
+    # Package the plotted time series data
+    plotted_data = {
+        'neural_activity': dat,
+        'time_axis': x_for_plots_volumes,
+        'neuron_names': neuron_names,
+        'pca_modes': df_pca_modes,
+        'speed': speed,
+        'pca_weights': df_pca_weights,
+        'variance_explained': var_explained,
+        'beh_vec': beh_vec
+    }
+
     return column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, \
         phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, \
-        var_explained_line, var_explained_line_opt, weights_list, weights_opt_list
+        var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data
 
 
 def make_summary_hilbert_triggered_average_grid_plot(project_cfg, i_body_segment=41,

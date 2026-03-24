@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - python=3.9
+  - python=3.11
   - pymc
   - jupyter
   - plotly
@@ -12,10 +12,12 @@ dependencies:
   - dask
   - pip
   - scikit-learn
-  - scipy=1.12 # Needed due to arviz bug with 1.13
+  - scipy # =1.12 # Needed due to arviz bug with 1.13
   - pip:
       - ruamel.yaml
       - arviz
       - tqdm
-      - tifffile==2023.7.10
+      - tifffile  #==2023.7.10
       - networkx
+      - statsmodels
+      - kaleido
