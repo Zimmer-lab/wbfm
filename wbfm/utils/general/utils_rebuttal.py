@@ -971,7 +971,7 @@ def plot_fig1E_F_plotly_simple(
     # Simple color palette mapping for wavelengths
     palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
     color_map = {w: palette[i % len(palette)] for i, w in enumerate(wavelengths)}
-    condition_name_mapping = {0: "First 1/3", 1: "Middle 1/3", 2: "Last 1/3", 3: "Leifer conditions"}
+    condition_name_mapping = {0: "First", 1: "Middle", 2: "Last", 3: "Leifer conditions"}
     category_orders = category_orders if category_orders is not None else None
 
     # Prepare data for Fig 1E as a list of dicts

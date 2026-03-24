@@ -317,7 +317,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                            bonferroni_factor=None, height_mode='all_same',
                            _format=None, permutations=None, show_only_stars=False, show_ns=True,
                            separate_boxplot_fig=False, has_multicategory_index=False,
-                           precalculated_p_values=None, DEBUG=False):
+                           precalculated_p_values=None, annotation_y_shift=None, DEBUG=False):
     """
     From: https://stackoverflow.com/questions/67505252/plotly-box-p-value-significant-annotation
 
@@ -449,7 +449,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                                          height_mode=height_mode,
                                          bonferroni_factor=bonferroni_factor, DEBUG=DEBUG, permutations=permutations,
                                          show_only_stars=show_only_stars, inner_x_label_pair=inner_x_label_pair,
-                                         has_multicategory_index=has_multicategory_index)
+                                         has_multicategory_index=has_multicategory_index, annotation_y_shift=annotation_y_shift)
         return fig
 
     if bonferroni_factor is None:
@@ -586,7 +586,8 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
         # Get the y value to plot the annotation
         y_range_of_plot = np.max(y_range[index]) - np.min(y_range[index])
         if height_mode == 'all_same':
-            annotation_y_shift = -y_range_of_plot * 0.1  # Shift annotation down by this amount
+            if annotation_y_shift is None:
+                annotation_y_shift = -y_range_of_plot * 0.1  # Shift annotation down by this amount
             y0_annotation = y_range[index][0] + annotation_y_shift
             y1_annotation = y_range[index][1] + annotation_y_shift
             y_ref = "y" + subplot_str + " domain"
@@ -594,7 +595,8 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
             y0_max = np.max(y0)
             y1_max = np.max(y1)
             y_range_of_plot = np.max([y0_max, y1_max]) - np.min([np.min(y0), np.min(y1)])
-            annotation_y_shift = y_range_of_plot * 0.1  # Shift annotation up by this amount
+            if annotation_y_shift is None:
+                annotation_y_shift = y_range_of_plot * 0.1  # Shift annotation up by this amount
             y0_annotation = y0_max + annotation_y_shift
             y1_annotation = y1_max + annotation_y_shift
             y_ref = "y"
