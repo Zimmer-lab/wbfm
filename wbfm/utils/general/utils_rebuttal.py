@@ -88,6 +88,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import ttest_ind, norm
 
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.express as px
+
 from wbfm.utils.external.utils_plotly import combine_plotly_figures, extract_shapes_as_figure, plotly_plot_mean_and_shading
 from wbfm.utils.general.utils_paper import apply_figure_settings, split_time_series_with_laser_switches
 from wbfm.utils.projects.finished_project_data import split_project_data_in_time
@@ -173,6 +177,8 @@ def compute_delta_ff(df: pd.DataFrame) -> pd.DataFrame:
     If df already contains ΔF/F, you can skip this step.
     """
     mean_vals = df.mean(axis=0)
+    if (mean_vals == 0).any():
+        raise ValueError("compute_delta_ff: one or more columns have zero mean, causing division by zero")
     return (df - mean_vals) / mean_vals
 
 def band_power_fraction_per_neuron(x: np.ndarray, d: float,
@@ -435,10 +441,6 @@ def compute_all_metrics(
         results[key] = metrics_list
     return results
 
-import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import plotly.express as px
 
 # Helper for consistent wavelength colors across figures
 def make_wavelength_color_map(keys_or_results):
@@ -624,55 +626,6 @@ def plot_s2c_plotly_simple(quiet_counts, totals):
     return fig
 
 # ==========================
-# Plotly: Figure S2A-like
-# ==========================
-
-def plot_s2a_plotly(results: Dict[Tuple[str, str], List[Dict[str, Any]]]) -> go.Figure:
-    """
-    Plot Figure S2A-like panels: normalized PSD (top) and CDF (bottom) per condition [^1].
-    For each condition, averages curves across recordings that share identical frequency grids.
-    """
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                        subplot_titles=("Normalized<br>PSD", "CDF"),
-                        vertical_spacing=0.1)
-
-    for (cond_name, wavelength), recs in results.items():
-        # Collect curves by frequency-grid length
-        groups_by_len = {}
-        for r in recs:
-            freqs, psd, cdf = r['freqs'], r['psd_avg_norm'], r['cdf']
-            if freqs is None or psd is None or cdf is None:
-                continue
-            L = len(freqs)
-            groups_by_len.setdefault(L, {'freqs': [], 'psd': [], 'cdf': []})
-            groups_by_len[L]['freqs'].append(freqs)
-            groups_by_len[L]['psd'].append(psd)
-            groups_by_len[L]['cdf'].append(cdf)
-
-        # Plot per-frequency-grid average
-        for L, grp in groups_by_len.items():
-            freqs_ref = grp['freqs'][0]
-            psd_mean = np.mean(np.vstack(grp['psd']), axis=0)
-            cdf_mean = np.mean(np.vstack(grp['cdf']), axis=0)
-            label = f"{cond_name} | {wavelength}"
-
-            fig.add_trace(
-                go.Scatter(x=freqs_ref, y=psd_mean, mode='lines', name=label, legendgroup=label),
-                row=1, col=1
-            )
-            fig.add_trace(
-                go.Scatter(x=freqs_ref, y=cdf_mean, mode='lines', name=label, legendgroup=label, showlegend=False),
-                row=2, col=1
-            )
-
-    fig.update_yaxes(title_text="Normalized<br>PSD", row=1, col=1)
-    fig.update_yaxes(title_text="CDF", row=2, col=1)
-    fig.update_xaxes(title_text="Frequency (Hz)", row=2, col=1)
-    fig.update_layout(title="",
-                      height=600)
-    return fig
-
-# ==========================
 # Plotly: Figure S2B-like
 # ==========================
 
@@ -815,9 +768,6 @@ def compute_s2c_stats(quiet_counts: Dict[str, int], totals: Dict[str, int]):
     return out
 
 
-import numpy as np
-import plotly.graph_objects as go
-
 def compute_fig1_metrics(
     all_dfs,
     sampling_intervals_all,
@@ -836,7 +786,7 @@ def compute_fig1_metrics(
 
     Also:
       - Identifies the median recording (by Fig 1E metric) per condition (to mark with a black square).
-      - Optionally performs one-sided Welch’s t-tests with Benjamini–Hochberg correction across specified condition pairs [^2].
+      - Optionally performs one-sided Welch's t-tests with Benjamini–Hochberg correction across specified condition pairs [^2].
 
     Parameters
     ----------
@@ -849,9 +799,9 @@ def compute_fig1_metrics(
     fft_length_strategy : {'max', 'median'}, default='max'
         Strategy for determining common FFT length across all recordings [^1]
     comparisons : list[tuple[(cond_name_A, λ_A), (cond_name_B, λ_B)]] or None
-        Optional condition-pair comparisons for stats. H1: mean(A) > mean(B) [^2].
+        Optional condition-pair comparisons for stats on Fig 1F (f50) metric. H1: mean(condA) > mean(condB) [^2].
     alternative : {'greater', 'less', 'two-sided'}
-        Alternative for Welch’s t-test (default 'greater') [^2].
+        Alternative for Welch's t-test (default 'greater') [^2].
     alpha : float
         FDR level for Benjamini–Hochberg correction (default ALPHA_BH) [^2].
 
@@ -872,31 +822,14 @@ def compute_fig1_metrics(
                 'percent_change_mean': float  # 100 * (meanA - meanB)/meanB
             }
     """
-    # Determine common FFT length across all recordings
-    target_fft_length = determine_common_fft_length(all_dfs, strategy=fft_length_strategy)
-    
+    results = compute_all_metrics(all_dfs, sampling_intervals_all, apply_delta_ff=apply_delta_ff,
+                                  fft_length_strategy=fft_length_strategy)
+
     per_condition = {}
+    for key, metrics_list in results.items():
+        avg_fracs = [m['avg_fraction'] for m in metrics_list]
+        f50_list = [m['f50'] for m in metrics_list]
 
-    # Compute per-recording metrics for each condition
-    for key, df_list in all_dfs.items():
-        d_list = sampling_intervals_all[key]
-        assert len(df_list) == len(d_list), f"Sampling intervals length mismatch for key {key}"
-
-        avg_fracs = []
-        f50_list = []
-        for df, d in zip(df_list, d_list):
-            # Figure 1E metric: average across neurons of per-neuron band fraction [^1]
-            avg_fraction, _, _ = recording_metrics(
-                df, d, F_LOW, F_HIGH, THRESHOLD_FRACTION, apply_delta_ff=apply_delta_ff,
-                target_fft_length=target_fft_length
-            )
-            # Figure 1F metric: 50% spectral edge from averaged spectrum CDF [^1]
-            f50, _, _, _ = spectral_edge_50(df, d, apply_delta_ff=apply_delta_ff,
-                                           target_fft_length=target_fft_length)
-            avg_fracs.append(avg_fraction)
-            f50_list.append(f50)
-
-        # Median recording index by average fraction (for black square) [^1]
         valid_vals = [(i, v) for i, v in enumerate(avg_fracs) if not np.isnan(v)]
         if len(valid_vals) > 0:
             sorted_idx = sorted(valid_vals, key=lambda iv: iv[1])
@@ -911,7 +844,6 @@ def compute_fig1_metrics(
             'median_idx': median_idx
         }
 
-    # Optional stats across specified comparisons (one-sided Welch + BH) [^2]
     stats_out = {}
     if comparisons is not None and len(comparisons) > 0:
         pvals = []
@@ -921,7 +853,7 @@ def compute_fig1_metrics(
         for (condA, condB) in comparisons:
             arrA = np.array(per_condition[condA]['f50'], dtype=float)
             arrB = np.array(per_condition[condB]['f50'], dtype=float)
-            res = welch_one_sided_ttest(arrA, arrB, alternative=alternative)  # SciPy Welch [^2]
+            res = welch_one_sided_ttest(arrA, arrB, alternative=alternative)
             pvals.append(res.pvalue)
             tstats.append(res.statistic)
             pairs.append((condA, condB))
@@ -930,7 +862,7 @@ def compute_fig1_metrics(
             pct_change = 100.0 * (meanA - meanB) / meanB if np.isfinite(meanA) and np.isfinite(meanB) and meanB != 0 else np.nan
             pct_changes.append(pct_change)
 
-        adj_pvals, passed = benjamini_hochberg(pvals, alpha=alpha)  # BH correction [^2]
+        adj_pvals, passed = benjamini_hochberg(pvals, alpha=alpha)
 
         for i, pair in enumerate(pairs):
             stats_out[pair] = {
@@ -972,7 +904,6 @@ def plot_fig1E_F_plotly_simple(
     palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
     color_map = {w: palette[i % len(palette)] for i, w in enumerate(wavelengths)}
     condition_name_mapping = {0: "First", 1: "Middle", 2: "Last", 3: "Leifer conditions"}
-    category_orders = category_orders if category_orders is not None else None
 
     # Prepare data for Fig 1E as a list of dicts
     data_1e = []
@@ -1022,22 +953,24 @@ def plot_fig1E_F_plotly_simple(
     return {'Fig1E': fig1e, 'Fig1F': fig1f}
 
 
-def prepare_s2a_psd_data_for_mean_and_shading(results):
+def prepare_s2a_spectral_data_for_mean_and_shading(results, value_column):
     """
-    Prepare S2A (Power Spectral Density) data for plotly_plot_mean_and_shading.
+    Prepare S2A spectral data (PSD or CDF) for plotly_plot_mean_and_shading.
     One row per frequency point per recording; NO pre-averaging within groups.
     plotly_plot_mean_and_shading computes mean/std per group downstream.
     
     Parameters
     ----------
     results : dict[(condition, wavelength)] -> list[dict]
-        Output from compute_all_metrics. Each dict has 'freqs' and 'psd_avg_norm'.
+        Output from compute_all_metrics. Each dict has 'freqs' and value_column.
         Condition must be in [0,1,2,3] for plot_s2a_mean_and_shading grid layout.
+    value_column : str
+        Name of the column to extract ('psd_avg_norm' or 'cdf').
     
     Returns
     -------
-    df_psd : pd.DataFrame
-        Columns: ['frequency', 'psd', 'group']
+    df : pd.DataFrame
+        Columns: ['frequency', value_column, 'group']
         Format: "condition_id | wavelength_id"
         Rows = sum(num_recordings * num_frequencies)
     """
@@ -1045,75 +978,34 @@ def prepare_s2a_psd_data_for_mean_and_shading(results):
     for (cond, wavelength), recs in results.items():
         group_id = f"{cond} | {wavelength}"
         
-        # Group recordings by frequency-grid length
         by_len = {}
         for r in recs:
-            freqs, psd = r['freqs'], r['psd_avg_norm']
-            if freqs is None or psd is None:
+            freqs, values = r['freqs'], r[value_column]
+            if freqs is None or values is None:
                 continue
             L = len(freqs)
-            by_len.setdefault(L, {'freqs': [], 'psd': []})
+            by_len.setdefault(L, {'freqs': [], 'values': []})
             by_len[L]['freqs'].append(freqs)
-            by_len[L]['psd'].append(psd)
+            by_len[L]['values'].append(values)
         
-        # Flatten to individual points, one row per frequency per recording
         for L, grp in by_len.items():
             freqs_ref = grp['freqs'][0]
-            for psd_array in grp['psd']:
-                for freq, psd_val in zip(freqs_ref, psd_array):
+            for values_array in grp['values']:
+                for freq, val in zip(freqs_ref, values_array):
                     data_list.append({
                         'frequency': float(freq),
-                        'psd': float(psd_val),
+                        value_column: float(val),
                         'group': group_id
                     })
     return pd.DataFrame(data_list)
+
+
+def prepare_s2a_psd_data_for_mean_and_shading(results):
+    return prepare_s2a_spectral_data_for_mean_and_shading(results, 'psd_avg_norm')
 
 
 def prepare_s2a_cdf_data_for_mean_and_shading(results):
-    """
-    Prepare S2A (Cumulative Distribution Function) data for plotly_plot_mean_and_shading.
-    One row per frequency point per recording; NO pre-averaging within groups.
-    Mirrors prepare_s2a_psd_data_for_mean_and_shading but for CDF values.
-    
-    Parameters
-    ----------
-    results : dict[(condition, wavelength)] -> list[dict]
-        Output from compute_all_metrics. Each dict has 'freqs' and 'cdf'.
-        Condition must be in [0,1,2,3] for plot_s2a_mean_and_shading grid layout.
-    
-    Returns
-    -------
-    df_cdf : pd.DataFrame
-        Columns: ['frequency', 'cdf', 'group']
-        Format: "condition_id | wavelength_id"
-        Rows = sum(num_recordings * num_frequencies)
-    """
-    data_list = []
-    for (cond, wavelength), recs in results.items():
-        group_id = f"{cond} | {wavelength}"
-        
-        # Group recordings by frequency-grid length
-        by_len = {}
-        for r in recs:
-            freqs, cdf = r['freqs'], r['cdf']
-            if freqs is None or cdf is None:
-                continue
-            L = len(freqs)
-            by_len.setdefault(L, {'freqs': [], 'cdf': []})
-            by_len[L]['freqs'].append(freqs)
-            by_len[L]['cdf'].append(cdf)
-        
-        # Flatten to individual points, one row per frequency per recording
-        for L, grp in by_len.items():
-            freqs_ref = grp['freqs'][0]
-            for cdf_array in grp['cdf']:
-                for freq, cdf_val in zip(freqs_ref, cdf_array):
-                    data_list.append({
-                        'frequency': float(freq),
-                        'cdf': float(cdf_val),
-                        'group': group_id
-                    })
-    return pd.DataFrame(data_list)
+    return prepare_s2a_spectral_data_for_mean_and_shading(results, 'cdf')
 
 
 def axis_ref(row_idx, col_idx, n_cols):
@@ -1221,9 +1113,8 @@ def plot_s2a_mean_and_shading(results, shade_style='std', cmap=None, DEBUG=False
                 cmap=group_cmap,
                 DEBUG=DEBUG
             )
-            # Add traces from individual figure to subplot
             for trace in fig_cdf_cond.data:
-                xref, yref = axis_ref(row_idx=1, col_idx=col_idx, n_cols=n_cols)
+                xref, yref = axis_ref(row_idx=2, col_idx=col_idx, n_cols=n_cols)
                 trace.update(xaxis=xref, yaxis=yref)
                 fig.add_trace(trace, row=2, col=col_idx)
     
@@ -1291,9 +1182,12 @@ def prepare_s2c_data_for_mean_and_shading(quiet_counts, totals):
     """
     Flatten S2C metrics (proportion quiet recordings) for plotly_plot_mean_and_shading.
     
-    Converts quiet_counts and totals dicts to DataFrame with one row per recording
-    per (condition, wavelength). NO pre-aggregation; plotly_plot_mean_and_shading 
-    computes mean/std per wavelength.
+    Converts quiet_counts and totals dicts to DataFrame with one row per group
+    (condition, wavelength). Returns the proportion for each group.
+    
+    Note: Unlike S2A/S2B prepare functions which return per-recording data for
+    downstream aggregation, this function receives pre-aggregated counts and
+    returns one row per group with the computed proportion.
     
     Parameters
     ----------
@@ -1306,7 +1200,7 @@ def prepare_s2c_data_for_mean_and_shading(quiet_counts, totals):
     -------
     df_s2c : pd.DataFrame
         Columns: ['condition', 'wavelength', 'prop_quiet']
-        Index: one row per group with calculated proportion
+        One row per group with calculated proportion
     """
     data_list = []
     for label in quiet_counts.keys():
@@ -1500,23 +1394,7 @@ def reproduce_figures_plotly(
         fig_s2a = plot_s2a_plotly_simple(results)
 
     # Figure S2B-like
-    # if use_mean_and_shading:
-    #     df_s2b = prepare_s2b_data_for_mean_and_shading(results)
-    #     fig_s2b = plot_s2b_mean_and_shading(df_s2b, shade_style=shade_style, cmap=cmap)
-    # else:
     fig_s2b = plot_s2b_plotly_simple(results)
-
-    # S2B stats and annotations (adjacent pairs by default)
-    # s2b_stats, annotations = compute_s2b_stats_plotly(cond_labels, data_values, alpha=ALPHA_BH, alternative='greater')
-
-    # Add annotations to the S2B figure (top area)
-    # if len(annotations) > 0:
-    #     # Place annotations above the highest y value
-    #     all_vals = np.concatenate([np.array(v) for v in data_values if len(v) > 0]) if len(data_values) > 0 else np.array([])
-    #     ymax = float(np.max(all_vals)) if all_vals.size > 0 else 100.0
-    #     for i, ann in enumerate(annotations):
-    #         fig_s2b.add_annotation(x=cond_labels[min(i+1, len(cond_labels)-1)], y=ymax,
-    #                                text=ann, showarrow=False, yshift=10)
 
     # Figure S2C-like
     quiet_counts, totals = classify_quiet(results, quiet_threshold=quiet_threshold)
@@ -1524,22 +1402,12 @@ def reproduce_figures_plotly(
         df_s2c = prepare_s2c_data_for_mean_and_shading(quiet_counts, totals)
         fig_s2c = plot_s2c_mean_and_shading(df_s2c, shade_style=shade_style, cmap=cmap)
     else:
-        fig_s2c, conds_s2c, props_s2c = plot_s2c_plotly_simple(quiet_counts, totals)
+        fig_s2c = plot_s2c_plotly_simple(quiet_counts, totals)
 
     # S2C stats (adjacent pairs)
     s2c_stats = compute_s2c_stats(quiet_counts, totals)
 
-    # Print statistics summaries
     s2b_stats = dict()
-    # print("S2B Welch’s one-sided t-tests with BH correction [^2]:")
-    # for k, v in s2b_stats.items():
-    #     condA, condB = k
-    #     print(f"{condA} > {condB}: t={v['t_stat']:.3f}, p_raw={v['pval_raw']:.3g}, p_BH={v['pval_adj']:.3g}, pass_FDR={v['passed_fdr']}")
-
-    # print("\nS2C two-proportion z-tests [^2]:")
-    # for k, v in s2c_stats.items():
-    #     condA, condB = k
-    #     print(f"{condA} vs {condB}: z={v['z_stat']}, p_two_sided={v['pval_two_sided']}")
 
     return {
         'results': results,
@@ -1696,5 +1564,4 @@ def make_heatmap_stack(these_heatmaps: dict, these_ethograms: dict, output_folde
         fname = os.path.join(output_folder, f'stacked_heatmaps_with_ethograms-{prefix}.png')
         fig.write_image(fname, scale=3)
 
-    # fig.show()
     return fig
