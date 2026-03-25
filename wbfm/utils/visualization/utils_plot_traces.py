@@ -9,7 +9,6 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from scipy.stats import stats
 
-from wbfm.notebooks.paper.revisions.fig_4_triggered_average_examples import f
 from wbfm.utils.external.utils_pandas import get_contiguous_blocks_from_column
 from wbfm.utils.general.utils_paper import paper_trace_settings, apply_figure_settings, plotly_paper_color_discrete_map
 from wbfm.utils.external.utils_plotly import hex2rgba, float2rgba
