@@ -2128,17 +2128,13 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.bad_points = to_remove
         return all_tracks_array, track_of_point
 
-    def add_layer_colored_by_correlation_to_current_neuron(self):
-        """
-        Get the correlation between the current neuron and the rest...
-        for now the dataframe needs to be recalculated
-        """
-        which_layers = [('heatmap', 'custom_val_to_plot', f'correlation_to_{self.current_neuron_name}_at_t_{self.t}')]
-        y = self.y_trace_mode
+    def _add_correlation_heatmap_layer(self, y, layer_name):
+        """Shared helper: color neurons by correlation to a given timeseries y."""
         df = self.df_of_current_traces
         val_to_plot = df.corrwith(y)
         # Square but keep the sign; de-emphasizes very small correlations
         val_to_plot = val_to_plot * np.abs(val_to_plot)
+        which_layers = [('heatmap', 'custom_val_to_plot', layer_name)]
         heatmap_kwargs = dict(val_to_plot=val_to_plot, t=self.t, scale_to_minus_1_and_1=True)
         self.logger.debug(f'Calculated correlation values: {val_to_plot}')
         self.dat.add_layers_to_viewer(self.viewer, which_layers=which_layers, heatmap_kwargs=heatmap_kwargs,
@@ -2147,6 +2143,15 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         i_manual_id_layer = self.viewer.layers.index(self.get_manual_id_layer())
         # Reorder function needs the layer index, not the name
         self.viewer.layers.move(i_manual_id_layer, -1)
+
+    def add_layer_colored_by_correlation_to_current_neuron(self):
+        """
+        Get the correlation between the current neuron and the rest...
+        for now the dataframe needs to be recalculated
+        """
+        y = self.y_trace_mode
+        layer_name = f'correlation_to_{self.current_neuron_name}_at_t_{self.t}'
+        self._add_correlation_heatmap_layer(y, layer_name)
 
     def add_layer_colored_by_correlation_to_reference_trace(self):
         """Color neurons by correlation to the selected reference trace (including custom timeseries)."""
@@ -2161,20 +2166,13 @@ class NapariTraceExplorer(QtWidgets.QWidget):
             self.logger.error("Failed to calculate reference trace '%s': %s", ref_trace_name, e)
             return
 
-        df = self.df_of_current_traces
-        if len(y) != len(df):
-            self.logger.error("Length mismatch: reference trace (%d) vs neuron traces (%d)", len(y), len(df))
+        if len(y) != len(self.df_of_current_traces):
+            self.logger.error("Length mismatch: reference trace (%d) vs neuron traces (%d)",
+                              len(y), len(self.df_of_current_traces))
             return
 
-        val_to_plot = df.corrwith(y)
-        val_to_plot = val_to_plot * np.abs(val_to_plot)  # Square but keep sign
         layer_name = f'correlation_to_ref_{ref_trace_name}_at_t_{self.t}'
-        which_layers = [('heatmap', 'custom_val_to_plot', layer_name)]
-        heatmap_kwargs = dict(val_to_plot=val_to_plot, t=self.t, scale_to_minus_1_and_1=True)
-        self.dat.add_layers_to_viewer(self.viewer, which_layers=which_layers,
-                                      heatmap_kwargs=heatmap_kwargs, layer_opt=dict(opacity=1.0))
-        i_manual_id_layer = self.viewer.layers.index(self.get_manual_id_layer())
-        self.viewer.layers.move(i_manual_id_layer, -1)
+        self._add_correlation_heatmap_layer(y, layer_name)
 
 
 def napari_trace_explorer_from_config(project_path: str, app=None,

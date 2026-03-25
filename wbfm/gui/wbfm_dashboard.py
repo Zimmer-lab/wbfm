@@ -9,12 +9,6 @@ from dash import Dash, dcc, html, Output, Input
 import plotly.express as px
 import pandas as pd
 
-from wbfm.utils.general.utils_custom_timeseries import (
-    load_custom_timeseries_csvs,
-    resample_timeseries_to_target_length,
-    get_custom_timeseries_path,
-)
-
 
 def _correlate_return_cross_terms(df0: pd.DataFrame, df1: pd.DataFrame) -> pd.DataFrame:
     """
@@ -56,10 +50,7 @@ def _get_names_from_df(df, level=0):
     """
     Simpler copy of get_names_from_df utility
     """
-    if hasattr(df.columns, 'nlevels') and df.columns.nlevels > 1:
-        names = list(set(df.columns.get_level_values(level)))
-    else:
-        names = list(df.columns)
+    names = list(set(df.columns.get_level_values(level)))
     names.sort()
     return names
 
@@ -71,7 +62,6 @@ class DashboardDataset:
     allow_public_access: bool = False
 
     df_final: pd.DataFrame = None
-    df_custom_timeseries: pd.DataFrame = None
 
     current_dataset: Optional[str] = None
     current_neuron: str = None
@@ -81,10 +71,8 @@ class DashboardDataset:
         if isinstance(self.project_path, str) and self.project_path.endswith('.h5'):
             # Maybe the user passed the filename, not the project config name
             fname = self.project_path
-            project_folder = Path(self.project_path).parent
         else:
-            project_folder = Path(self.project_path).parent
-            fname = project_folder.joinpath('final_dataframes/df_final.h5')
+            fname = Path(self.project_path).parent.joinpath('final_dataframes/df_final.h5')
         self.df_final = pd.read_hdf(fname)
 
         if self.df_final.columns.nlevels == 4:
@@ -97,26 +85,6 @@ class DashboardDataset:
             self.current_dataset = None
         else:
             raise NotImplementedError
-
-        # Load custom timeseries
-        self._load_custom_timeseries(project_folder)
-
-    def _load_custom_timeseries(self, project_folder: Path):
-        """Load and resample custom timeseries to match trace length."""
-        csv_data = load_custom_timeseries_csvs(get_custom_timeseries_path(project_folder))
-        if csv_data:
-            if self.current_dataset is None:
-                df_traces = self.df_final['traces']
-            else:
-                df_traces = self.df_final[self.current_dataset]['traces']
-            trace_names = _get_names_from_df(df_traces)
-            if trace_names:
-                target_length = len(df_traces[trace_names[0]])
-                self.df_custom_timeseries = resample_timeseries_to_target_length(csv_data, target_length)
-            else:
-                self.df_custom_timeseries = pd.DataFrame()
-        else:
-            self.df_custom_timeseries = pd.DataFrame()
 
     def dataset_of_current_neuron(self) -> str:
         # In case current_dataset == 'all'
@@ -153,14 +121,6 @@ class DashboardDataset:
         else:
             return self.df_final[self.dataset_of_current_neuron()]['traces']
 
-    @property
-    def df_behavior_with_custom(self):
-        """Combine behavior data with custom timeseries for correlation analysis."""
-        df_beh = self.df_behavior
-        if self.df_custom_timeseries is not None and not self.df_custom_timeseries.empty:
-            return pd.concat([df_beh, self.df_custom_timeseries], axis=1)
-        return df_beh
-
     def get_trace_type(self, trace_type: str):
         # May be a joined version of multiple datasets
         if self.current_dataset == 'all':
@@ -194,7 +154,7 @@ class DashboardDataset:
 
         # Define layout
         curvature_names = _get_names_from_df(self.df_curvature)
-        behavior_names = _get_names_from_df(self.df_behavior_with_custom)
+        behavior_names = _get_names_from_df(self.df_behavior)
         trace_names = _get_names_from_df(self.df_all_traces)
         neuron_names = _get_names_from_df(self.df_all_traces[trace_names[0]])
         if self.dataset_names is None:
@@ -235,7 +195,7 @@ class DashboardDataset:
         def _update_scatter_plot(x_name, y_name, neuron_name, regression_type, trace_type, current_dataset):
             self.current_dataset = current_dataset
             df_traces = self.get_trace_type(trace_type)
-            return update_scatter_plot(self.df_behavior_with_custom, df_traces, x_name, y_name, neuron_name, regression_type)
+            return update_scatter_plot(self.df_behavior, df_traces, x_name, y_name, neuron_name, regression_type)
 
         # Neuron selection updates
         # Logic: everything goes through the dropdown menu. A click will update that, which updates other things
@@ -289,7 +249,7 @@ class DashboardDataset:
         def _update_neuron_trace(neuron_name, regression_type, trace_type, current_dataset):
             self.current_dataset = current_dataset
             df_traces = self.get_trace_type(trace_type)
-            self.df_behavior_and_neurons = pd.concat([self.df_behavior_with_custom, df_traces], axis=1)
+            self.df_behavior_and_neurons = pd.concat([self.df_behavior, df_traces], axis=1)
             return update_neuron_trace_plot(self.df_behavior_and_neurons, neuron_name, regression_type)
 
         @app.callback(
@@ -303,7 +263,7 @@ class DashboardDataset:
         def _update_behavior_scatter(neuron_name, behavior_name, regression_type, trace_type, current_dataset):
             self.current_dataset = current_dataset
             df_traces = self.get_trace_type(trace_type)
-            self.df_behavior_and_neurons = pd.concat([self.df_behavior_with_custom, df_traces], axis=1)
+            self.df_behavior_and_neurons = pd.concat([self.df_behavior, df_traces], axis=1)
             return update_behavior_scatter_plot(self.df_behavior_and_neurons, behavior_name, neuron_name, regression_type)
 
         # Behavior updates
@@ -315,7 +275,7 @@ class DashboardDataset:
         )
         def _update_behavior_trace(behavior_name, regression_type, current_dataset):
             self.current_dataset = current_dataset
-            return update_behavior_trace_plot(self.df_behavior_with_custom, behavior_name, regression_type)
+            return update_behavior_trace_plot(self.df_behavior, behavior_name, regression_type)
 
         @app.callback(
             Output('kymograph-scatter', 'figure'),
@@ -329,7 +289,7 @@ class DashboardDataset:
                                       current_dataset):
             self.current_dataset = current_dataset
             df_traces = self.get_trace_type(trace_type)
-            df_all = pd.concat([self.df_behavior_with_custom, self.df_curvature, df_traces], axis=1)
+            df_all = pd.concat([self.df_behavior, self.df_curvature, df_traces], axis=1)
             return update_kymograph_scatter_plot(df_all, kymograph_segment_name, neuron_name, regression_type)
 
         @app.callback(
@@ -342,7 +302,7 @@ class DashboardDataset:
         def _update_kymograph_correlation(neuron_name, regression_type, trace_type, current_dataset):
             self.current_dataset = current_dataset
             df_traces = self.get_trace_type(trace_type)
-            return update_kymograph_correlation_per_segment(df_traces, self.df_behavior_with_custom, self.df_curvature, neuron_name,
+            return update_kymograph_correlation_per_segment(df_traces, self.df_behavior, self.df_curvature, neuron_name,
                                                             regression_type)
 
         @app.callback(
@@ -356,7 +316,7 @@ class DashboardDataset:
         def _update_kymograph_max_segment(regression_type, trace_type, neuron_name, kymograph_range, current_dataset):
             self.current_dataset = current_dataset
             df_traces = self.get_trace_type(trace_type)
-            return update_max_correlation_over_all_segment_plot(self.df_behavior_with_custom, df_traces, self.df_curvature,
+            return update_max_correlation_over_all_segment_plot(self.df_behavior, df_traces, self.df_curvature,
                                                                 regression_type,
                                                                 neuron_name, kymograph_range)
 

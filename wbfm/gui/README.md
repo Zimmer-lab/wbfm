@@ -154,6 +154,7 @@ The trace explorer and dashboard support loading user-defined timeseries for cor
    2,1.67
    ```
    - Both columns must contain numeric data
+   - The `frame` column is used only for row ordering; actual frame values are ignored during resampling. The timeseries is evenly distributed across the recording and linearly interpolated to match the neural trace frame count, regardless of the original indices
    - The filename (without `.csv`) becomes the timeseries name in the GUI
    - See `wbfm/scripts/postprocessing/generate_custom_timeseries_template.py` for a reference script
 
@@ -164,9 +165,6 @@ The trace explorer and dashboard support loading user-defined timeseries for cor
 **Trace Explorer (napari):**
 - Select a custom timeseries from the **Reference trace** dropdown to overlay it on the subplot
 - Click **Add Layer** next to **Correlation to reference trace** to create a colored heatmap layer showing per-neuron correlations (red = positive, blue = negative)
-
-**Dashboard (Plotly):**
-- Custom timeseries appear alongside regular behavior variables in all behavior dropdowns
 
 #### Notes
 
