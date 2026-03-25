@@ -1,6 +1,5 @@
 # Display more informative error messages
 # https://www.tutorialexample.com/fix-pyqt-gui-application-crashed-while-no-error-message-displayed-a-beginner-guide-pyqt-tutorial/
-import cgitb
 import os
 import signal
 import warnings
@@ -12,8 +11,6 @@ from typing import List, Tuple, Union
 import napari
 import numpy as np
 import pandas as pd
-import tifffile
-import zarr
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from backports.cached_property import cached_property
@@ -22,11 +19,10 @@ from numpy.linalg import LinAlgError
 from tqdm.auto import tqdm
 from PyQt5.QtWidgets import QApplication, QProgressDialog
 from wbfm.gui.utils.utils_gui_matplot import PlotQWidget
-from wbfm.utils.external.custom_errors import NoBehaviorAnnotationsError, IncompleteConfigFileError
+from wbfm.utils.external.custom_errors import NoBehaviorAnnotationsError
 from wbfm.utils.general.postures.centerline_classes import WormFullVideoPosture
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 from wbfm.utils.external.utils_neuron_names import int2name_neuron
-from wbfm.utils.projects.utils_project_status import check_all_needed_data_for_step
 from wbfm.gui.utils.utils_gui import zoom_using_layer_in_viewer, change_viewer_time_point, \
     zoom_using_viewer, add_fps_printer, on_close, NeuronNameEditor
 from wbfm.utils.external.utils_pandas import build_tracks_from_dataframe
@@ -151,6 +147,8 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.logger.debug("Starting main UI setup")
         # Load dataframe and path to outputs
         self.viewer = viewer
+
+        # Note that this is ALL neurons, including those marked invalid or anything else
         neuron_names = self.dat.neuron_names
         self.current_neuron_name = neuron_names[0]
 
@@ -1904,7 +1902,8 @@ class NapariTraceExplorer(QtWidgets.QWidget):
             self.static_ax.relim()
             self.reference_ax.relim()
         except np.linalg.LinAlgError:
-            pass  # Degenerate axis range (e.g. constant or all-NaN trace)
+            # Axes bbox not yet valid; limits will be set on next draw
+            pass
         self.draw_subplot()
         y_min, y_max = self.y_min_max_on_plot
         self.logger.debug(f"Autoscaled axis: {np.nanmin(y_min)} and {np.nanmax(y_max)}")
@@ -2019,7 +2018,8 @@ class NapariTraceExplorer(QtWidgets.QWidget):
                          residual_mode=residual_mode,
                          interpolate_nan=interpolate_nan,
                          nan_using_ppca_manifold=nan_using_ppca_manifold,
-                         remove_tail_neurons=False)
+                         remove_tail_neurons=False,
+                         remove_invalid_neurons=False)
         return trace_opt
 
     @property
