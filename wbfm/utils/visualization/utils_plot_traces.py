@@ -9,6 +9,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from scipy.stats import stats
 
+from wbfm.notebooks.paper.revisions.fig_4_triggered_average_examples import f
 from wbfm.utils.external.utils_pandas import get_contiguous_blocks_from_column
 from wbfm.utils.general.utils_paper import paper_trace_settings, apply_figure_settings, plotly_paper_color_discrete_map
 from wbfm.utils.external.utils_plotly import hex2rgba, float2rgba
@@ -317,7 +318,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                            bonferroni_factor=None, height_mode='all_same',
                            _format=None, permutations=None, show_only_stars=False, show_ns=True,
                            separate_boxplot_fig=False, has_multicategory_index=False,
-                           precalculated_p_values=None, annotation_y_shift=None, DEBUG=False):
+                           precalculated_p_values=None, annotation_y_shift=None, annotation_x_shift=0, DEBUG=False):
     """
     From: https://stackoverflow.com/questions/67505252/plotly-box-p-value-significant-annotation
 
@@ -325,6 +326,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
     Note: designed for individually adding traces using fig.add_trace, not plotly express
         However, does work with px.box with color using x_label='all'
         BUT: there must be an x label, with the colors producing paired boxes
+        If there is only a single x label, then this does not work with x_label='all', and the column numbers should be directly specified in array_columns
 
     Example:
         fig = px.box(df, x="x", y="y", color="color")
@@ -449,7 +451,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                                          height_mode=height_mode,
                                          bonferroni_factor=bonferroni_factor, DEBUG=DEBUG, permutations=permutations,
                                          show_only_stars=show_only_stars, inner_x_label_pair=inner_x_label_pair,
-                                         has_multicategory_index=has_multicategory_index, annotation_y_shift=annotation_y_shift)
+                                         has_multicategory_index=has_multicategory_index, annotation_y_shift=annotation_y_shift, annotation_x_shift=annotation_x_shift)
         return fig
 
     if bonferroni_factor is None:
@@ -527,6 +529,10 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
             if DEBUG:
                 print(f"y0: {y0[:5]}")
                 print(f"y1: {y1[:5]}")
+                print(f"inner_x_label_pair: {inner_x_label_pair}")
+                print(f"x_label: {x_label}")
+                print(f"x0: {x0[:5]}")
+                print(f"x1: {x1[:5]}")
             # if DEBUG:
             #     print(f"y0: {y0}")
             #     print(f"y1: {y1}")
@@ -602,35 +608,38 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
             y_ref = "y"
         else:
             raise ValueError(f"Unknown height_mode: {height_mode}")
+        
+        x0_annotation = column_pair[0] + annotation_x_shift
+        x1_annotation = column_pair[1] + annotation_x_shift
 
         # Actually plot the annotation
         if not show_only_stars:
             # Vertical line
             fig.add_shape(type="line",
                           xref="x" + subplot_str, yref="y" + subplot_str + " domain",
-                          x0=column_pair[0], y0=y0_annotation,
-                          x1=column_pair[0], y1=y1_annotation,
+                          x0=x0_annotation, y0=y0_annotation,
+                          x1=x0_annotation, y1=y1_annotation,
                           line=dict(color=_format['color'], width=2, )
                           )
             # Horizontal line
             fig.add_shape(type="line",
                           xref="x" + subplot_str, yref="y" + subplot_str + " domain",
-                          x0=column_pair[0], y0=y0_annotation,
-                          x1=column_pair[1], y1=y1_annotation,
+                          x0=x0_annotation, y0=y1_annotation,
+                          x1=x1_annotation, y1=y1_annotation,
                           line=dict(color=_format['color'], width=2, )
                           )
             # Vertical line
             fig.add_shape(type="line",
                           xref="x" + subplot_str, yref="y" + subplot_str + " domain",
                           # x0=column_pair[1], y0=y_range[index][0] + 1.5*annotation_y_shift,
-                          x0=column_pair[1], y0=y0_annotation,
-                          x1=column_pair[1], y1=y1_annotation,
+                          x0=x1_annotation, y0=y0_annotation,
+                          x1=x1_annotation, y1=y1_annotation,
                           line=dict(color=_format['color'], width=2, )
                           )
         ## add text at the correct x, y coordinates
         ## for bars, there is a direct mapping from the bar number to 0, 1, 2...
         fig.add_annotation(dict(font=dict(color=_format['color'], size=14),
-                                x=(column_pair[0] + column_pair[1]) / 2,
+                                x=(x0_annotation + x1_annotation) / 2,
                                 # y=y_range[index][1] * _format['text_height'] + annotation_y_shift,
                                 y=np.max([y0_annotation, y1_annotation]),
                                 showarrow=False,
