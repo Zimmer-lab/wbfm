@@ -1856,8 +1856,12 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         else:
             self.static_ax.autoscale(axis='both')
             self.reference_ax.autoscale(axis='both')
-        self.static_ax.relim()
-        self.reference_ax.relim()
+        try:
+            self.static_ax.relim()
+            self.reference_ax.relim()
+        except np.linalg.LinAlgError:
+            # Axes bbox not yet valid; limits will be set on next draw
+            pass
         self.draw_subplot()
         y_min, y_max = self.y_min_max_on_plot
         self.logger.debug(f"Autoscaled axis: {np.nanmin(y_min)} and {np.nanmax(y_max)}")
