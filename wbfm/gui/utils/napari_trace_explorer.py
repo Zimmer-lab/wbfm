@@ -110,6 +110,8 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.logger.debug("Starting main UI setup")
         # Load dataframe and path to outputs
         self.viewer = viewer
+
+        # Note that this is ALL neurons, including those marked invalid or anything else
         neuron_names = self.dat.neuron_names
         self.current_neuron_name = neuron_names[0]
 
@@ -1962,7 +1964,8 @@ class NapariTraceExplorer(QtWidgets.QWidget):
                          residual_mode=residual_mode,
                          interpolate_nan=interpolate_nan,
                          nan_using_ppca_manifold=nan_using_ppca_manifold,
-                         remove_tail_neurons=False)
+                         remove_tail_neurons=False,
+                         remove_invalid_neurons=False)
         return trace_opt
 
     @property
