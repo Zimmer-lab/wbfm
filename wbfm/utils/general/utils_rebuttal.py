@@ -1087,7 +1087,7 @@ def plot_s2a_mean_and_shading(results, shade_style='std', cmap=None, DEBUG=False
             fig_psd_cond = plotly_plot_mean_and_shading(
                 df_psd_cond,
                 x='frequency',
-                y='psd',
+                y='psd_avg_norm',
                 color='group',
                 line_name='Mean',
                 shade_style=shade_style,
