@@ -1921,7 +1921,7 @@ def make_full_summary_interactive_plot(project_cfg, to_save=True, to_show=False,
 def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plot=3, keep_reversal_turns=False,
                                               use_manual_annotations=False, use_behavior_traces=False,
                                               behavior_alias_dict=None, behavior_kwargs=None, showlegend=True,
-                                              additional_shaded_states=None, trace_opt: dict = None, DEBUG=False):
+                                              additional_shaded_states=None, trace_opt: dict = None, use_alternate_cmap=False, DEBUG=False):
     if behavior_kwargs is None:
         behavior_kwargs = dict(fluorescence_fps=True, reset_index=False)
     if behavior_alias_dict is None:
@@ -2113,10 +2113,10 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
         except ValueError:
             # Then we are working in behavioral space, and we don't need this
             pass
-        # print(f'Unique state codes for ethogram: {[s.full_name for s in beh_vec.iloc[:, 0].unique()]}')
         ethogram_opt = options_for_ethogram(beh_vec, **ethogram_cmap_opt, include_turns=True,
                                             to_extend_short_states=True,
-                                            additional_shaded_states=additional_shaded_states, DEBUG=False)
+                                            additional_shaded_states=additional_shaded_states,
+                                            use_alternate_cmap=use_alternate_cmap)
     ### 3d phase plot
     ethogram_cmap = BehaviorCodes.ethogram_cmap(**ethogram_cmap_opt)
     # Use the same behaviors as the ethogram
