@@ -301,28 +301,22 @@ class BehaviorCodes(Flag):
         #     return None
 
     @classmethod
-    def base_colormap(cls) -> List[str]:
+    def base_colormap(cls, use_alternate_cmap=False) -> List[str]:
         # See: https://plotly.com/python/discrete-color/
-        # cmap = px.colors.qualitative.Set1.copy()
-        # # Manually reorder some things to match better with prior work
-        # cmap[0], cmap[1] = cmap[1], cmap[0]  # Blue REV and red FWD
-        # cmap[3], cmap[6] = cmap[6], cmap[3]  # Switch brown and purple
-        # cmap.pop(3)  # Remove purple because it's hard to distinguish from blue
-
-        # return px.colors.qualitative.Set1_r.copy()
-        # cmap = px.colors.qualitative.Set2.copy()
-        # cmap = px.colors.qualitative.Vivid_r.copy()
-        # cmap = px.colors.qualitative.Dark2.copy()
-        cmap = px.colors.qualitative.Dark2.copy()
-        cmap[3], cmap[5] = cmap[5], cmap[3]  # Switch pink and gold
-        # Move gray to the front
-        # cmap.insert(0, cmap.pop(7))
+        if use_alternate_cmap:
+            cmap = px.colors.qualitative.D3.copy()
+            # Move gray to first (forward), then green (reverse)
+            cmap[0], cmap[7] = cmap[7], cmap[0]
+            cmap[1], cmap[2] = cmap[2], cmap[1]
+        else:
+            cmap = px.colors.qualitative.Dark2.copy()
+            cmap[3], cmap[5] = cmap[5], cmap[3]  # Switch pink and gold
         return cmap
 
     @classmethod
     def ethogram_cmap(cls, include_turns=True, include_reversal_turns=False, include_quiescence=False,
                       include_collision=False, additional_shaded_states=None, include_pause=True,
-                      use_plotly_style_strings=True, include_custom=False, include_stimulus=False) -> Dict['BehaviorCodes', str]:
+                      use_plotly_style_strings=True, include_custom=False, include_stimulus=False, use_alternate_cmap=False) -> Dict['BehaviorCodes', str]:
         """
         Colormap for shading as a stand-alone ethogram
 
@@ -334,7 +328,7 @@ class BehaviorCodes(Flag):
             {BehaviorCodes.FWD: '#E41A1C'}
 
         """
-        base_cmap = cls.base_colormap()
+        base_cmap = cls.base_colormap(use_alternate_cmap=use_alternate_cmap)
         cmap = {cls.UNKNOWN: None, cls.TRACKING_FAILURE: None,
                 cls.FWD: base_cmap[0],
                 cls.REV: base_cmap[1],
