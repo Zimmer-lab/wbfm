@@ -1,6 +1,5 @@
 # Display more informative error messages
 # https://www.tutorialexample.com/fix-pyqt-gui-application-crashed-while-no-error-message-displayed-a-beginner-guide-pyqt-tutorial/
-import cgitb
 import os
 import signal
 import warnings
@@ -12,8 +11,6 @@ from typing import List, Tuple, Union
 import napari
 import numpy as np
 import pandas as pd
-import tifffile
-import zarr
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from backports.cached_property import cached_property
@@ -22,11 +19,10 @@ from numpy.linalg import LinAlgError
 from tqdm.auto import tqdm
 from PyQt5.QtWidgets import QApplication, QProgressDialog
 from wbfm.gui.utils.utils_gui_matplot import PlotQWidget
-from wbfm.utils.external.custom_errors import NoBehaviorAnnotationsError, IncompleteConfigFileError
+from wbfm.utils.external.custom_errors import NoBehaviorAnnotationsError
 from wbfm.utils.general.postures.centerline_classes import WormFullVideoPosture
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 from wbfm.utils.external.utils_neuron_names import int2name_neuron
-from wbfm.utils.projects.utils_project_status import check_all_needed_data_for_step
 from wbfm.gui.utils.utils_gui import zoom_using_layer_in_viewer, change_viewer_time_point, \
     zoom_using_viewer, add_fps_printer, on_close, NeuronNameEditor
 from wbfm.utils.external.utils_pandas import build_tracks_from_dataframe
