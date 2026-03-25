@@ -327,6 +327,8 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
         BUT: there must be an x label, with the colors producing paired boxes
         If there is only a single x label, then this does not work with x_label='all', and the column numbers should be directly specified in array_columns
 
+    Note also that if the category labels are actually integers, then plotly no longer plots them at the default x values equal to the column index, but rather at those integers
+
     Example:
         fig = px.box(df, x="x", y="y", color="color")
         add_p_value_annotation(fig, x_label='all')
@@ -649,7 +651,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                                 ))
         if DEBUG:
             print(f"p-value: {pvalue} for x_label {x_label}")
-            print(f"Adding annotation at x={column_pair[0]} and {column_pair[1]}")
+            print(f"Adding annotation at x={x0_annotation} and {x1_annotation}")
             print(f"Adding annotation at y={y0_annotation} and {y1_annotation} with annotation_y_shift={annotation_y_shift}")
             # err
     return fig
