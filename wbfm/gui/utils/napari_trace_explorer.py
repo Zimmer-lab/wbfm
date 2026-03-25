@@ -28,6 +28,12 @@ from wbfm.gui.utils.utils_gui import zoom_using_layer_in_viewer, change_viewer_t
 from wbfm.utils.external.utils_pandas import build_tracks_from_dataframe
 from wbfm.utils.projects.finished_project_data import ProjectData
 import time
+from pathlib import Path
+from wbfm.utils.general.utils_custom_timeseries import (
+    load_custom_timeseries_csvs,
+    resample_timeseries_to_target_length,
+    get_custom_timeseries_path,
+)
 
 # cgitb.enable(format='text')
 
@@ -53,6 +59,7 @@ class NapariTraceExplorer(QtWidgets.QWidget):
     manualNeuronNameEditor: NeuronNameEditor = None
 
     logger: logging.Logger = None
+    custom_timeseries: pd.DataFrame = None
 
     _disable_callbacks = False
 
@@ -104,6 +111,36 @@ class NapariTraceExplorer(QtWidgets.QWidget):
 
         self.dict_of_saved_times = dict()
         self.list_of_gt_correction_widgets = []
+
+        # Load custom timeseries if available
+        self._load_custom_timeseries()
+
+    def _load_custom_timeseries(self):
+        """Load custom timeseries CSVs from behavior/custom_timeseries/ if available."""
+        try:
+            if not hasattr(self.dat, 'project_config'):
+                self.custom_timeseries = pd.DataFrame()
+                return
+
+            project_dir = Path(self.dat.project_config.project_dir)
+            csv_data = load_custom_timeseries_csvs(get_custom_timeseries_path(project_dir))
+
+            if csv_data:
+                # Determine target length from neural data
+                if hasattr(self.dat, 'x_for_plots') and self.dat.x_for_plots is not None:
+                    target_length = len(self.dat.x_for_plots)
+                elif hasattr(self.dat, 'red_traces') and self.dat.red_traces is not None:
+                    target_length = len(self.dat.red_traces)
+                else:
+                    target_length = len(next(iter(csv_data.values())))
+
+                self.custom_timeseries = resample_timeseries_to_target_length(csv_data, target_length)
+                self.logger.info("Loaded %d custom timeseries", len(self.custom_timeseries.columns))
+            else:
+                self.custom_timeseries = pd.DataFrame()
+        except Exception as e:
+            self.logger.warning("Could not load custom timeseries: %s", e)
+            self.custom_timeseries = pd.DataFrame()
 
     def setup_ui(self, viewer: napari.Viewer):
 
@@ -300,11 +337,14 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         # self.changeTrackingOutlierCheckBox.stateChanged.connect(self.update_trace_subplot)
         # self.formlayout3.addRow("Remove outliers (tracking confidence)?", self.changeTrackingOutlierCheckBox)
 
-        # Add reference neuron trace (also allows behaviors) (dropdown)
+        # Add reference neuron trace (also allows behaviors and custom timeseries)
         self.changeReferenceTrace = QtWidgets.QComboBox()
-        neuron_names_and_none = self.dat.neuron_names
+        neuron_names_and_none = self.dat.neuron_names.copy()
         neuron_names_and_none.insert(0, "None")
         neuron_names_and_none.extend(WormFullVideoPosture.beh_aliases_stable())
+        # Append custom timeseries with "custom:" prefix
+        if self.custom_timeseries is not None and not self.custom_timeseries.empty:
+            neuron_names_and_none.extend([f"custom:{n}" for n in self.custom_timeseries.columns])
         self.changeReferenceTrace.addItems(neuron_names_and_none)
         self.changeReferenceTrace.currentIndexChanged.connect(self.update_reference_trace)
         self.formlayout3.addRow("Reference trace:", self.changeReferenceTrace)
@@ -316,6 +356,10 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.addReferenceHeatmap = QtWidgets.QPushButton("Add Layer")
         self.addReferenceHeatmap.pressed.connect(self.add_layer_colored_by_correlation_to_current_neuron)
         self.formlayout8.addRow("Correlation to current trace:", self.addReferenceHeatmap)
+
+        self.addReferenceTraceHeatmap = QtWidgets.QPushButton("Add Layer")
+        self.addReferenceTraceHeatmap.pressed.connect(self.add_layer_colored_by_correlation_to_reference_trace)
+        self.formlayout8.addRow("Correlation to reference trace:", self.addReferenceTraceHeatmap)
 
 
     def _setup_general_shortcut_buttons(self):
@@ -1938,6 +1982,16 @@ class NapariTraceExplorer(QtWidgets.QWidget):
             y = self.df_of_current_traces[trace_name]
             t = self.dat.x_for_plots
             # t, y = self.dat.calculate_traces(neuron_name=trace_name, **trace_opt)
+        elif trace_name.startswith("custom:"):
+            custom_name = trace_name.replace("custom:", "")
+            if self.custom_timeseries is not None and not self.custom_timeseries.empty \
+                    and custom_name in self.custom_timeseries.columns:
+                y = self.custom_timeseries[custom_name]
+                t = self.dat.x_for_plots
+            else:
+                self.logger.warning("Custom timeseries '%s' not found", custom_name)
+                t = self.dat.x_for_plots
+                y = pd.Series(np.zeros(len(t)), index=range(len(t)))
         else:
             # Assume it is a behavior name
             trace_opt = self.get_trace_opt()
@@ -2077,17 +2131,13 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self.bad_points = to_remove
         return all_tracks_array, track_of_point
 
-    def add_layer_colored_by_correlation_to_current_neuron(self):
-        """
-        Get the correlation between the current neuron and the rest...
-        for now the dataframe needs to be recalculated
-        """
-        which_layers = [('heatmap', 'custom_val_to_plot', f'correlation_to_{self.current_neuron_name}_at_t_{self.t}')]
-        y = self.y_trace_mode
+    def _add_correlation_heatmap_layer(self, y, layer_name):
+        """Shared helper: color neurons by correlation to a given timeseries y."""
         df = self.df_of_current_traces
         val_to_plot = df.corrwith(y)
         # Square but keep the sign; de-emphasizes very small correlations
         val_to_plot = val_to_plot * np.abs(val_to_plot)
+        which_layers = [('heatmap', 'custom_val_to_plot', layer_name)]
         heatmap_kwargs = dict(val_to_plot=val_to_plot, t=self.t, scale_to_minus_1_and_1=True)
         self.logger.debug(f'Calculated correlation values: {val_to_plot}')
         self.dat.add_layers_to_viewer(self.viewer, which_layers=which_layers, heatmap_kwargs=heatmap_kwargs,
@@ -2096,6 +2146,36 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         i_manual_id_layer = self.viewer.layers.index(self.get_manual_id_layer())
         # Reorder function needs the layer index, not the name
         self.viewer.layers.move(i_manual_id_layer, -1)
+
+    def add_layer_colored_by_correlation_to_current_neuron(self):
+        """
+        Get the correlation between the current neuron and the rest...
+        for now the dataframe needs to be recalculated
+        """
+        y = self.y_trace_mode
+        layer_name = f'correlation_to_{self.current_neuron_name}_at_t_{self.t}'
+        self._add_correlation_heatmap_layer(y, layer_name)
+
+    def add_layer_colored_by_correlation_to_reference_trace(self):
+        """Color neurons by correlation to the selected reference trace (including custom timeseries)."""
+        ref_trace_name = self.changeReferenceTrace.currentText()
+        if ref_trace_name == "None":
+            self.logger.warning("No reference trace selected")
+            return
+
+        try:
+            t, y = self.calculate_trace(trace_name=ref_trace_name)
+        except Exception as e:
+            self.logger.error("Failed to calculate reference trace '%s': %s", ref_trace_name, e)
+            return
+
+        if len(y) != len(self.df_of_current_traces):
+            self.logger.error("Length mismatch: reference trace (%d) vs neuron traces (%d)",
+                              len(y), len(self.df_of_current_traces))
+            return
+
+        layer_name = f'correlation_to_ref_{ref_trace_name}_at_t_{self.t}'
+        self._add_correlation_heatmap_layer(y, layer_name)
 
 
 def napari_trace_explorer_from_config(project_path: str, app=None,
