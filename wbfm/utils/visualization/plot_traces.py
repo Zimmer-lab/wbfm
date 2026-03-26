@@ -751,9 +751,9 @@ def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwa
             fig_zscore.savefig(fname)
         
         # Close figures after saving to free memory; figures are already on disk
-        plt.close(fig)
+        plt.close(fig.fig)
         if also_plot_zscore:
-            plt.close(fig_zscore)
+            plt.close(fig_zscore.fig)
 
     return fig
 
