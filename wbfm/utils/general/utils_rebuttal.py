@@ -92,9 +92,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 
+from wbfm.utils.external.utils_pandas import fill_missing_indices_with_nan
 from wbfm.utils.external.utils_plotly import combine_plotly_figures, extract_shapes_as_figure, plotly_plot_mean_and_shading
+from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes, options_for_ethogram
 from wbfm.utils.general.utils_paper import apply_figure_settings, split_time_series_with_laser_switches
 from wbfm.utils.projects.finished_project_data import split_project_data_in_time
+from wbfm.utils.visualization.plot_traces import make_summary_heatmap_and_subplots
 
 
 F_LOW = 0.007    # Hz, lower bound of band [^1]
@@ -1484,7 +1487,7 @@ def manual_annotation_of_dataset_splits(immob):
                                 '2025-09-15_17-38_505_6min_488_6min_561_6min_worm3-2025-09-15':
                                     [[0, 774], [776, 1526], [1528, 2269]],
                                 '2025-09-15_15-55_488_6min_505_6min_488_6min_worm5-2025-09-15':
-                                    [[0, 776], [778, 1402], [1404, 2269]],
+                                    [[0, 776], [778, 1527], [1530, 2269]],
                                 '2025-09-15_15-30_488_6min_505_6min_488_6min_worm4-2025-09-15':
                                     [[0, 774], [781, 1540], [1542, 2269]],
                                 '2025-10-02_14-11_505_6min_488_6min_561_6min_worm1_100uW-2025-10-02':
@@ -1565,3 +1568,84 @@ def make_heatmap_stack(these_heatmaps: dict, these_ethograms: dict, output_folde
         fig.write_image(fname, scale=3)
 
     return fig
+
+
+def make_heatmap(dat):
+    x_for_plots_volumes = dat.columns
+    heatmap = go.Heatmap(y=dat.index, z=dat, x=x_for_plots_volumes,
+                         zmin=-0.25, zmax=1.25, colorscale='jet', xaxis="x", yaxis="y",
+                         coloraxis='coloraxis1')
+    
+    fig = go.Figure()
+    fig.add_trace(heatmap)
+    fig.update_xaxes(showticklabels=False)
+    fig.update_yaxes(showticklabels=False)
+    fig.update_layout(showlegend=False, autosize=False, #**plotly_opt,
+                       coloraxis=dict(colorscale="jet"))
+    
+    fig.update_coloraxes(cmin=-0.25, cmax=0.75, colorbar=dict(
+        # thickness=10,
+        # title=dict(text=r'ΔR / R₅₀', **font_dict)
+        # title=dict(text=r'$\frac{\Delta R}{R_{50}}$', **font_dict)
+    ))
+    return fig
+
+
+def make_ethogram(df_beh):
+    ethogram_cmap_opt = dict()
+    
+    ethogram_opt = options_for_ethogram(df_beh, **ethogram_cmap_opt, include_turns=True,
+                                        to_extend_short_states=True)
+    fig_beh = go.Figure()
+    
+    for opt in ethogram_opt:
+        fig_beh.add_shape(**opt)
+    return fig_beh
+
+
+def get_data_from_subprojects(these_subprojects, all_splits):
+    
+    these_traces = []
+    these_beh = []
+
+    # Get individual datasets
+    for (i_seg, wavelength), seg in these_subprojects.items():
+        fig1, fig2, results = make_summary_heatmap_and_subplots(seg, trace_opt=rebuttal_trace_opt(), 
+                                                       to_save=False, to_show=False, include_speed_subplot=False,
+                                                       base_height=[0.25, 0.2], base_width=1.0, output_folder=None)
+        
+        name = seg.shortened_name  # Note that this is the same as the parent project
+        offset = all_splits[name][i_seg][0]
+        
+        _df = results['neural_activity'].T.reset_index(drop=True).copy()
+        _df.index += offset
+        these_traces.append(_df.T)
+
+        _df = results['beh_vec'].reset_index(drop=True).copy()
+        _df.index += offset
+        these_beh.append(_df)
+
+    # Combine and fix indices (with gaps)
+    df_traces = pd.concat(these_traces, axis=1).copy()
+    
+    vps = seg.physical_unit_conversion.volumes_per_second  # Same for all segs
+    df_traces = fill_missing_indices_with_nan(df_traces.T)[0]
+    df_traces.index /= vps
+    df_traces = df_traces.T
+
+    min_nonnan = 0.75
+    min_nonnan = int(min_nonnan * df_traces.shape[1])
+    df_traces = df_traces.dropna(thresh=min_nonnan)
+    
+    df_beh = pd.concat(these_beh)
+    df_beh = fill_missing_indices_with_nan(df_beh)[0].fillna(BehaviorCodes.UNKNOWN)
+    df_beh.index /= vps
+
+    # Also map indices to wavelengths
+    df_laser = df_beh.copy().reset_index(drop=True)
+    df_laser[:] = np.nan
+    for (i_seg, wavelength), seg in these_subprojects.items():
+        idx = these_beh[i_seg].index
+        df_laser.iloc[idx] = wavelength
+
+    return df_traces, df_beh, df_laser
