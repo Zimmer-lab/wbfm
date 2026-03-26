@@ -87,6 +87,7 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from scipy.stats import ttest_ind, norm
+from tqdm.auto import tqdm
 
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -1609,7 +1610,7 @@ def get_data_from_subprojects(these_subprojects, all_splits):
     these_beh = []
 
     # Get individual datasets
-    for (i_seg, wavelength), seg in these_subprojects.items():
+    for (i_seg, wavelength), seg in tqdm(these_subprojects.items(), total=len(these_subprojects), leave=False):
         fig1, fig2, results = make_summary_heatmap_and_subplots(seg, trace_opt=rebuttal_trace_opt(), 
                                                        to_save=False, to_show=False, include_speed_subplot=False,
                                                        base_height=[0.25, 0.2], base_width=1.0, output_folder=None)
@@ -1649,3 +1650,26 @@ def get_data_from_subprojects(these_subprojects, all_splits):
         df_laser.iloc[idx] = wavelength
 
     return df_traces, df_beh, df_laser
+
+
+def get_data_from_dict_of_subprojects(all_subprojects, all_splits, prefix=None):
+    
+    all_heatmaps = defaultdict(dict)
+    all_ethograms = defaultdict(dict)
+    all_df_traces = defaultdict(dict)
+    all_df_beh = defaultdict(dict)
+    all_df_laser = defaultdict(dict)
+
+    for i, (name, these_subprojects) in tqdm(enumerate(all_subprojects.items()), total=len(all_subprojects)):
+        df_traces, df_beh, df_laser = get_data_from_subprojects(these_subprojects, all_splits)
+        if prefix is None:
+            # Dynamically determine the prefix based on the wavelength of the first segment... not great but consistent with other functions
+            prefix = list(these_subprojects.keys())[0][1]
+
+        all_df_traces[prefix][name] = df_traces
+        all_df_beh[prefix][name] = df_beh
+        all_df_laser[prefix][name] = df_laser
+        all_heatmaps[prefix][name] = make_heatmap(df_traces)
+        all_ethograms[prefix][name] = make_ethogram(df_beh)
+
+    return all_heatmaps, all_ethograms, all_df_traces, all_df_beh, all_df_laser
