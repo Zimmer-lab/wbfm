@@ -305,8 +305,9 @@ class BehaviorCodes(Flag):
         # See: https://plotly.com/python/discrete-color/
         if use_alternate_cmap:
             cmap = px.colors.qualitative.D3.copy()
+            gray = px.colors.qualitative.T10[9]
             # Move gray to first (forward), then green (reverse)
-            cmap[0], cmap[7] = cmap[7], cmap[0]
+            cmap[0], cmap[7] = gray, cmap[0]
             cmap[1], cmap[2] = cmap[2], cmap[1]
         else:
             cmap = px.colors.qualitative.Dark2.copy()
