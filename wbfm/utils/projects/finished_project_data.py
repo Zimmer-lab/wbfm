@@ -2992,7 +2992,7 @@ def rename_manual_ids_from_excel_in_project(project_data: ProjectData, dryrun=Fa
         print(f"Modifications to be made: {[(k, v) for k, v in previous2new.items() if k!=v]}")
 
 
-def get_time_length_from_object(obj) -> Optional[int]:
+def get_time_length_from_object(obj, verbose=0) -> Optional[int]:
     if hasattr(obj, "num_frames"):
         val = getattr(obj, "num_frames")
         if val is not None:
@@ -3000,16 +3000,11 @@ def get_time_length_from_object(obj) -> Optional[int]:
                 return int(val)
             except (TypeError, ValueError):
                 print(f"get_time_length_from_object: num_frames present but not coercible to int ({val})")
-    if hasattr(obj, "num_volumes"):
-        val = getattr(obj, "num_volumes")
-        if val is not None:
-            try:
-                return int(val)
-            except (TypeError, ValueError):
-                print(f"get_time_length_from_object: num_volumes present but not coercible to int ({val})")
                 
     for v in vars(obj).values():
         if isinstance(v, (pd.DataFrame, pd.Series)):
+            if verbose >= 1:
+                print(f"get_time_length_from_object: inferring time length from DataFrame/Series attribute with shape {v.shape}")
             return len(v)
         if isinstance(v, np.ndarray) and getattr(v, "ndim", 0) > 0:
             return int(v.shape[0])
@@ -3064,7 +3059,7 @@ def slice_time_like_object(
 
     # infer T if needed
     if T is None:
-        T = get_time_length_from_object(obj)
+        T = get_time_length_from_object(obj, verbose=verbose)
     if T is None:
         if verbose:
             print(f"slice_time_like_object: no time-length inferred for {obj.__class__.__name__}; nothing to slice")
@@ -3072,7 +3067,7 @@ def slice_time_like_object(
 
     # if conversion requested, convert start/stop from reference timebase -> obj timebase
     if reference_T is not None and allow_rate_conversion:
-        obj_T = get_time_length_from_object(obj)
+        obj_T = get_time_length_from_object(obj, verbose=verbose)
         if obj_T is None:
             raise RuntimeError(f"Cannot determine target time-length to convert from reference_T={reference_T}")
         if obj_T == reference_T:
@@ -3179,9 +3174,9 @@ def slice_time_like_object(
 
 def split_project_data_in_time(project_data: "ProjectData",
                                starts_stops: Sequence[tuple],
-                               verbose: bool = False,
-                               convert_posture_to_high_res: bool = True,
-                               off_by_one_tolerance: int = 1) -> List["ProjectData"]:
+                               also_split_high_res_fields: bool = True,
+                               off_by_one_tolerance: int = 1,
+                               verbose: bool = False) -> List["ProjectData"]:
     """
     Split ProjectData into explicit time segments.
 
@@ -3225,7 +3220,7 @@ def split_project_data_in_time(project_data: "ProjectData",
         posture = getattr(project_data, "worm_posture_class", None)
         if posture is not None:
             # These attributes need to be sliced, i.e. they are pandas-like
-            posture_ref_T = T if convert_posture_to_high_res else None
+            posture_ref_T = T if also_split_high_res_fields else None
             posture_copy = slice_time_like_object(
                 posture,
                 start,
@@ -3235,7 +3230,7 @@ def split_project_data_in_time(project_data: "ProjectData",
                 load_cached=True,
                 verbose=verbose,
                 reference_T=posture_ref_T,
-                allow_rate_conversion=convert_posture_to_high_res,
+                allow_rate_conversion=also_split_high_res_fields,
                 off_by_one_tolerance=off_by_one_tolerance
             )
             setattr(new_pd, "worm_posture_class", posture_copy)
