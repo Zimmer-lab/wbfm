@@ -1573,7 +1573,7 @@ def make_heatmap_stack(these_heatmaps: dict, these_ethograms: dict, output_folde
 
 def add_vline_based_on_splits(_fig, vps, splits):
     for s in splits[:-1]:
-        opt = dict(x=s[1]/vps, line_width=3, line_color='black')#, line_dash='dash')
+        opt = dict(x=s[1]/vps, line_width=2, line_color='black')#, line_dash='dash')
         _fig.add_vline(**opt, y0=0, y1=1)
 
 
@@ -1672,12 +1672,15 @@ def get_data_from_dict_of_subprojects(all_subprojects, all_splits, prefix=None, 
     all_df_traces = defaultdict(dict)
     all_df_beh = defaultdict(dict)
     all_df_laser = defaultdict(dict)
+    dynamic_prefix = prefix is None
 
     for i, (name, these_subprojects) in tqdm(enumerate(all_subprojects.items()), total=len(all_subprojects)):
         df_traces, df_beh, df_laser, vps = get_data_from_subprojects(these_subprojects, all_splits)
-        if prefix is None:
+        if dynamic_prefix:
             # Dynamically determine the prefix based on the wavelength of the first segment... not great but consistent with other functions
             prefix = list(these_subprojects.keys())[0][1]
+            if DEBUG:
+                print(f"Determined prefix {prefix} for project {name} based on first segment wavelength {list(these_subprojects.keys())}")
         
         if DEBUG:
             print(f"Processed {name} with prefix {prefix}: df_traces shape={df_traces.shape}, df_beh shape={df_beh.shape}, df_laser shape={df_laser.shape}")
@@ -1688,5 +1691,34 @@ def get_data_from_dict_of_subprojects(all_subprojects, all_splits, prefix=None, 
         all_df_laser[prefix][name] = df_laser
         all_heatmaps[prefix][name] = make_heatmap(df_traces, all_splits[name], vps)
         all_ethograms[prefix][name] = make_ethogram(df_beh, all_splits[name], vps, use_alternate_cmap=True)
+
+    return all_heatmaps, all_ethograms, all_df_traces, all_df_beh, all_df_laser
+
+
+def get_data_from_dict_of_projects(all_projects, prefix=None, DEBUG=False):
+    """Like get_data_from_dict_of_subprojects but assumes each project properly preprocessed."""
+    
+    all_heatmaps = defaultdict(dict)
+    all_ethograms = defaultdict(dict)
+    all_df_traces = defaultdict(dict)
+    all_df_beh = defaultdict(dict)
+    all_df_laser = defaultdict(dict)
+
+    for name, p in tqdm(all_projects.items(), total=len(all_projects)):
+        fig1, fig2, results = make_summary_heatmap_and_subplots(p, trace_opt=rebuttal_trace_opt(), 
+                                                       to_save=False, to_show=False, include_speed_subplot=False,
+                                                       base_height=[0.25, 0.2], base_width=1.0, output_folder=None)
+        
+        df_traces = results['neural_activity'].T.copy()
+        all_df_traces[prefix][name] = df_traces
+        df_beh = results['beh_vec']
+        all_df_beh[prefix][name] = df_beh
+
+        df_laser = df_beh.copy().reset_index(drop=True)
+        df_laser[:] = prefix
+
+        all_df_laser[prefix][name] = df_laser
+        all_heatmaps[prefix][name] = make_heatmap(df_traces)
+        all_ethograms[prefix][name] = make_ethogram(df_beh, use_alternate_cmap=True)
 
     return all_heatmaps, all_ethograms, all_df_traces, all_df_beh, all_df_laser
