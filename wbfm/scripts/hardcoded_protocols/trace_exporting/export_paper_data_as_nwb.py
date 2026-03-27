@@ -18,7 +18,7 @@ if __name__ == '__main__':
 
     # Export to hardcoded locations
     parent_dir = '/lisc/user/fieseler/zimmer/fieseler/paper/nwb'
-    all_suffixes = ['gfp', '', 'mutant']  # don't include immob
+    all_suffixes = ['gfp', '', 'mutant', 'immob']
 
     for suffix in tqdm(all_suffixes):
         subfolder_name = f'exported_data_{suffix}'
