@@ -1709,7 +1709,7 @@ def get_data_from_dict_of_projects(all_projects, prefix=None, DEBUG=False):
                                                        to_save=False, to_show=False, include_speed_subplot=False,
                                                        base_height=[0.25, 0.2], base_width=1.0, output_folder=None)
         
-        df_traces = results['neural_activity'].T.copy()
+        df_traces = results['neural_activity'].copy()
         all_df_traces[prefix][name] = df_traces
         df_beh = results['beh_vec']
         all_df_beh[prefix][name] = df_beh
