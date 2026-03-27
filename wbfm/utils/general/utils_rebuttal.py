@@ -1571,7 +1571,13 @@ def make_heatmap_stack(these_heatmaps: dict, these_ethograms: dict, output_folde
     return fig
 
 
-def make_heatmap(dat):
+def add_vline_based_on_splits(_fig, vps, splits):
+    for s in splits[:-1]:
+        opt = dict(x=s[1]/vps, line_width=3, line_color='black')#, line_dash='dash')
+        _fig.add_vline(**opt, y0=0, y1=1)
+
+
+def make_heatmap(dat, splits=None, vps=None):
     x_for_plots_volumes = dat.columns
     heatmap = go.Heatmap(y=dat.index, z=dat, x=x_for_plots_volumes,
                          zmin=-0.25, zmax=1.25, colorscale='jet', xaxis="x", yaxis="y",
@@ -1589,18 +1595,24 @@ def make_heatmap(dat):
         # title=dict(text=r'ΔR / R₅₀', **font_dict)
         # title=dict(text=r'$\frac{\Delta R}{R_{50}}$', **font_dict)
     ))
+
+    if splits is not None and vps is not None:
+        add_vline_based_on_splits(fig, vps, splits)
+
     return fig
 
 
-def make_ethogram(df_beh):
+def make_ethogram(df_beh, splits=None, vps=None, use_alternate_cmap=False):
     ethogram_cmap_opt = dict()
     
-    ethogram_opt = options_for_ethogram(df_beh, **ethogram_cmap_opt, include_turns=True,
-                                        to_extend_short_states=True)
+    ethogram_opt = options_for_ethogram(df_beh, **ethogram_cmap_opt, include_turns=False,
+                                        to_extend_short_states=False, use_alternate_cmap=use_alternate_cmap)
     fig_beh = go.Figure()
-    
-    for opt in ethogram_opt:
-        fig_beh.add_shape(**opt)
+    fig_beh.update_layout(shapes=[opt for opt in ethogram_opt])
+
+    if splits is not None and vps is not None:
+        add_vline_based_on_splits(fig_beh, vps, splits)
+
     return fig_beh
 
 
@@ -1631,15 +1643,16 @@ def get_data_from_subprojects(these_subprojects, all_splits):
     
     vps = seg.physical_unit_conversion.volumes_per_second  # Same for all segs
     df_traces = fill_missing_indices_with_nan(df_traces.T)[0]
+    expected_index = df_traces.index
     df_traces.index /= vps
     df_traces = df_traces.T
 
     min_nonnan = 0.75
     min_nonnan = int(min_nonnan * df_traces.shape[1])
     df_traces = df_traces.dropna(thresh=min_nonnan)
-    
+
     df_beh = pd.concat(these_beh)
-    df_beh = fill_missing_indices_with_nan(df_beh)[0].fillna(BehaviorCodes.UNKNOWN)
+    df_beh = fill_missing_indices_with_nan(df_beh, expected_index=expected_index)[0].fillna(BehaviorCodes.UNKNOWN)
     df_beh.index /= vps
 
     # Also map indices to wavelengths
@@ -1649,10 +1662,10 @@ def get_data_from_subprojects(these_subprojects, all_splits):
         idx = these_beh[i_seg].index
         df_laser.iloc[idx] = wavelength
 
-    return df_traces, df_beh, df_laser
+    return df_traces, df_beh, df_laser, vps
 
 
-def get_data_from_dict_of_subprojects(all_subprojects, all_splits, prefix=None):
+def get_data_from_dict_of_subprojects(all_subprojects, all_splits, prefix=None, DEBUG=False):
     
     all_heatmaps = defaultdict(dict)
     all_ethograms = defaultdict(dict)
@@ -1661,15 +1674,19 @@ def get_data_from_dict_of_subprojects(all_subprojects, all_splits, prefix=None):
     all_df_laser = defaultdict(dict)
 
     for i, (name, these_subprojects) in tqdm(enumerate(all_subprojects.items()), total=len(all_subprojects)):
-        df_traces, df_beh, df_laser = get_data_from_subprojects(these_subprojects, all_splits)
+        df_traces, df_beh, df_laser, vps = get_data_from_subprojects(these_subprojects, all_splits)
         if prefix is None:
             # Dynamically determine the prefix based on the wavelength of the first segment... not great but consistent with other functions
             prefix = list(these_subprojects.keys())[0][1]
+        
+        if DEBUG:
+            print(f"Processed {name} with prefix {prefix}: df_traces shape={df_traces.shape}, df_beh shape={df_beh.shape}, df_laser shape={df_laser.shape}")
+            print(f"Number of behavior states in df_beh: {(df_beh[0].map(lambda x: x.value).diff() > 0).sum()}")
 
         all_df_traces[prefix][name] = df_traces
         all_df_beh[prefix][name] = df_beh
         all_df_laser[prefix][name] = df_laser
-        all_heatmaps[prefix][name] = make_heatmap(df_traces)
-        all_ethograms[prefix][name] = make_ethogram(df_beh)
+        all_heatmaps[prefix][name] = make_heatmap(df_traces, all_splits[name], vps)
+        all_ethograms[prefix][name] = make_ethogram(df_beh, all_splits[name], vps, use_alternate_cmap=True)
 
     return all_heatmaps, all_ethograms, all_df_traces, all_df_beh, all_df_laser
