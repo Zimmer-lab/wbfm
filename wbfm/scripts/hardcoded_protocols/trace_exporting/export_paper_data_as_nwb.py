@@ -18,7 +18,7 @@ if __name__ == '__main__':
     include_image_data = args.include_image_data
 
     # Export to hardcoded locations
-    parent_dir = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper'
+    parent_dir = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/nwb'
     if include_image_data:
         parent_dir = os.path.join(parent_dir, 'with_images')
     else:
