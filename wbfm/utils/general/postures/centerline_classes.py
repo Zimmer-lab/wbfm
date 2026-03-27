@@ -237,10 +237,10 @@ class WormFullVideoPosture:
     @property
     def num_high_res_frames(self):
         try:
-            return len(self._raw_stage_position)
+            return len(self.raw_stage_position)
         except NoBehaviorAnnotationsError as e:
-            if self._raw_centerlineX is not None:
-                return len(self._raw_centerlineX)
+            if self.raw_centerlineX is not None:
+                return len(self.raw_centerlineX)
             else:
                 raise e
                 
@@ -301,25 +301,25 @@ class WormFullVideoPosture:
         return df
 
     def centerlineX(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
-        df = self._raw_centerlineX
+        df = self.raw_centerlineX
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_centerlineX(self):
+    def raw_centerlineX(self):
         return read_if_exists(self.filename_x, reader=pd.read_csv, header=None)
 
     def centerlineY(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
-        df = self._raw_centerlineY
+        df = self.raw_centerlineY
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_centerlineY(self):
+    def raw_centerlineY(self):
         return read_if_exists(self.filename_y, reader=pd.read_csv, header=None)
 
     def curvature(self, fluorescence_fps=False, rename_columns=False, **kwargs) -> pd.DataFrame:
-        df = self._raw_curvature
+        df = self.raw_curvature
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         if rename_columns:
             df.columns = [f"segment_{i + 1:03d}" for i in df.columns]
@@ -327,7 +327,7 @@ class WormFullVideoPosture:
 
     def head_smoothed_curvature(self, fluorescence_fps=False, start_segment=1, final_segment=20,
                                 **kwargs) -> pd.DataFrame:
-        df = self._raw_curvature
+        df = self.raw_curvature
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         # Smooth the curvature by taking an expanding average
         # Start with segment 4, which is the first segment that is not too noisy
@@ -342,7 +342,7 @@ class WormFullVideoPosture:
         return df_new
 
     @cached_property
-    def _raw_curvature(self):
+    def raw_curvature(self):
         """Returns curvature in 1 / um units"""
         df = read_if_exists(self.filename_curvature, reader=pd.read_csv, header=None)
         if df is None:
@@ -375,16 +375,16 @@ class WormFullVideoPosture:
         return df
 
     def hilbert_amplitude(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
-        df = self._raw_hilbert_amplitude
+        df = self.raw_hilbert_amplitude
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_hilbert_amplitude(self):
+    def raw_hilbert_amplitude(self):
         return read_if_exists(self.filename_hilbert_amplitude, reader=pd.read_csv, header=None)
 
     def hilbert_phase(self, fluorescence_fps=False, mod_2pi=True, **kwargs) -> pd.DataFrame:
-        df = self._raw_hilbert_phase
+        df = self.raw_hilbert_phase
         if df is None:
             raise NoBehaviorAnnotationsError("(hilbert_phase)")
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
@@ -399,39 +399,39 @@ class WormFullVideoPosture:
         return df
 
     @cached_property
-    def _raw_hilbert_phase(self):
+    def raw_hilbert_phase(self):
         return read_if_exists(self.filename_hilbert_phase, reader=pd.read_csv, header=None,
                               raise_warning=True)
 
     def hilbert_frequency(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
-        df = self._raw_hilbert_frequency
+        df = self.raw_hilbert_frequency
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_hilbert_frequency(self):
+    def raw_hilbert_frequency(self):
         return read_if_exists(self.filename_hilbert_frequency, reader=pd.read_csv, header=None,
                               raise_warning=True)
 
     def hilbert_carrier(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
-        df = self._raw_hilbert_carrier
+        df = self.raw_hilbert_carrier
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_hilbert_carrier(self):
+    def raw_hilbert_carrier(self):
         return read_if_exists(self.filename_hilbert_carrier, reader=pd.read_csv, header=None,
                               raise_warning=True)
 
     # @lru_cache(maxsize=8)
-    def _self_collision(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
+    def self_collision(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """This is intended to be summed with the main behavioral vector"""
-        df = self._raw_self_collision
+        df = self.raw_self_collision
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_self_collision(self) -> Optional[pd.Series]:
+    def raw_self_collision(self) -> Optional[pd.Series]:
         # Ulises' file is not really working right now, so calculate one ourselves
         # This one has a header
         # _raw_vector = read_if_exists(self.filename_self_collision, reader=pd.read_csv, index_col=0)['self_touch']
@@ -447,14 +447,14 @@ class WormFullVideoPosture:
         return _raw_vector
 
     # @lru_cache(maxsize=8)
-    def _stimulus(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
+    def stimulus(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """This is intended to be summed with the main behavioral vector"""
-        df = self._raw_stimulus
+        df = self.raw_stimulus
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_stimulus(self) -> Optional[pd.Series]:
+    def raw_stimulus(self) -> Optional[pd.Series]:
         # Takes a dataframe of starts and ends, and converts it to a full vector (high frame rate)
         df_stim = read_if_exists(self.filename_stimulus, reader=pd.read_csv)
         if df_stim is None:
@@ -480,17 +480,17 @@ class WormFullVideoPosture:
         return vec_stim
 
     # @lru_cache(maxsize=8)
-    def _pause(self, fluorescence_fps=False, **kwargs) -> Optional[pd.DataFrame]:
+    def pause(self, fluorescence_fps=False, **kwargs) -> Optional[pd.DataFrame]:
         """This is intended to be summed with the main behavioral vector"""
         try:
-            df = self._raw_pause
+            df = self.raw_pause
             df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
             return df
         except NoBehaviorAnnotationsError:
             return None
 
     @cached_property
-    def _raw_pause(self) -> Optional[pd.Series]:
+    def raw_pause(self) -> Optional[pd.Series]:
         # Ulises does not really believe in this one
         try:
             if self.worm_speed(fluorescence_fps=False) is None:
@@ -512,17 +512,17 @@ class WormFullVideoPosture:
         return _raw_vector
 
     # @lru_cache(maxsize=8)
-    def _slowing(self, fluorescence_fps=False, **kwargs) -> Optional[pd.DataFrame]:
+    def slowing(self, fluorescence_fps=False, **kwargs) -> Optional[pd.DataFrame]:
         """This is intended to be summed with the main behavioral vector"""
         try:
-            df = self._raw_slowing
+            df = self.raw_slowing
             df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
             return df
         except NoBehaviorAnnotationsError:
             return None
 
     @cached_property
-    def _raw_slowing(self) -> Optional[pd.Series]:
+    def raw_slowing(self) -> Optional[pd.Series]:
         # Ulises does not really believe in this one
         # ... but Manuel really does!
         if self.curvature() is None:
@@ -546,12 +546,12 @@ class WormFullVideoPosture:
 
     def worm_length(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """"""
-        df = self._raw_worm_length
+        df = self.raw_worm_length
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_worm_length(self) -> Optional[pd.Series]:
+    def raw_worm_length(self) -> Optional[pd.Series]:
         # Ulises does not really believe in this one
         if self.centerlineX() is None:
             return None
@@ -564,17 +564,17 @@ class WormFullVideoPosture:
         return _raw_vector
 
     # @lru_cache(maxsize=8)
-    def _turn_annotation(self, fluorescence_fps=False, **kwargs) -> Optional[pd.DataFrame]:
+    def turn_annotation(self, fluorescence_fps=False, **kwargs) -> Optional[pd.DataFrame]:
         """This is intended to be summed with the main behavioral vector"""
         try:
-            df = self._raw_turn_annotation
+            df = self.raw_turn_annotation
             df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
             return df
         except NoBehaviorAnnotationsError:
             return None
 
     @property
-    def _raw_turn_annotation(self) -> Optional[pd.Series]:
+    def raw_turn_annotation(self) -> Optional[pd.Series]:
         """
         Will raise NoBehaviorAnnotationsError if the curvature file is not found
 
@@ -603,14 +603,14 @@ class WormFullVideoPosture:
         return _raw_vector
 
     # @lru_cache(maxsize=8)
-    def _head_cast_annotation(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
+    def head_cast_annotation(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """This is intended to be summed with the main behavioral vector"""
-        df = self._raw_head_cast_annotation
+        df = self.raw_head_cast_annotation
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_head_cast_annotation(self) -> Optional[pd.Series]:
+    def raw_head_cast_annotation(self) -> Optional[pd.Series]:
         # This one has a header
         _raw_vector = read_if_exists(self.filename_head_cast, reader=pd.read_csv, index_col=0)
 
@@ -628,12 +628,12 @@ class WormFullVideoPosture:
     # @lru_cache(maxsize=8)
     def stage_position(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """Units of mm"""
-        df = self._raw_stage_position
+        df = self.raw_stage_position
         df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
         return df
 
     @cached_property
-    def _raw_stage_position(self):
+    def raw_stage_position(self):
         if self.filename_table_position is None:
             raise NoBehaviorAnnotationsError("stage_position; may be missing in immobilized recordings")
         df = pd.read_csv(self.filename_table_position, index_col='time')
@@ -707,7 +707,7 @@ class WormFullVideoPosture:
         return df
 
     @cached_property
-    def _raw_beh_annotation(self) -> pd.Series:
+    def raw_beh_annotation(self) -> pd.Series:
         """
         Reads behavior from the annotation file, and converts it to the BehaviorCodes enum
 
@@ -728,7 +728,7 @@ class WormFullVideoPosture:
 
     def manual_beh_annotation(self, fluorescence_fps=False, keep_reversal_turns=True, **kwargs) -> \
             Optional[pd.DataFrame]:
-        df = self._raw_manual_beh_annotation
+        df = self.raw_manual_beh_annotation
         if not keep_reversal_turns:
             # Map reversal turns to regular reversal state
             # Can't use regular pandas replace, because we have an enum
@@ -741,7 +741,7 @@ class WormFullVideoPosture:
         return df
 
     @cached_property
-    def _raw_manual_beh_annotation(self) -> pd.Series:
+    def raw_manual_beh_annotation(self) -> pd.Series:
         """
         Reads behavior from the annotation file, and converts it to the BehaviorCodes enum
 
@@ -1009,11 +1009,11 @@ class WormFullVideoPosture:
 
         """
         if not use_manual_annotation:
-            beh = self._raw_beh_annotation
+            beh = self.raw_beh_annotation
             is_already_fluorescence_fps = self.beh_annotation_already_converted_to_fluorescence_fps
         else:
             try:
-                beh = self._raw_manual_beh_annotation
+                beh = self.raw_manual_beh_annotation
                 is_already_fluorescence_fps = self.manual_beh_annotation_already_converted_to_fluorescence_fps
                 if DEBUG:
                     print(f"Using manual annotation. "
@@ -1021,7 +1021,7 @@ class WormFullVideoPosture:
             except NoManualBehaviorAnnotationsError:
                 logging.warning("Requested manual annotation, but none exists")
                 logging.warning("Using automatic annotation instead")
-                beh = self._raw_beh_annotation
+                beh = self.raw_beh_annotation
                 is_already_fluorescence_fps = self.beh_annotation_already_converted_to_fluorescence_fps
                 use_manual_annotation = False
         # if is_already_fluorescence_fps:
@@ -1045,17 +1045,17 @@ class WormFullVideoPosture:
             # Note that these other annotations are one frame shorter than the behavior annotation
             beh = beh.iloc[:-1]
             if include_collision:
-                beh_funcs_to_add.append(self._self_collision)
+                beh_funcs_to_add.append(self.self_collision)
             if include_pause:
-                beh_funcs_to_add.append(self._pause)
+                beh_funcs_to_add.append(self.pause)
             if include_slowing:
-                beh_funcs_to_add.append(self._slowing)
+                beh_funcs_to_add.append(self.slowing)
             if include_turns:
-                beh_funcs_to_add.append(self._turn_annotation)
+                beh_funcs_to_add.append(self.turn_annotation)
             if include_head_cast:
-                beh_funcs_to_add.append(self._head_cast_annotation)
+                beh_funcs_to_add.append(self.head_cast_annotation)
         if include_stimulus:
-            beh_funcs_to_add.append(self._stimulus)
+            beh_funcs_to_add.append(self.stimulus)
         num_warnings = 0
         if DEBUG:
             print("Behavior before any additional annotations")
@@ -1153,7 +1153,7 @@ class WormFullVideoPosture:
     ##
 
     @cached_property
-    def _raw_worm_angular_velocity(self):
+    def raw_worm_angular_velocity(self):
         """Using angular velocity in 2d pca space"""
 
         xyz_pca = self.eigenworms().values
@@ -1182,7 +1182,7 @@ class WormFullVideoPosture:
 
         Note: remove outliers by default
         """
-        velocity = self._raw_worm_angular_velocity
+        velocity = self.raw_worm_angular_velocity
         velocity = self._validate_and_downsample(velocity, fluorescence_fps=fluorescence_fps, **kwargs)
         if remove_outliers:
             window = 10
@@ -1499,7 +1499,7 @@ class WormFullVideoPosture:
         fnames = [self.filename_y, self.filename_x]
         has_centerline_positions = all([f is not None for f in fnames]) and all([os.path.exists(f) for f in fnames])
         try:
-            has_kymograph = self._raw_curvature is not None
+            has_kymograph = self.raw_curvature is not None
         except NoBehaviorAnnotationsError:
             has_kymograph = False
         return has_centerline_positions and has_kymograph
