@@ -9,9 +9,27 @@ from wbfm.utils.nwb.utils_nwb_export import nwb_using_project_data
 
 if __name__ == '__main__':
     # Get args
-    parser = argparse.ArgumentParser(description='Export traces in nwb format')
+    parser = argparse.ArgumentParser(
+        description='Export traces in nwb format',
+        epilog='''
+Examples:
+  # Export all default suffixes (gfp, '', mutant, immob)
+  python export_paper_data_as_nwb.py
+  
+  # Export specific suffixes only
+  python export_paper_data_as_nwb.py --suffixes gfp mutant
+  
+  # Include image data in exports
+  python export_paper_data_as_nwb.py --include_image_data
+  
+  # Custom suffixes with images and debug mode
+  python export_paper_data_as_nwb.py --suffixes gfp "" mutant --include_image_data --debug
+        ''',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument('--include_image_data', action='store_true', help='Whether to include image data in the export')
     parser.add_argument('--debug', action='store_true', help='Debug mode')
+    parser.add_argument('--suffixes', nargs='+', default=['gfp', '', 'mutant', 'immob'], help='Dataset suffixes to export')
     args = parser.parse_args()
 
     DEBUG = args.debug
@@ -23,7 +41,7 @@ if __name__ == '__main__':
         parent_dir = os.path.join(parent_dir, 'with_images')
     else:
         parent_dir = os.path.join(parent_dir, 'no_images')
-    all_suffixes = ['gfp', '', 'mutant', 'immob']
+    all_suffixes = args.suffixes
 
     for suffix in tqdm(all_suffixes):
         subfolder_name = f'exported_data_{suffix}'
