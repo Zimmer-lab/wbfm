@@ -131,7 +131,7 @@ def is_absolute_in_any_os(raw_path: str) -> bool:
     return is_abs
 
 
-def correct_mounted_path_prefix(path: str, old_prefix='/scratch', new_prefix='/lisc/data/scratch'):
+def correct_mounted_path_prefix(path: str, old_prefix='/lisc/scratch', new_prefix='/lisc/data/scratch'):
     path = str(path)
     if path.startswith(old_prefix):
         path = path.replace(old_prefix, new_prefix)
