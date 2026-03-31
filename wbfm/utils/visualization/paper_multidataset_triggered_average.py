@@ -891,7 +891,7 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
         return fig, ax
 
     def plot_events_over_trace(self, neuron_name, trigger_type, dataset_name=None, output_foldername=None, 
-                               fig_opt=None, **kwargs):
+                               fig_opt=None, ignore_errors=True, **kwargs):
         """
         Plot the full trace with the event
 
@@ -912,8 +912,11 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                     self.all_projects[_dataset].shade_axis_using_behavior()
                 plt.title(f"{neuron_name} - {_dataset}")
                 plt.show()
-            except KeyError:
+            except KeyError as e:
+                print(f"Error plotting {neuron_name} for dataset {_dataset}: {e}")
                 # print(f"Neuron {neuron_name} not found in {name}; skipping")
+                if not ignore_errors:
+                    raise e
                 continue
 
     def ttest_before_and_after(self, neuron_name, trigger_type, gap=0):
@@ -1021,7 +1024,7 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             print(f"Trigger type: {trigger_type}")
             triggered_average_dict = self.intermediates_dict[trigger_type][0]
             these_events = []
-            for _dataset, triggered_average_class in triggered_average_dict.items():
+            for _dataset, triggered_average_class in tqdm(triggered_average_dict.items(), leave=False):
                 # print(f"  Dataset: {_dataset}")
                 these_events.append(triggered_average_class.ind_class.num_events)
             print(f"  Number of datasets: {len(these_events)}")
