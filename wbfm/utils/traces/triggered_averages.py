@@ -355,7 +355,15 @@ class TriggeredAverageIndices:
                 self.to_nan_points_of_state_before_point = False
 
         if self.num_events == 0:
-            logging.warning(f"No instances of state {self.behavioral_state} found in behavioral annotation!!")
+            if self.behavioral_annotation_is_continuous:
+                logging.warning(f"No events found above threshold {self.behavioral_annotation_threshold} in continuous behavioral annotation!!")
+                logging.warning(f"Features of the time series: min={self.behavioral_annotation.min()}, max={self.behavioral_annotation.max()}, mean={self.behavioral_annotation.mean()}, std={self.behavioral_annotation.std()}")
+            else:
+                logging.warning(f"No instances of state {self.behavioral_state} found in behavioral annotation!!")
+            logging.warning(f"More information: behavioral_annotation_is_continuous={self.behavioral_annotation_is_continuous}, behavioral_annotation_threshold={self.behavioral_annotation_threshold}, "
+                            f"behavioral_annotation unique values={self.behavioral_annotation.unique()}, only_allow_events_during_state={self.only_allow_events_during_state} "
+                            f"raw number of events before filtering={len(get_contiguous_blocks_from_column(self.binary_state, already_boolean=True, skip_boolean_check=True)[0])}")
+            raise NoBehaviorAnnotationsError("No events found for triggered average. See warnings for more details.")
 
     @property
     def binary_state(self) -> pd.Series:
