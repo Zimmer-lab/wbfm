@@ -980,10 +980,91 @@ def plot_foldchange_boxes(
         DEBUG=False
 ):
     """
-    Custom box-grid plot (neurons x behaviors) with group ordering.
-    Can show either log2_fc (default) or signed -log10(p_value_adj).
+    Plot a neuron x behavior grid where each cell is a colored rectangle encoding
+    a summary statistic (log2 fold-change or signed -log10 adjusted p-value).
+
+    Neurons are grouped along the y-axis according to user-defined group
+    definitions, and behaviors are laid out along the x-axis — optionally in a
+    two-level hierarchy (main behavior / sub-behavior). Within each group,
+    neurons are sorted by descending maximum fold-change unless an explicit
+    order is provided.
 
     Originally designed by Itamar Lev
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long-format DataFrame containing at minimum a behavior column, a value
+        column, and optionally a neuron/row identifier column.
+    behavior_col : str
+        Column name identifying the behavior (x-axis grouping).
+    groups : dict
+        Ordered dict mapping group name → collection of neuron identifiers.
+        Determines y-axis grouping and display order.
+    rows_col : str, optional
+        Column (or index-derived column) identifying each row entity, typically
+        a neuron name. Default ``"Neuron"``.
+    subtitle_behavior_col : str, optional
+        Column name for a secondary behavior level, enabling a two-tier x-axis
+        hierarchy. If ``None``, a flat x-axis is used.
+    value_col : str, optional
+        Column whose median across replicates is used to color each cell.
+        Default ``"log2_fc"``. Overridden to ``"signed_pval_log10"`` when
+        ``use_pval_log10=True``.
+    cmap : str, optional
+        Matplotlib colormap name. Default ``"Blues"``.
+    behavior_hspace : float, optional
+        Horizontal spacing between behavior groups. Default ``1.0``.
+    row_vspace : float, optional
+        Vertical spacing between consecutive neuron rows. Default ``0.33``.
+    subtitle_hgap : float, optional
+        Reserved horizontal gap for sub-behavior spacing (currently passed
+        through but not directly used in layout). Default ``0.5``.
+    group_vgap : float, optional
+        Extra vertical space inserted between neuron groups. Default ``1.0``.
+    box_size : float, optional
+        Width and height of each cell rectangle in data units. Default ``1.0``.
+    edge_lw : float, optional
+        Line width of each cell's border. Default ``1.2``.
+    margin : float, optional
+        Padding added around the outer limits of the plot. Default ``0.02``.
+    figsize : tuple, optional
+        ``(width, height)`` of the figure in inches. Default ``(6, 6)``.
+    use_pval_log10 : bool, optional
+        If ``True``, color cells by sign(log2_fc) x -log10(p_value_adj) instead
+        of raw fold-change. Requires ``p_value_adj`` and ``log2_fc`` columns.
+        Forces a symmetric color scale around zero. Default ``False``.
+    pval_threshold : float, optional
+        Adjusted p-value cutoff; cells above this threshold are treated as
+        non-significant and rendered in ``nonsig_color``. Only used when
+        ``use_pval_log10=True``. Default ``0.1``.
+    vmax : float, optional
+        Upper bound for colormap normalization. Inferred from data if ``None``.
+    vmin : float, optional
+        Lower bound for colormap normalization. Inferred from data if ``None``.
+    nonsig_color : str, optional
+        Color for cells that are missing or non-significant. Default
+        ``"lightgray"``.
+    neuron_order : list, optional
+        Explicit list of neuron names defining y-axis order. If ``None``,
+        neurons are sorted within each group by descending fold-change.
+    add_text : bool, optional
+        If ``True``, overlay each cell with its numeric value. Default ``False``.
+    center_at_zero : bool, optional
+        If ``True``, force a symmetric color scale around zero even in
+        fold-change mode. Default ``False``.
+    DEBUG : bool, optional
+        If ``True``, print diagnostic information about data keys, positions,
+        and colormap parameters. Default ``False``.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The axes object containing the plot.
+    fig : matplotlib.figure.Figure
+        The figure object.
+    ordered_neurons : list
+        Neurons in the final y-axis display order.
     """
 
     def format_group_label(name: str) -> str:
@@ -1015,7 +1096,7 @@ def plot_foldchange_boxes(
             if row["p_value_adj"] >= pval_threshold:
                 return 0.0  # mark as nonsignificant
             sign = np.sign(row["log2_fc"])
-            return sign * (-np.log10(row["p_value_adj"]))
+            return sign * (-np.log10(row["p_value_adj"] + 1e-10))  # add small constant to avoid log(0)
 
         df["signed_pval_log10"] = df.apply(signed_log10, axis=1)
         value_col = "signed_pval_log10"
@@ -1046,7 +1127,7 @@ def plot_foldchange_boxes(
 
     if use_pval_log10 or center_at_zero:
         # force symmetric color scale around 0
-        abs_max = np.max(np.abs(all_values))
+        abs_max = np.nanmax(np.abs(all_values))
         v_min, v_max = -abs_max, abs_max
     else:
         v_min, v_max = np.nanmin(all_values), np.nanmax(all_values)
