@@ -1,6 +1,6 @@
 from tqdm.auto import tqdm
 from wbfm.utils.general.utils_hardcoded import load_paper_datasets
-from wbfm.utils.general.utils_filenames import correct_mounted_path_prefix
+from wbfm.utils.general.utils_filenames import update_paths_in_project
 
 
 def main():
@@ -31,20 +31,11 @@ def main():
         # all_projects_gfp
     ]
 
-    def _update_paths_in_project(_p):
-        for k, v in _p.project_config.config.items():
-            is_updated = False
-            v_new = None
-            if isinstance(v, str):
-                v_new, is_updated = correct_mounted_path_prefix(v)
-            if is_updated and v_new is not None:
-                _p.project_config.config[k] = v_new
-        _p.project_config.update_self_on_disk()
 
     for all_projects in list_of_all_dicts:
         for _, p in tqdm(all_projects.items()):
             try:
-                _update_paths_in_project(p)
+                update_paths_in_project(p, to_save=True)
             except PermissionError as e:
                 print(f'Could not update project {p.project_name} due to permission error')
 

@@ -141,6 +141,24 @@ def correct_mounted_path_prefix(path: str, old_prefix='/lisc/scratch', new_prefi
     return path, updated_flag
 
 
+def update_paths_in_project(project_data, to_save=True, verbose=0, **kwargs):
+    for k, v in project_data.project_config.config.items():
+        is_updated = False
+        v_new = None
+        if isinstance(v, str):
+            v_new, is_updated = correct_mounted_path_prefix(v, **kwargs)
+        if is_updated and v_new is not None:
+            project_data.project_config.config[k] = v_new
+            message = f'Updated path for key {k} in project {project_data.project_dir}'
+            if verbose >= 1:
+                project_data.logger.warning(message)
+            else:
+                project_data.logger.info(message)
+
+    if to_save:
+        project_data.project_config.update_self_on_disk()
+
+
 def pandas_read_any_filetype(filename, **kwargs):
     if filename is None:
         return None
