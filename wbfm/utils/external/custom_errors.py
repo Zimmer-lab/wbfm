@@ -152,3 +152,9 @@ class IncorrectNameFormatError(Exception):
     def __init__(self, message=""):
         self.message = "Incorrectly formatted neuron name: " + message
         super().__init__(self.message)
+
+
+class NeuronNotFoundError(Exception):
+    def __init__(self, message=""):
+        self.message = "Neuron not found: " + message
+        super().__init__(self.message)

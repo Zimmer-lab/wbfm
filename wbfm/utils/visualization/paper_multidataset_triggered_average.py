@@ -30,7 +30,7 @@ from wbfm.utils.traces.triggered_averages import clustered_triggered_averages_fr
     calc_p_value_using_ttest_triggered_average, FullDatasetTriggeredAverages
 from wbfm.utils.general.high_performance_pandas import get_names_from_df
 from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation, convert_channel_mode_to_axis_label
-from wbfm.utils.external.custom_errors import NoBehaviorAnnotationsError
+from wbfm.utils.external.custom_errors import NeuronNotFoundError, NoBehaviorAnnotationsError
 
 
 @dataclass
@@ -832,6 +832,8 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             print(f"Found {len(neuron_names)} neurons with name {neuron_name}")
             print(f"Neuron names: {neuron_names}")
         df_subset = df.loc[:, neuron_names]
+        if df_subset.empty:
+            raise NeuronNotFoundError(f"No neurons found with name {neuron_name} for trigger type {trigger_type}")
         return df_subset
 
     def get_valid_neuron_names(self, trigger_type, remove_nonided_neurons=True):
@@ -1013,6 +1015,17 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             all_all_effect_sizes[_dataset] = pd.concat(all_effect_sizes)
 
         return all_names_to_keep, all_all_p_values, all_all_effect_sizes
+
+    def print_statistics(self):
+        for trigger_type in self.intermediates_dict.keys():
+            print(f"Trigger type: {trigger_type}")
+            triggered_average_dict = self.intermediates_dict[trigger_type][0]
+            these_events = []
+            for _dataset, triggered_average_class in triggered_average_dict.items():
+                # print(f"  Dataset: {_dataset}")
+                these_events.append(triggered_average_class.ind_class.num_events)
+            print(f"  Number of datasets: {len(these_events)}")
+            print(f"  Max number of events: {max(these_events)}; Min number of events: {min(these_events)}; Average number of events: {np.mean(these_events)}")
 
 
 @dataclass
@@ -1322,8 +1335,12 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
         all_boxplot_data_dfs_single_type = []
         all_idx_range_single_type = []
         for neuron in neuron_list:
-            means_before, means_after, idx_range = obj.get_boxplot_before_and_after(neuron, trigger_type,
-                                                                                    **ttest_kwargs)
+            try:
+                means_before, means_after, idx_range = obj.get_boxplot_before_and_after(neuron, trigger_type,
+                                                                                        **ttest_kwargs)
+            except NeuronNotFoundError:
+                print(f"Neuron {neuron} not found; skipping")
+                continue
             # Sanity check: are any of the lists entirely nan?
             if np.all(np.isnan(means_before)) or np.all(np.isnan(means_after)):
                 raise ValueError(f"Neuron {neuron} has all nan values for before or after the event:"
