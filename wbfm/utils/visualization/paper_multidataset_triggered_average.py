@@ -638,12 +638,8 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             annotation_kwargs = {}
         if color is None:
             color = self.get_color_from_data_type(trigger_type, is_mutant=is_mutant)
-        try:
-            df_subset = self.get_traces_single_neuron(neuron_name, trigger_type,
-                                                    return_individual_traces=return_individual_traces, DEBUG=DEBUG)
-        except NeuronNotFoundError:
-            logging.debug(f"Neuron name {neuron_name} not found, skipping")
-            df_subset = pd.DataFrame()  # Empty dataframe to trigger the skip logic below
+        df_subset = self.get_traces_single_neuron(neuron_name, trigger_type,
+                                                return_individual_traces=return_individual_traces, DEBUG=DEBUG)
 
         if df_subset.shape[1] == 0:
             logging.debug(f"Neuron name {neuron_name} not found, skipping")
@@ -1372,9 +1368,9 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
     df_boxplot = pd.concat(all_boxplot_data_dfs)
     df_boxplot = _add_color_columns_to_df(df_boxplot, trigger_type=trigger_type)
     if df_p_values is None:
-        df_p_values = _calc_p_value(df_boxplot, groupby_columns=['neuron', 'is_mutant_str'])  # .reset_index(level=1)
-        df_p_values['p_value_corrected'] = multipletests(df_p_values['p_value'].values.squeeze(),
-                                                         method='fdr_bh', alpha=0.05)[1]
+        df_p_values = _calc_p_value(df_boxplot, groupby_columns=['neuron', 'is_mutant_str'])
+        raw_p_values = df_p_values['p_value'].dropna()
+        df_p_values.loc[raw_p_values.index, 'p_value_corrected'] = multipletests(raw_p_values.values.squeeze(), method='fdr_bh', alpha=0.05)[1]
 
     # Modify colors to use green for immobilized
     # This is not the only case where is it immobilized, but it is the only one we are plotting
@@ -1451,10 +1447,14 @@ def plot_triggered_averages_from_triggered_average_classes(neuron_list: List[str
             fig, ax = None, None
             show_x_label = 'URX' in neuron_name
             for obj, is_mutant in zip(plotter_classes, is_mutant_vec):
-                fig, ax = obj.plot_triggered_average_single_neuron(neuron_name, trigger_type, is_mutant=is_mutant,
-                                                                   fig=fig, ax=ax, show_x_label=show_x_label,
-                                                                   output_folder=output_dir, df_idx_range=df_idx_range,
-                                                                   **kwargs)
+                try:
+                    fig, ax = obj.plot_triggered_average_single_neuron(neuron_name, trigger_type, is_mutant=is_mutant,
+                                                                    fig=fig, ax=ax, show_x_label=show_x_label,
+                                                                    output_folder=output_dir, df_idx_range=df_idx_range,
+                                                                    **kwargs)
+                except NeuronNotFoundError:
+                    print(f"Neuron {neuron_name} not found; skipping")
+                    continue
 
             all_figs[neuron_name] = fig
             if to_show:
