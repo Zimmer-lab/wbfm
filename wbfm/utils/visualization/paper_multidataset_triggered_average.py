@@ -638,8 +638,12 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             annotation_kwargs = {}
         if color is None:
             color = self.get_color_from_data_type(trigger_type, is_mutant=is_mutant)
-        df_subset = self.get_traces_single_neuron(neuron_name, trigger_type,
-                                                  return_individual_traces=return_individual_traces, DEBUG=DEBUG)
+        try:
+            df_subset = self.get_traces_single_neuron(neuron_name, trigger_type,
+                                                    return_individual_traces=return_individual_traces, DEBUG=DEBUG)
+        except NeuronNotFoundError:
+            logging.debug(f"Neuron name {neuron_name} not found, skipping")
+            df_subset = pd.DataFrame()  # Empty dataframe to trigger the skip logic below
 
         if df_subset.shape[1] == 0:
             logging.debug(f"Neuron name {neuron_name} not found, skipping")
