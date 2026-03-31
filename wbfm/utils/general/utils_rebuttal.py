@@ -185,6 +185,7 @@ def compute_delta_ff(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("compute_delta_ff: one or more columns have zero mean, causing division by zero")
     return (df - mean_vals) / mean_vals
 
+
 def band_power_fraction_per_neuron(x: np.ndarray, d: float,
                                    f_low: float = F_LOW, f_high: float = F_HIGH,
                                    target_fft_length: int = None) -> float:
@@ -220,6 +221,7 @@ def band_power_fraction_per_neuron(x: np.ndarray, d: float,
     freqs = np.fft.rfftfreq(len(x_fft), d=d)
     band_mask = (freqs >= f_low) & (freqs <= f_high)
     return float(psd[band_mask].sum())
+
 
 def recording_metrics(df: pd.DataFrame, d: float,
                       f_low: float = F_LOW, f_high: float = F_HIGH,
@@ -269,6 +271,7 @@ def recording_metrics(df: pd.DataFrame, d: float,
     avg_fraction = float(fractions.mean()) if len(fractions) > 0 else np.nan
     pct_neurons_above = 100.0 * (np.sum(fractions > threshold) / len(fractions)) if len(fractions) > 0 else np.nan
     return avg_fraction, pct_neurons_above, fractions
+
 
 def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False,
                     target_fft_length: int = None
