@@ -314,7 +314,7 @@ def plot_with_shading_plotly(mean_vals, std_vals, xmax=None, fig=None, std_vals_
 
 def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, inner_x_label_pair=None,
                            _category_x_labels=None, category_orders=None,
-                           bonferroni_factor=None, height_mode='all_same',
+                           fdr_method='fdr_bh', height_mode='all_same',
                            _format=None, permutations=None, show_only_stars=False, show_ns=True,
                            separate_boxplot_fig=False, has_multicategory_index=False,
                            precalculated_p_values=None, annotation_y_shift=None, annotation_x_shift=0, DEBUG=False):
@@ -437,26 +437,28 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                 category_x_labels = [label for label in ordered_list if label in detected_labels]
                 break  # Use the first (and typically only) category_orders entry
         
+        precalculated_p_values = _collect_corrected_pvalues(
+            fig.to_dict(), category_x_labels, array_columns_dict,
+            inner_x_label_pair=inner_x_label_pair,
+            has_multicategory_index=has_multicategory_index,
+            permutations=permutations, fdr_method=fdr_method, DEBUG=DEBUG
+        )
+        
         if DEBUG:
             print(f"Detected/Using x_labels: {category_x_labels}")
         for x_label in category_x_labels:
             if x_label == 'all':
                 logging.warning("x_label is 'all', which is a reserved keyword. Skipping")
                 continue
-            if bonferroni_factor is None:
-                bonferroni_factor = len(category_x_labels)
             fig = add_p_value_annotation(fig, array_columns=[array_columns_dict[x_label]],
                                          subplot=subplot, x_label=x_label, show_ns=show_ns,
                                          _format=_format, _category_x_labels=category_x_labels, 
                                          category_orders=None,  # Use _category_x_labels for order in recursive calls
                                          height_mode=height_mode,
-                                         bonferroni_factor=bonferroni_factor, DEBUG=DEBUG, permutations=permutations,
+                                         DEBUG=DEBUG, permutations=permutations,
                                          show_only_stars=show_only_stars, inner_x_label_pair=inner_x_label_pair,
                                          has_multicategory_index=has_multicategory_index, annotation_y_shift=annotation_y_shift, annotation_x_shift=annotation_x_shift)
         return fig
-
-    if bonferroni_factor is None:
-        bonferroni_factor = 1
 
     if array_columns is None or array_columns == [None]:
         if has_multicategory_index:
@@ -504,42 +506,17 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
         else:
             data_pair = column_pair
 
-        # Mare sure it is selecting the data and subplot you want
-        # print('0:', fig_dict['data'][data_pair[0]]['name'], fig_dict['data'][data_pair[0]]['xaxis'])
-        # print('1:', fig_dict['data'][data_pair[1]]['name'], fig_dict['data'][data_pair[1]]['xaxis'])
-        y0 = np.array(fig_dict['data'][data_pair[0]]['y'])
-        y1 = np.array(fig_dict['data'][data_pair[1]]['y'])
+        # Extract data from figure
+        y0, x0 = _extract_y_from_trace(fig_dict, data_pair[0])
+        y1, x1 = _extract_y_from_trace(fig_dict, data_pair[1])
 
         if x_label is not None:
-            # Then the x data also contains categories, and we should take a subset of y0 and y1 to match
-            x0 = np.array(fig_dict['data'][data_pair[0]]['x'])
-            x1 = np.array(fig_dict['data'][data_pair[1]]['x'])
-
-            if x0.ndim >= 2:
-                if not has_multicategory_index:
-                    raise ValueError("If x label is multi-dimensional, then has_multicategory_index should be passed")
-                x0 = x0[1, :]
-                x1 = x1[1, :]
-
-            if inner_x_label_pair is None:
-                y0 = y0[np.where(x0 == x_label)[0]]
-                y1 = y1[np.where(x1 == x_label)[0]]
-            else:
-                y0 = y0[np.where(x0 == inner_x_label_pair[0])[0]]
-                y1 = y1[np.where(x1 == inner_x_label_pair[1])[0]]
-            if DEBUG:
-                print(f"y0: {y0[:5]}")
-                print(f"y1: {y1[:5]}")
-                print(f"inner_x_label_pair: {inner_x_label_pair}")
-                print(f"x_label: {x_label}")
-                print(f"x0: {x0[:5]}")
-                print(f"x1: {x1[:5]}")
-            # if DEBUG:
-            #     print(f"y0: {y0}")
-            #     print(f"y1: {y1}")
-            # if len(y1) == 0:
-            #     # Then the figure is organized per-color, and we can use the direct index
-            #     y1 = fig_dict['data'][data_pair[1]]['y']
+            inner0 = inner_x_label_pair[0] if inner_x_label_pair is not None else None
+            inner1 = inner_x_label_pair[1] if inner_x_label_pair is not None else None
+            y0 = _filter_y_by_label(y0, x0, x_label, inner_x_label_pair=inner0,
+                                    has_multicategory_index=has_multicategory_index)
+            y1 = _filter_y_by_label(y1, x1, x_label, inner_x_label_pair=inner1,
+                                    has_multicategory_index=has_multicategory_index)
 
             # In addition, the x values of the annotation should be the same as the x_label, not the raw column number
             # First we need to get which x value the label corresponds to
@@ -570,9 +547,10 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                 x_label_ind = x_label_ind * 2 + 0.5
             column_pair = [x_label_ind - 0.2, x_label_ind + 0.2]
 
-        # Drop any nan values
-        y0 = y0[~np.isnan(y0)]
-        y1 = y1[~np.isnan(y1)]
+        else:
+            # Drop any nan values
+            y0 = y0[~np.isnan(y0)]
+            y1 = y1[~np.isnan(y1)]
 
         if len(y0) == 0 or len(y1) == 0:
             print(f"Skipping annotation for {x_label} because one of the datasets is empty")
@@ -580,7 +558,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
 
         # Get the p-value
         if precalculated_p_values is None:
-            pvalue = stats.ttest_ind(y0, y1, equal_var=False, random_state=4242, permutations=permutations)[1] * bonferroni_factor
+            pvalue = stats.ttest_ind(y0, y1, equal_var=False, random_state=4242, permutations=permutations)[1]
         else:
             pvalue = precalculated_p_values[x_label]
         if DEBUG:
@@ -655,6 +633,164 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
             print(f"Adding annotation at y={y0_annotation} and {y1_annotation} with annotation_y_shift={annotation_y_shift}")
             # err
     return fig
+
+
+def _collect_corrected_pvalues(fig_dict, category_x_labels, array_columns_dict,
+                                inner_x_label_pair=None, has_multicategory_index=False,
+                                permutations=None, fdr_method='fdr_bh', DEBUG=False):
+    """
+    Collects raw p-values via _collect_raw_pvalues and applies FDR correction
+    across all labels in one batch.
+
+    Returns
+    -------
+    corrected_pvalues : dict
+        Maps each tested x_label to its FDR-corrected p-value.
+    """
+    from statsmodels.stats.multitest import multipletests
+
+    raw_pvalues = _collect_raw_pvalues(
+        fig_dict, category_x_labels, array_columns_dict,
+        inner_x_label_pair=inner_x_label_pair,
+        has_multicategory_index=has_multicategory_index,
+        permutations=permutations, DEBUG=DEBUG
+    )
+
+    labels = list(raw_pvalues.keys())
+    _, corrected, _, _ = multipletests([raw_pvalues[l] for l in labels], method=fdr_method)
+
+    return dict(zip(labels, corrected))
+
+
+def _collect_raw_pvalues(fig_dict, category_x_labels, array_columns_dict,
+                          inner_x_label_pair=None, has_multicategory_index=False,
+                          permutations=None, DEBUG=False):
+    """
+    Collects raw (uncorrected) p-values for each x_label by performing
+    a two-sided Welch's t-test (or permutation test) between paired traces.
+
+    Parameters
+    ----------
+    fig_dict : dict
+        The figure dictionary (from fig.to_dict())
+    category_x_labels : list
+        Ordered list of x-axis category labels to test
+    array_columns_dict : dict
+        Maps each x_label to a [col0, col1] pair of trace indices.
+        A value of None means default to [0, 1].
+    inner_x_label_pair : list/tuple of length 2, or None
+        If provided, filters each trace's y using the inner label pair
+        instead of the outer x_label.
+    has_multicategory_index : bool
+        Passed through to _filter_y_by_label.
+    permutations : int or None
+        If not None, uses a permutation t-test with this many permutations.
+    DEBUG : bool
+
+    Returns
+    -------
+    raw_pvalues : dict
+        Maps each x_label to its raw p-value. Labels with empty data are skipped.
+    """
+    raw_pvalues = {}
+
+    for x_label in category_x_labels:
+        column_pair = array_columns_dict.get(x_label) or [0, 1]
+        data_pair = column_pair
+
+        y0, x0 = _extract_y_from_trace(fig_dict, data_pair[0])
+        y1, x1 = _extract_y_from_trace(fig_dict, data_pair[1])
+
+        inner0 = inner_x_label_pair[0] if inner_x_label_pair is not None else None
+        inner1 = inner_x_label_pair[1] if inner_x_label_pair is not None else None
+
+        y0 = _filter_y_by_label(y0, x0, x_label, inner_x_label_pair=inner0,
+                                 has_multicategory_index=has_multicategory_index)
+        y1 = _filter_y_by_label(y1, x1, x_label, inner_x_label_pair=inner1,
+                                 has_multicategory_index=has_multicategory_index)
+
+        if len(y0) == 0 or len(y1) == 0:
+            if DEBUG:
+                print(f"Skipping {x_label}: one dataset is empty")
+            continue
+
+        pvalue = stats.ttest_ind(
+            y0, y1, equal_var=False, random_state=4242, permutations=permutations
+        )[1]
+
+        if DEBUG:
+            print(f"Raw p-value for {x_label}: {pvalue}")
+
+        raw_pvalues[x_label] = pvalue
+
+    return raw_pvalues
+
+
+def _extract_y_from_trace(fig_dict, data_index):
+    """
+    Extracts the raw y and x arrays from a single trace in the figure dict.
+
+    Parameters
+    ----------
+    fig_dict : dict
+        The figure dictionary (from fig.to_dict())
+    data_index : int
+        Index into fig_dict['data'] for the desired trace
+
+    Returns
+    -------
+    y : np.ndarray
+    x : np.ndarray or None
+        x is None if the trace has no x data
+    """
+    y = np.array(fig_dict['data'][data_index]['y'])
+    x_raw = fig_dict['data'][data_index].get('x')
+    x = np.array(x_raw) if x_raw is not None else None
+    return y, x
+
+
+def _filter_y_by_label(y, x, x_label, inner_x_label_pair=None, has_multicategory_index=False):
+    """
+    Filters y values by matching x against the given label, then drops NaNs.
+
+    Parameters
+    ----------
+    y : np.ndarray
+    x : np.ndarray or None
+        If None, no label filtering is applied and only NaN-dropping occurs
+    x_label : str or None
+        The category label to filter on. If None, no filtering is applied.
+    inner_x_label_pair : list/tuple of length 2, or None
+        If provided, filters y using inner_x_label_pair[0] or [1] instead of x_label.
+        The caller is responsible for passing the correct element (index 0 or 1).
+    has_multicategory_index : bool
+        If True, x is 2D and the inner (row index 1) dimension is used for matching.
+
+    Returns
+    -------
+    y_filtered : np.ndarray
+        Filtered and NaN-dropped y values
+    """
+    if x_label is not None and x is not None:
+        if x.ndim >= 2:
+            if not has_multicategory_index:
+                raise ValueError(
+                    "If x label is multi-dimensional, then has_multicategory_index should be passed"
+                )
+            x = x[1, :]
+
+        if inner_x_label_pair is None:
+            mask = x == x_label
+        else:
+            # Caller passes the full pair; we match on the label side that corresponds to this y
+            # Convention: y0 matches inner_x_label_pair[0], y1 matches inner_x_label_pair[1]
+            # Since this function handles one trace at a time, the caller passes the correct element
+            mask = x == inner_x_label_pair
+        y = y[np.where(mask)[0]]
+
+    # Drop NaNs
+    y = y[~np.isnan(y)]
+    return y
 
 
 def p_value_to_stars(pvalue):
