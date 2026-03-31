@@ -96,7 +96,7 @@ class ConfigFileWithProjectContext:
         logger = setup_root_logger(log_filename)
         return logger
 
-    def update_self_on_disk(self):
+    def update_self_on_disk(self, raise_error_if_failed=False):
         fname = self.absolute_self_path
         self.logger.info(f"Updating config file {fname} on disk")
         # Make sure none of the values are Path objects, which will crash the yaml dump and leave an empty file!
@@ -108,7 +108,9 @@ class ConfigFileWithProjectContext:
         try:
             edit_config(fname, self.config)
         except PermissionError as e:
-            if Path(self._self_path).is_absolute():
+            if raise_error_if_failed:
+                raise e
+            elif Path(self._self_path).is_absolute():
                 self.logger.debug(f"Skipped updating nonlocal file: {fname}")
             else:
                 # Then it was a local file, and the error was real
