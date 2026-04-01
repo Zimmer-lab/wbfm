@@ -171,7 +171,7 @@ def to_sparse_multiindex(df: pd.DataFrame, new_columns=None):
     return df
 
 
-def ensure_dense_dataframe(df: pd.DataFrame, new_columns=None):
+def ensure_dense_dataframe(df: pd.DataFrame, new_columns=None, verbose=0):
     """
     Converts a dataframe to a fully dense version
 
@@ -191,6 +191,8 @@ def ensure_dense_dataframe(df: pd.DataFrame, new_columns=None):
     for c in new_columns.columns:
         try:
             df[c] = new_columns[c].sparse.to_dense()
+            if verbose >= 2:
+                print(f"Converted column {c} to dense")
         except AttributeError:
             df[c] = new_columns[c]
 
