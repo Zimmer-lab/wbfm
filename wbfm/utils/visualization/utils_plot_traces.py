@@ -437,12 +437,15 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                 category_x_labels = [label for label in ordered_list if label in detected_labels]
                 break  # Use the first (and typically only) category_orders entry
         
-        precalculated_p_values = _collect_corrected_pvalues(
-            fig.to_dict(), category_x_labels, array_columns_dict,
-            inner_x_label_pair=inner_x_label_pair,
-            has_multicategory_index=has_multicategory_index,
-            permutations=permutations, fdr_method=fdr_method, DEBUG=DEBUG
-        )
+        if fdr_method is None:
+            precalculated_p_values = None  # Do not correct p-values, just use raw t-test p-values
+        else:
+            precalculated_p_values = _collect_corrected_pvalues(
+                fig.to_dict(), category_x_labels, array_columns_dict,
+                inner_x_label_pair=inner_x_label_pair,
+                has_multicategory_index=has_multicategory_index,
+                permutations=permutations, fdr_method=fdr_method, DEBUG=DEBUG
+            )
         
         if DEBUG:
             print(f"Detected/Using x_labels: {category_x_labels}")
@@ -454,7 +457,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                                          subplot=subplot, x_label=x_label, show_ns=show_ns,
                                          _format=_format, _category_x_labels=category_x_labels, 
                                          category_orders=None,  # Use _category_x_labels for order in recursive calls
-                                         height_mode=height_mode,
+                                         height_mode=height_mode, fdr_method=fdr_method,
                                          DEBUG=DEBUG, permutations=permutations,
                                          show_only_stars=show_only_stars, inner_x_label_pair=inner_x_label_pair,
                                          has_multicategory_index=has_multicategory_index, annotation_y_shift=annotation_y_shift, annotation_x_shift=annotation_x_shift)

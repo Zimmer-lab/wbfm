@@ -97,7 +97,7 @@ def plot_pc1_comparison(df_both, df_significant_diff, minimum_number_neurons=2, 
     # add_p_value_annotation(fig, x_label='all', show_ns=False, show_only_stars=True, permutations=1000,
     #                       height_mode='top_of_data')#, _format=dict(text_height=0.075))
     add_p_value_annotation(fig, x_label='all', show_ns=False, show_only_stars=True, precalculated_p_values=df_significant_diff['p_value_corrected_diff'],
-                           height_mode='top_of_data')
+                           height_mode='top_of_data', annotation_y_shift=0.1)
     apply_figure_settings(fig, width_factor=0.83, height_factor=0.3, plotly_not_matplotlib=True)
 
     fig.update_layout(legend=dict(

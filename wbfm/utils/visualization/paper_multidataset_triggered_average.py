@@ -1402,7 +1402,7 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
         precalculated_p_values = df_p_values.loc[neuron_name, 'p_value_corrected'].to_dict()
         add_p_value_annotation(fig, x_label='all', show_ns=True, show_only_stars=True, separate_boxplot_fig=False,
                                precalculated_p_values=precalculated_p_values,
-                               height_mode='top_of_data', has_multicategory_index=True, DEBUG=False)
+                               height_mode='top_of_data', has_multicategory_index=True, DEBUG=False, **kwargs)
 
         fig.update_layout(showlegend=False, yaxis_title=None, xaxis_title=None)
         # Modify offsetgroup to have only 2 types (rev and fwd), not one for each legend entry
