@@ -988,7 +988,7 @@ class WormFullVideoPosture:
     def beh_annotation(self, fluorescence_fps=False, reset_index=False, use_manual_annotation=False,
                        include_collision=True, include_turns=True, include_head_cast=True, include_pause=True,
                        include_slowing=False, include_stimulus=True, use_pause_to_exclude_other_states=True,
-                       simplify_states=False, DEBUG=False) -> \
+                       simplify_states=False,remove_idx_of_tracking_failures=False, DEBUG=False) -> \
             Optional[pd.Series]:
         """
         Main function for calculating the behavioral state vector. See BehaviorCodes for the possible states
@@ -1096,7 +1096,7 @@ class WormFullVideoPosture:
 
         # Perform the downsampling at the very end
         beh_vec = self._validate_and_downsample(beh, fluorescence_fps=fluorescence_fps, reset_index=reset_index,
-                                                manual_annotation=use_manual_annotation)
+                                                manual_annotation=use_manual_annotation,remove_idx_of_tracking_failures=remove_idx_of_tracking_failures)
         # Make sure there are no nan values.
         # Necessary because sometimes removing tracking failures adds nan, even when they should be recognized
         beh_vec.replace(np.nan, BehaviorCodes.UNKNOWN, inplace=True)
