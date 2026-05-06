@@ -1536,6 +1536,7 @@ class WormFullVideoPosture:
                                        use_manual_annotation=None,
                                        use_hilbert_phase=False,
                                        hilbert_phase_body_segment=15,
+                                       remove_idx_of_tracking_failures=True,
                                        **kwargs):
         """
         Calculates a list of indices that can be used to calculate triggered averages of 'state' ONSET
@@ -1562,6 +1563,7 @@ class WormFullVideoPosture:
         use_manual_annotation - Whether to load manually annotated behaviors or use automatic annotations
         use_hilbert_phase - Whether to use the hilbert phase of the worm as the behavioral annotation
         hilbert_phase_body_segment - Which body segment to use for the hilbert phase (ignored if not using hilbert phase; defaults to 15)
+        remove_idx_of_tracking_failures - Whether to remove indices of tracking failures from the behavioral annotation (only applies if using automatic annotation, and not manual annotation, which should already have this taken into account)
         kwargs - passed to TriggeredAverageIndices
 
         Returns
@@ -1590,7 +1592,8 @@ class WormFullVideoPosture:
                 kwargs['behavioral_annotation_is_continuous'] = True
             elif behavior_name is None:
                 behavioral_annotation = self.beh_annotation(fluorescence_fps=True,
-                                                            use_manual_annotation=use_manual_annotation)
+                                                            use_manual_annotation=use_manual_annotation,
+                                                            remove_idx_of_tracking_failures=remove_idx_of_tracking_failures)
             else:
                 behavioral_annotation = self.calc_behavior_from_alias(behavior_name)
         # This one is always from the raw annotation

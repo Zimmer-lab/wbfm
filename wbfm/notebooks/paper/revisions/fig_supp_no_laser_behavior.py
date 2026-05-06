@@ -384,6 +384,3 @@ p.worm_posture_class
 
 # In[35]:
 
-
-p.worm_posture_class._raw_curvature
-
