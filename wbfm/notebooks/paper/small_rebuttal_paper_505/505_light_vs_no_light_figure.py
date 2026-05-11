@@ -87,16 +87,16 @@ def analyze_laser_swap_datasets(
 
     iterator = tqdm(datasets.items()) if show_progress else datasets.items()
 
-
-
-
     for name, project in iterator:
-        starts_stops = manual_split_annotation.get(p.shortened_name, None)
+        starts_stops = manual_split_annotation.get(project.shortened_name, None)
+        print(f"manually annotated starts and stops for {project.shortened_name}: {starts_stops}")
         if starts_stops is None:
-            starts_stops = split_time_series_with_laser_switches(p.green_traces, brightness_threshold=605e3)
-        all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
+            starts_stops = split_time_series_with_laser_switches(project.green_traces, brightness_threshold=605e3)
+            print(f"automatically detected starts and stops for {project.shortened_name}: {starts_stops}")
+        all_segments = split_project_data_in_time(project, starts_stops, verbose=0)
         if not len(all_segments) == 3:
-            split_time_series_with_laser_switches(p.green_traces, brightness_threshold=2e4, DEBUG=True)
+            print(f"Expected 3 segments for {project.shortened_name} but found {len(all_segments)}. Check the detected starts and stops: {starts_stops}")
+            split_time_series_with_laser_switches(project.green_traces, brightness_threshold=2e4, DEBUG=True)
             raise ValueError
 
         segments = split_project_data_in_time(
@@ -732,13 +732,13 @@ df_avg_duration = (
     .groupby(['position','dataset_name', 'Laser wavelength'])[beh_duration_name]
     .mean()
     .reset_index())
-df_avg_duration['Index name'] = df_avg_duration['position'].map({0: 'min 0-4', 1:'min 4-8', 2:'min 8-12', 3:'Constant'})
+df_avg_duration['Index name'] = df_avg_duration['position'].map({0: 'min 0-6', 1:'min 7-12', 2:'min 13-18'})
 
 import os
 import plotly.express as px
 from wbfm.utils.general.utils_paper import plotly_paper_color_discrete_map
 
-fig = px.box(df_duration_merged, color='Laser wavelength', y=beh_duration_name, points='all', x='Index name',
+fig = px.box(df_duration_merged, color='Laser wavelength', y=beh_duration_name, points='all', x='Laser wavelength',
       color_discrete_map=plotly_paper_color_discrete_map())
 fig.update_xaxes(type="category")
 # 2: Axis titles + larger fonts
@@ -755,4 +755,4 @@ fig.update_layout(
     )
 )
 
-fig.write_html(os.path.join(r"C:\Users\Itamar\Desktop","505",f"{beh_duration_name}_immob_swap_duration_plot.html"))
+fig.write_html(os.path.join(r"C:\Users\Itamar\Desktop","505",f"{beh_duration_name}_immob_swap_duration_plot_pulled.html"))
