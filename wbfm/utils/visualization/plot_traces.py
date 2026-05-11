@@ -1,11 +1,11 @@
 import logging
 import math
 import os
+import threading
 from functools import partial
 from pathlib import Path
 from typing import Optional, Union, Callable, List
 import pandas as pd
-from pandas.errors import IndexingError 
 from matplotlib.colors import TwoSlopeNorm
 import numpy as np
 import plotly
@@ -23,8 +23,10 @@ from matplotlib import transforms, pyplot as plt
 from matplotlib.ticker import NullFormatter, MultipleLocator
 from tqdm.auto import tqdm
 from wbfm.utils.projects.finished_project_data import ProjectData
+from wbfm.utils.projects.utils_project import safe_cd
 from wbfm.utils.traces.triggered_averages import FullDatasetTriggeredAverages
 from wbfm.utils.general.high_performance_pandas import get_names_from_df
+import matplotlib.style as mplstyle
 from plotly.subplots import make_subplots
 from plotly import graph_objects as go
 from wbfm.utils.visualization.filtering_traces import fill_nan_in_dataframe
@@ -36,6 +38,39 @@ from wbfm.utils.general.utils_paper import plotly_paper_color_discrete_map
 ##
 ## New functions for use with project_config files
 ##
+
+
+def _ensure_noninteractive_backend_for_batch(logger=None):
+    """
+    Switch to a non-interactive backend when plotting in a worker thread or headless session.
+    """
+    backend = plt.get_backend().lower()
+    running_outside_main_thread = threading.current_thread() is not threading.main_thread()
+    running_headless = not os.environ.get("DISPLAY")
+    if backend == "agg":
+        return
+    try:
+        if running_outside_main_thread or running_headless:
+            plt.switch_backend("Agg")
+            if logger is not None:
+                logger.info("Switched matplotlib backend to Agg for batch plotting")
+    except Exception as e:
+        if logger is not None:
+            logger.warning(f"Could not switch matplotlib backend to Agg: {e}")
+
+
+def _close_figure_like(fig_like):
+    """
+    Close matplotlib Figure and seaborn ClusterGrid objects safely.
+    """
+    if fig_like is None:
+        return
+    real_figure = getattr(fig_like, "fig", None)
+    if real_figure is None:
+        real_figure = getattr(fig_like, "figure", None)
+    if real_figure is None:
+        real_figure = fig_like
+    plt.close(real_figure)
 
 def make_grid_plot_from_project(project_data: ProjectData,
                                 channel_mode: str = 'ratio',
@@ -94,6 +129,8 @@ def make_grid_plot_from_project(project_data: ProjectData,
     -------
 
     """
+    _ensure_noninteractive_backend_for_batch(getattr(project_data, "logger", None))
+
     # Evaluate possible recursion
     if trace_kwargs is None:
         trace_kwargs = {}
@@ -201,7 +238,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
         # Close figure after saving to free memory; figure is already on disk
         plt.close(fig)
 
-    return fig
+    return getattr(fig, "fig", getattr(fig, "figure", fig))
 
 
 def make_grid_plot_from_dataframe(df: pd.DataFrame, neuron_names_to_plot: list = None, **kwargs):
@@ -751,9 +788,9 @@ def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwa
             fig_zscore.savefig(fname)
         
         # Close figures after saving to free memory; figures are already on disk
-        plt.close(fig.fig)
+        _close_figure_like(fig)
         if also_plot_zscore:
-            plt.close(fig_zscore.fig)
+            _close_figure_like(fig_zscore)
 
     return fig
 
@@ -763,6 +800,7 @@ def make_default_summary_plots_using_config(proj_dat: ProjectData):
     logger = proj_dat.logger
     # Disable interactive mode for batch processing to prevent matplotlib threading warnings
     plt.ioff()
+    _ensure_noninteractive_backend_for_batch(logger)
     logger.info("Making default grid plots")
     grid_opt = paper_trace_settings()
     grid_opt['channel_mode'] = 'all'
@@ -2151,7 +2189,7 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
                 # print(f'KeyError: {e} on behavior {state_code.full_name}')
                 pass
 
-    except (ValueError, IndexingError) as e:
+    except ValueError as e:
         # Then we are working in behavioral space, and we don't need a phase plot
         print(f'ValueError: {e}; if only the behavior is being plotted, this is not a problem')
         phase_plot_list = []
