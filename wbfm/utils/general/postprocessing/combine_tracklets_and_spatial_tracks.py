@@ -12,7 +12,7 @@ from scipy.spatial.distance import squareform, pdist
 from tqdm.auto import tqdm
 
 from wbfm.utils.projects.project_config_classes import SubfolderConfigFile, ModularProjectConfig
-from wbfm.utils.general.utils_filenames import read_if_exists, get_sequential_filename
+from wbfm.utils.general.utils_filenames import read_if_exists
 from wbfm.utils.projects.utils_project import safe_cd
 
 
@@ -162,17 +162,6 @@ def _save_combined_dataframe(DEBUG, combined_df, output_df_fname, project_dir, t
             track_config.update_self_on_disk()
 
 
-def _save_tracklet_matches(global2tracklet, project_dir, track_config):
-    with safe_cd(project_dir):
-        abs_fname = track_config.resolve_relative_path_from_config('global2tracklet_matches_fname')
-        abs_fname = get_sequential_filename(abs_fname)
-        track_config.pickle_data_in_local_project(global2tracklet, abs_fname)
-
-        rel_fname = track_config.unresolve_absolute_path(abs_fname)
-        track_config.config.update({'global2tracklet_matches_fname': rel_fname})
-        track_config.update_self_on_disk()
-
-
 def _unpack_tracklets_for_combining(project_cfg: ModularProjectConfig,
                                     training_cfg: SubfolderConfigFile,
                                     track_config: SubfolderConfigFile,
@@ -185,8 +174,6 @@ def _unpack_tracklets_for_combining(project_cfg: ModularProjectConfig,
     keep_only_tracklets_in_final_tracks = track_config.config['final_3d_postprocessing'][
         'keep_only_tracklets_in_final_tracks']
     output_df_fname = track_config.config['final_3d_postprocessing']['output_df_fname']
-    with safe_cd(project_cfg.project_dir):
-        output_df_fname = get_sequential_filename(output_df_fname)
 
     # Use main object to load
     project_data = ProjectData(project_cfg.project_dir, project_cfg)

@@ -84,8 +84,7 @@ def track_using_using_config(project_cfg, use_superglue_tracker=False, DEBUG=Fal
 
     # Save
     out_fname = '3-tracking/postprocessing/df_tracks_postprocessed.h5'
-    out_fname = tracking_cfg.save_data_in_local_project(df_final, out_fname, also_save_csv=True,
-                                                        make_sequential_filename=True)
+    out_fname = tracking_cfg.save_data_in_local_project(df_final, out_fname, also_save_csv=True, make_sequential_filename=False)
     out_fname = tracking_cfg.unresolve_absolute_path(out_fname)
     tracking_cfg.config['leifer_params']['output_df_fname'] = str(out_fname)
 
@@ -93,8 +92,7 @@ def track_using_using_config(project_cfg, use_superglue_tracker=False, DEBUG=Fal
     if use_multiple_templates:
         out_fname = '3-tracking/postprocessing/df_tracks_template-0.h5'
         for df in all_dfs_raw:
-            out_fname = tracking_cfg.save_data_in_local_project(df, out_fname, also_save_csv=False,
-                                                                make_sequential_filename=True)
+            out_fname = tracking_cfg.save_data_in_local_project(df, out_fname, also_save_csv=False, make_sequential_filename=False)
 
     tracking_cfg.update_self_on_disk()
 
