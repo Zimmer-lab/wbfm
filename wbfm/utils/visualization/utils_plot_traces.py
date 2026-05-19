@@ -437,7 +437,10 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                 category_x_labels = [label for label in ordered_list if label in detected_labels]
                 break  # Use the first (and typically only) category_orders entry
         
-        if fdr_method is None:
+        if precalculated_p_values is not None:
+            # Do not correct
+            pass
+        elif fdr_method is None:
             precalculated_p_values = None  # Do not correct p-values, just use raw t-test p-values
         else:
             precalculated_p_values = _collect_corrected_pvalues(
