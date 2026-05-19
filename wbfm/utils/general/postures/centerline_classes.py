@@ -988,7 +988,7 @@ class WormFullVideoPosture:
     def beh_annotation(self, fluorescence_fps=False, reset_index=False, use_manual_annotation=False,
                        include_collision=True, include_turns=True, include_head_cast=True, include_pause=True,
                        include_slowing=False, include_stimulus=True, use_pause_to_exclude_other_states=True,
-                       simplify_states=False, DEBUG=False) -> \
+                       simplify_states=False,remove_idx_of_tracking_failures=False, DEBUG=False) -> \
             Optional[pd.Series]:
         """
         Main function for calculating the behavioral state vector. See BehaviorCodes for the possible states
@@ -1096,7 +1096,7 @@ class WormFullVideoPosture:
 
         # Perform the downsampling at the very end
         beh_vec = self._validate_and_downsample(beh, fluorescence_fps=fluorescence_fps, reset_index=reset_index,
-                                                manual_annotation=use_manual_annotation)
+                                                manual_annotation=use_manual_annotation,remove_idx_of_tracking_failures=remove_idx_of_tracking_failures)
         # Make sure there are no nan values.
         # Necessary because sometimes removing tracking failures adds nan, even when they should be recognized
         beh_vec.replace(np.nan, BehaviorCodes.UNKNOWN, inplace=True)
@@ -1536,6 +1536,7 @@ class WormFullVideoPosture:
                                        use_manual_annotation=None,
                                        use_hilbert_phase=False,
                                        hilbert_phase_body_segment=15,
+                                       remove_idx_of_tracking_failures=True,
                                        **kwargs):
         """
         Calculates a list of indices that can be used to calculate triggered averages of 'state' ONSET
@@ -1562,6 +1563,7 @@ class WormFullVideoPosture:
         use_manual_annotation - Whether to load manually annotated behaviors or use automatic annotations
         use_hilbert_phase - Whether to use the hilbert phase of the worm as the behavioral annotation
         hilbert_phase_body_segment - Which body segment to use for the hilbert phase (ignored if not using hilbert phase; defaults to 15)
+        remove_idx_of_tracking_failures - Whether to remove indices of tracking failures from the behavioral annotation (only applies if using automatic annotation, and not manual annotation, which should already have this taken into account)
         kwargs - passed to TriggeredAverageIndices
 
         Returns
@@ -1590,7 +1592,8 @@ class WormFullVideoPosture:
                 kwargs['behavioral_annotation_is_continuous'] = True
             elif behavior_name is None:
                 behavioral_annotation = self.beh_annotation(fluorescence_fps=True,
-                                                            use_manual_annotation=use_manual_annotation)
+                                                            use_manual_annotation=use_manual_annotation,
+                                                            remove_idx_of_tracking_failures=remove_idx_of_tracking_failures)
             else:
                 behavioral_annotation = self.calc_behavior_from_alias(behavior_name)
         # This one is always from the raw annotation
