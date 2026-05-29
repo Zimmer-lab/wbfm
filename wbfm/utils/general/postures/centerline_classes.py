@@ -2477,9 +2477,9 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
     Searches in several locations, in this order:
     1. If a filename is NOT passed, then it searches using get_manual_behavior_annotation_fname
     2. If the filename is found, it tries to read it in several formats. It tries to detect these formats based on the filename and location:
-        - CSV with header and 'Annotation' column (Ulises' corrected timeseries)
-        - CSV with no header and two columns (starts and ends, from Itamar's tracify package)
-        - Excel file with 'behavior' sheet and 'Annotation' column (probably manually annotated, but could be either)
+        - Original Ulises format: file named "manual_corrected_timeseries" that is a CSV with header and 'Annotation' column (Ulises' corrected timeseries)
+        - Original Itamar format: file named "AVAL_manual_annotation" or "AVAR_manual_annotation" that is a CSV with no header and two columns (starts and ends, from Itamar's tracify package)
+        - Other format: CSV with one header and 'annotation' column
 
     Parameters
     ----------
