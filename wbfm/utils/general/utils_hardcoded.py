@@ -468,6 +468,7 @@ def neurons_with_confident_ids(combine_left_right=False, add_parentheses_for_les
 
 
 def neurons_with_less_confident_ids(combine_left_right=False, return_mapping=False):
+    """If return_mapping is True, then return a mapping from all confident names to themselves, and less confident names to themselves in parentheses. Otherwise, just return the list of less confident names."""
 
     neuron_names = ['SAAVL', 'SAAVR', 'AWBL', 'AWBR', 'RIBL', 'RIBR', #'AVBL', 'AVBR', 
                     'AUAL', 'AUAR',

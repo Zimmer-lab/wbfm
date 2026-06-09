@@ -6,6 +6,7 @@ from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
+from wbfm.utils.general.utils_hardcoded import neurons_with_less_confident_ids
 from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_color_discrete_map, data_type_name_mapping
 from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation
 
@@ -76,6 +77,11 @@ def calc_statistics_for_pc1_comparison_plots(pc1_weights_all_conditions, keys_to
 
 def plot_pc1_comparison(df_both, df_significant_diff, minimum_number_neurons=2, x_order=None):
     df_both = df_both.copy()
+
+    # Rename the neuron columns using parentheses if the ID is not confident
+    name_mapping = neurons_with_less_confident_ids(combine_left_right=True, return_mapping=True)
+    df_both['neuron_name'] = df_both['neuron_name'].map(name_mapping)
+    df_significant_diff.index = df_significant_diff.index.map(name_mapping)
 
     if minimum_number_neurons > 1:
         neuron_counts = df_both.dropna().groupby(['neuron_name', 'Dataset Type']).size().unstack(fill_value=0)
