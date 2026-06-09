@@ -2992,25 +2992,38 @@ def rename_manual_ids_from_excel_in_project(project_data: ProjectData, dryrun=Fa
         print(f"Modifications to be made: {[(k, v) for k, v in previous2new.items() if k!=v]}")
 
 
-def get_time_length_from_object(obj, verbose=0) -> Optional[int]:
+def get_time_length_from_object(obj, fields_to_ignore=None, verbose=0) -> Optional[int]:
+    if fields_to_ignore is None:
+        fields_to_ignore = set()
+
     if hasattr(obj, "num_frames"):
         val = getattr(obj, "num_frames")
         if val is not None:
             try:
+                if verbose >= 1:
+                    print(f"get_time_length_from_object: inferred time length from num_frames attribute: {val}")
                 return int(val)
             except (TypeError, ValueError):
                 print(f"get_time_length_from_object: num_frames present but not coercible to int ({val})")
-                
-    for v in vars(obj).values():
-        if isinstance(v, (pd.DataFrame, pd.Series)):
+
+    for k, v in vars(obj).items():
+        if k in fields_to_ignore:
+            if verbose >= 2:
+                print(f"get_time_length_from_object: skipping field {k} due to fields_to_ignore")
+            continue
+        if isinstance(v, (pd.DataFrame, pd.Series)) and len(v) > 0:
             if verbose >= 1:
-                print(f"get_time_length_from_object: inferring time length from DataFrame/Series attribute with shape {v.shape}")
+                print(f"get_time_length_from_object: inferring time length from DataFrame/Series attribute {k} with shape {v.shape}")
             return len(v)
-        if isinstance(v, np.ndarray) and getattr(v, "ndim", 0) > 0:
+        if isinstance(v, np.ndarray) and getattr(v, "ndim", 0) > 0 and v.shape[0] > 0:
+            if verbose >= 1:
+                print(f"get_time_length_from_object: inferring time length from ndarray attribute {k} with shape {v.shape}")
             return int(v.shape[0])
         # dask arrays have tuple-like shape
-        if hasattr(v, "shape") and isinstance(getattr(v, "shape"), tuple) and len(v.shape) > 0:
+        if hasattr(v, "shape") and isinstance(getattr(v, "shape"), tuple) and len(v.shape) > 0 and v.shape[0] > 0:
             try:
+                if verbose >= 1:
+                    print(f"get_time_length_from_object: inferring time length from dask array attribute {k} with shape {v.shape}")
                 return int(v.shape[0])
             except (TypeError, ValueError):
                 continue
@@ -3057,9 +3070,11 @@ def slice_time_like_object(
                 if verbose:
                     print(f"slice_time_like_object: skipping materialization of {obj.__class__.__name__}.{nm}: {e}")
 
+    timelike_fields_to_ignore = set(["tracking_failure_idx"])
+
     # infer T if needed
     if T is None:
-        T = get_time_length_from_object(obj, verbose=verbose)
+        T = get_time_length_from_object(obj, fields_to_ignore=timelike_fields_to_ignore, verbose=verbose)
     if T is None:
         if verbose:
             print(f"slice_time_like_object: no time-length inferred for {obj.__class__.__name__}; nothing to slice")
@@ -3067,7 +3082,7 @@ def slice_time_like_object(
 
     # if conversion requested, convert start/stop from reference timebase -> obj timebase
     if reference_T is not None and allow_rate_conversion:
-        obj_T = get_time_length_from_object(obj, verbose=verbose)
+        obj_T = get_time_length_from_object(obj, fields_to_ignore=timelike_fields_to_ignore, verbose=verbose)
         if obj_T is None:
             raise RuntimeError(f"Cannot determine target time-length to convert from reference_T={reference_T}")
         if obj_T == reference_T:
