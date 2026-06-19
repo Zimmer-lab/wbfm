@@ -463,7 +463,8 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
                                          height_mode=height_mode, fdr_method=fdr_method,
                                          DEBUG=DEBUG, permutations=permutations,
                                          show_only_stars=show_only_stars, inner_x_label_pair=inner_x_label_pair,
-                                         has_multicategory_index=has_multicategory_index, annotation_y_shift=annotation_y_shift, annotation_x_shift=annotation_x_shift)
+                                         has_multicategory_index=has_multicategory_index, annotation_y_shift=annotation_y_shift, annotation_x_shift=annotation_x_shift,
+                                         precalculated_p_values=precalculated_p_values)        
         return fig
 
     if array_columns is None or array_columns == [None]:
@@ -568,6 +569,7 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
         else:
             pvalue = precalculated_p_values[x_label]
         if DEBUG:
+            print(f"All calculated p-values: {precalculated_p_values}")
             print(f"p-value: {pvalue} for x_label {x_label}")
         significance_stars = p_value_to_stars(pvalue)
 

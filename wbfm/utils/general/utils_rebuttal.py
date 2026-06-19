@@ -98,6 +98,7 @@ from wbfm.utils.external.utils_plotly import combine_plotly_figures, extract_sha
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes, options_for_ethogram
 from wbfm.utils.general.utils_paper import apply_figure_settings, split_time_series_with_laser_switches
 from wbfm.utils.projects.finished_project_data import split_project_data_in_time
+from wbfm.utils.visualization.plot_summary_statistics import calc_speed_dataframe
 from wbfm.utils.visualization.plot_traces import make_summary_heatmap_and_subplots
 
 
@@ -1549,13 +1550,33 @@ def manual_annotation_of_dataset_splits(immob):
                                 [[0, 870], [892, 1725], [1742, 2499]],
                             '2025-11-20_12-39_shifts_488_505_488_worm3-2025-11-20':
                                 [[0, 811], [829, 1645], [1662, 2499]],
-
                             '2026-05-07_17-30_488_505_488_worm4-2026-05-07':
                                 [[0, 951], [960, 1734], [1810, 2564]],
                             '2026-05-07_15-03_488_505_488_worm2-2026-05-07':
                                 [[0, 900], [916, 1737], [1774, 2564]],
                             '2026-05-07_18-55_488_505_488_worm6-2026-05-07':
                                 [[0, 840], [872, 1735], [1743, 2564]],
+
+                            # No-light controls (no actual switch, so set to the middle of the 8-minute recording)
+                            '2025-12-03_15-09_no_light_control_worm4-2025-12-03':
+                                [[0, 867], [867, 1735]],
+                            '2025-12-03_15-34_no_light_control_worm6-2025-12-03':
+                                [[0, 867], [867, 1735]],
+                            '2025-12-03_15-22_no_light_control_worm5-2025-12-03':
+                                [[0, 867], [867, 1735]],
+                            '2025-12-03_17-34_no_light_control_worm10_auto-2025-12-03':
+                                [[0, 867], [867, 1735]],
+                            '2025-12-03_14-57_no_light_control_worm3-2025-12-03':
+                                [[0, 867], [867, 1735]],
+                            '2025-12-03_15-57_no_light_control_worm8-2025-12-03':
+                                [[0, 867], [867, 1735]],
+                            '2025-12-03_14-17_no_light_control_worm1-2025-12-03':
+                                [[0, 867], [867, 1735]],
+                            '2025-12-03_14-43_no_light_control_worm2-2025-12-03':
+                                [[0, 867], [867, 1735]],
+                            '2025-12-03_15-45_no_light_control_worm7-2025-12-03':
+                                [[0, 867], [867, 1735]],
+
                             }
                             
     return manual_split_annotation
@@ -1746,3 +1767,48 @@ def get_data_from_dict_of_projects(all_projects, prefix=None, DEBUG=False):
         all_ethograms[prefix][name] = make_ethogram(df_beh, use_alternate_cmap=True)
 
     return all_heatmaps, all_ethograms, all_df_traces, all_df_beh, all_df_laser
+
+
+def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_manual_annotation, calculate_speed=True):
+    df_reversals = []
+    df_all_reversals = []
+    df_speed = []
+    
+    for name, p in all_projects.items():
+        # For each project, split it into 3 and then append to the appropriate list
+        manual_split_annotation = manual_annotation_of_dataset_splits(immob=False)
+        starts_stops = manual_split_annotation[p.shortened_name]
+        all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
+
+        for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
+            rev_starts, rev_ends = seg.worm_posture_class.get_starts_and_ends_of_reversals(use_manual_annotation=use_manual_annotation)
+            raw_num_rev = len(rev_starts)
+
+            all_rev_durations = (np.array(rev_ends) - np.array(rev_starts)) / p.physical_unit_conversion.volumes_per_second
+            mean_rev_duration = np.mean(all_rev_durations)
+            num_minutes = p.num_frames / p.physical_unit_conversion.volumes_per_second / 60
+            df_reversals.append({'dataset_name': name, 
+                                'position': i, 
+                                'Laser wavelength': laser_wavelength, 
+                                'raw_num_rev': raw_num_rev,
+                                'num_minutes': num_minutes,
+                                'rev_per_minute': raw_num_rev / num_minutes,
+                                'mean_rev_duration': mean_rev_duration
+                                })
+            if len(all_rev_durations) > 0:
+                df_all_reversals.append(pd.DataFrame({'dataset_name': [name]*len(all_rev_durations), 
+                                    'position': [i]*len(all_rev_durations), 
+                                    'Laser wavelength': [laser_wavelength]*len(all_rev_durations), 
+                                    'all_rev_durations': all_rev_durations}))
+
+            if calculate_speed:
+                _df_speed = calc_speed_dataframe({seg.shortened_name: seg})
+                _df_speed['position'] = i
+                _df_speed['Laser wavelength'] = laser_wavelength
+                df_speed.append(_df_speed)
+    df_reversals = pd.DataFrame.from_dict(df_reversals)
+    df_all_reversals = pd.concat(df_all_reversals)
+    if calculate_speed:
+        df_speed = pd.concat(df_speed)
+
+    return df_reversals, df_all_reversals, df_speed
