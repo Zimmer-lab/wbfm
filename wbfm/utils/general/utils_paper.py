@@ -69,7 +69,7 @@ def plotly_paper_color_discrete_map():
     cmap_dict = {'gcamp': base_cmap[0], 'wbfm': base_cmap[0], 'wbfm': base_cmap[0], 'zimmer': base_cmap[0],
                  'Active in Freely Moving only': base_cmap[0], 'Manifold in Freely Moving only': base_cmap[0],
                  'Freely Moving (GCaMP)': base_cmap[0], 'Freely Moving': base_cmap[0], 'Wild Type': base_cmap[0], '488': base_cmap[0], 488: base_cmap[0],
-                 'No Light': base_cmap[1], '505': base_cmap[1], 505: base_cmap[1],
+                 '505': base_cmap[1], 505: base_cmap[1],
                  'flavell': base_cmap[1],# Mostly skip orange... don't like it!
                  'immob': base_cmap[2], 'Active in Immob': base_cmap[2], 'Manifold in Immob': base_cmap[2],
                  'Intrinsic (shared with immobilized)': base_cmap[2],
@@ -87,7 +87,7 @@ def plotly_paper_color_discrete_map():
                  'gcy-31, gcy-35, gcy-9': base_cmap[6], 'Mutant': base_cmap[6], 'gcy-31; -35; -9': base_cmap[6],
                  'gcy-31;-35;-9': base_cmap[6],  # Pink
                  # Colors for hierarchy
-                 'No oscillations': base_cmap[7], 'No Behavior or Hierarchy': base_cmap[7],  # Same as gfp
+                 'No oscillations': base_cmap[7], 'No Behavior or Hierarchy': base_cmap[7], 'No Light': base_cmap[7],  # Same as gfp
                  'Hierarchy only': base_cmap[0],  # Same as raw
                  'Behavior only': base_cmap[1],  # Similar to raw, but brighter (teal)
                  'Hierarchical Behavior': base_cmap[3], 'Hierarchy': base_cmap[3], # New: orange

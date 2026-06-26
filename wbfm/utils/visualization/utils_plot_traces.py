@@ -603,21 +603,21 @@ def add_p_value_annotation(fig, array_columns=None, subplot=None, x_label=None, 
         if not show_only_stars:
             # Vertical line
             fig.add_shape(type="line",
-                          xref="x" + subplot_str, yref="y" + subplot_str + " domain",
+                          xref="x" + subplot_str, yref=y_ref,
                           x0=x0_annotation, y0=y0_annotation,
                           x1=x0_annotation, y1=y1_annotation,
                           line=dict(color=_format['color'], width=2, )
                           )
             # Horizontal line
             fig.add_shape(type="line",
-                          xref="x" + subplot_str, yref="y" + subplot_str + " domain",
+                          xref="x" + subplot_str, yref=y_ref,
                           x0=x0_annotation, y0=y1_annotation,
                           x1=x1_annotation, y1=y1_annotation,
                           line=dict(color=_format['color'], width=2, )
                           )
             # Vertical line
             fig.add_shape(type="line",
-                          xref="x" + subplot_str, yref="y" + subplot_str + " domain",
+                          xref="x" + subplot_str, yref=y_ref,
                           # x0=column_pair[1], y0=y_range[index][0] + 1.5*annotation_y_shift,
                           x0=x1_annotation, y0=y0_annotation,
                           x1=x1_annotation, y1=y1_annotation,
