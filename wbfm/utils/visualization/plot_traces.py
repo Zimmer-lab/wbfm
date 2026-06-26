@@ -11,6 +11,7 @@ import numpy as np
 import plotly
 import scipy.io
 from sklearn.decomposition import PCA
+from pandas.errors import IndexingError
 
 from wbfm.utils.general.utils_paper import paper_trace_settings, paper_figure_page_settings, \
     apply_figure_settings, behavior_name_mapping
@@ -2189,7 +2190,7 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
                 # print(f'KeyError: {e} on behavior {state_code.full_name}')
                 pass
 
-    except ValueError as e:
+    except (IndexingError, ValueError) as e:
         # Then we are working in behavioral space, and we don't need a phase plot
         print(f'ValueError: {e}; if only the behavior is being plotted, this is not a problem')
         phase_plot_list = []
