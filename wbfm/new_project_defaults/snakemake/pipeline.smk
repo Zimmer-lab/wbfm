@@ -529,6 +529,8 @@ rule dlc_analyze_videos:
         
         source /lisc/app/conda/miniforge3/bin/activate {params.dlc_conda_env}
         module load cuda-toolkit/12.9.0
+        export LD_LIBRARY_PATH=/lisc/opt/sw/software/CUDA/12.9.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+        
         # Also rename the output file to the expected name
         # We don't actually know the name without querying deeplabcut, so just rename it
         python -c "import deeplabcut, os; fname = deeplabcut.analyze_videos('{params.dlc_model_configfile_path}', '{input.input_avi}', videotype='avi', gputouse=${{CUDA_VISIBLE_DEVICES:-0}}, save_as_csv=True); print('Produced raw files with name: ' + fname); os.rename(f'{output_behavior_dir}/raw_stack'+fname+'.h5', '{output_behavior_dir}/raw_stack_dlc.h5'); os.rename(f'{output_behavior_dir}/raw_stack'+fname+'.csv', '{output_behavior_dir}/raw_stack_dlc.csv')"
