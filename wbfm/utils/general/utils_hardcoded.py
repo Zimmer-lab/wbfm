@@ -238,27 +238,27 @@ def load_paper_datasets(data_type: Union[str, list] = 'gcamp', require_behavior=
     elif data_type == 'O2_hiscl' or data_type == 'immob_o2_hiscl':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/muscle_hiscl_o2_stimulation'
     elif data_type == '505_488_505_fm':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/505_488_505'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/505_paper/WBFM_datasets/505_488_505_FM'
     elif data_type == '488_505_488_fm':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/488_505_488'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/505_paper/WBFM_datasets/488_505_488_FM'
     elif data_type == '505_488_505_immob':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/505_488_505'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/505_paper/WBFM_datasets/505_488_505_chip'
     elif data_type == '488_505_488_immob':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/488_505_488'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/505_paper/WBFM_datasets/488_505_488_chip'
     elif data_type == '505_488_505_immob_inactive':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/505_488_505'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/505_paper/WBFM_datasets/505_488_505_chip_inactive'
     elif data_type == '488_505_488_immob_inactive':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/immobilized_505/inactive/488_505_488'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/505_paper/WBFM_datasets/488_505_488_chip_inactive'
         # One bad project
         bad_path = '2025-09-15_13-40_488_6min_505_6min_488_6min_worm1-2025-09-15'
         good_projects = load_all_projects_in_folder(folder_path, only_load_paths=only_load_paths, **kwargs)
         good_projects = {k: p for k, p in good_projects.items() if bad_path not in p.shortened_name}
     elif data_type == '488_leifer_conditions':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/488_leifer_only'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/505_paper/WBFM_datasets/488_agar_immob_leifer'
     elif data_type == '505_leifer_conditions':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/505_leifer_only'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/505_paper/WBFM_datasets/505_agar_immob_leifer'
     elif data_type == 'no_light_control_fm':
-        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/WBFM/WBFM_projects/freely_moving_505/not_light_control'
+        folder_path = '/lisc/data/scratch/neurobiology/zimmer/ItamarLev/505_paper/WBFM_datasets/no_light_FM'
     elif data_type == 'avb_hiscl':
         folder_path = '/lisc/data/scratch/neurobiology/zimmer/zihaozhai/WBFM/project/AVBhiscl_all/histamin'
     elif data_type == 'avb_hiscl_control':
