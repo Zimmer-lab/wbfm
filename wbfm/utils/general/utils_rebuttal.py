@@ -1749,15 +1749,22 @@ def get_data_from_dict_of_projects(all_projects, prefix=None, DEBUG=False):
     all_df_beh = defaultdict(dict)
     all_df_laser = defaultdict(dict)
 
+
     for name, p in tqdm(all_projects.items(), total=len(all_projects)):
         fig1, fig2, results = make_summary_heatmap_and_subplots(p, trace_opt=rebuttal_trace_opt(), 
                                                        to_save=False, to_show=False, include_speed_subplot=False,
                                                        base_height=[0.25, 0.2], base_width=1.0, output_folder=None)
         
+
         df_traces = results['neural_activity'].copy()
         all_df_traces[prefix][name] = df_traces
         df_beh = results['beh_vec']
         all_df_beh[prefix][name] = df_beh
+
+        # Fix indices for physical time; do it manually because the split projects also need it to be manually corrected    
+        vps = p.physical_unit_conversion.volumes_per_second
+        df_traces = fix_index_transposed(df_traces, vps)
+        df_beh.index /= vps
 
         df_laser = df_beh.copy().reset_index(drop=True)
         df_laser[:] = prefix
@@ -1767,6 +1774,12 @@ def get_data_from_dict_of_projects(all_projects, prefix=None, DEBUG=False):
         all_ethograms[prefix][name] = make_ethogram(df_beh, use_alternate_cmap=True)
 
     return all_heatmaps, all_ethograms, all_df_traces, all_df_beh, all_df_laser
+
+def fix_index_transposed(df, vps):
+    df = df.T
+    df.index /= vps
+    df = df.T
+    return df
 
 
 def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_manual_annotation, calculate_speed=True):
