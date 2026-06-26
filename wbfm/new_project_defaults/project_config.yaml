@@ -34,7 +34,7 @@ physical_units:
   zimmer_fluroscence_um_per_pixel_xy: 0.325
   zimmer_behavior_um_per_pixel_xy: 2.4
   zimmer_um_per_pixel_z: 1.5  # in um; CHANGE ME
-  exposure_time: 12 # Only matters for visualization
+  exposure_time: 12 # Matters for physical time calculations and visualizations; CHANGE ME
 
 ###################
 # Project status and steps
