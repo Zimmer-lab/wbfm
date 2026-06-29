@@ -82,6 +82,7 @@ ERROR PREVENTION NOTES:
 - Use direct results dict keys for cmap, not derived values
 """
 from collections import defaultdict
+import logging
 import os
 from typing import Any, Dict, List, Tuple
 import numpy as np
@@ -1749,12 +1750,10 @@ def get_data_from_dict_of_projects(all_projects, prefix=None, DEBUG=False):
     all_df_beh = defaultdict(dict)
     all_df_laser = defaultdict(dict)
 
-
     for name, p in tqdm(all_projects.items(), total=len(all_projects)):
         fig1, fig2, results = make_summary_heatmap_and_subplots(p, trace_opt=rebuttal_trace_opt(), 
                                                        to_save=False, to_show=False, include_speed_subplot=False,
                                                        base_height=[0.25, 0.2], base_width=1.0, output_folder=None)
-        
 
         df_traces = results['neural_activity'].copy()
         all_df_traces[prefix][name] = df_traces
@@ -1762,9 +1761,9 @@ def get_data_from_dict_of_projects(all_projects, prefix=None, DEBUG=False):
         all_df_beh[prefix][name] = df_beh
 
         # Fix indices for physical time; do it manually because the split projects also need it to be manually corrected    
-        vps = p.physical_unit_conversion.volumes_per_second
-        df_traces = fix_index_transposed(df_traces, vps)
-        df_beh.index /= vps
+        # vps = p.physical_unit_conversion.volumes_per_second
+        # df_traces = fix_index_transposed(df_traces, vps)
+        # df_beh.index /= vps
 
         df_laser = df_beh.copy().reset_index(drop=True)
         df_laser[:] = prefix
@@ -1782,12 +1781,14 @@ def fix_index_transposed(df, vps):
     return df
 
 
-def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_manual_annotation, calculate_speed=True, immob=False):
+def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_manual_annotation, calculate_speed=True, immob=False, DEBUG=False):
     df_reversals = []
     df_all_reversals = []
     df_speed = []
     
     for name, p in all_projects.items():
+        if DEBUG:
+            print(f"Processing project {name} with laser wavelengths {laser_wavelengths}")
         # For each project, split it into 3 and then append to the appropriate list
         manual_split_annotation = manual_annotation_of_dataset_splits(immob=immob)
         starts_stops = manual_split_annotation[p.shortened_name]
@@ -1799,7 +1800,7 @@ def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_ma
 
             all_rev_durations = (np.array(rev_ends) - np.array(rev_starts)) / p.physical_unit_conversion.volumes_per_second
             mean_rev_duration = np.mean(all_rev_durations)
-            num_minutes = p.num_frames / p.physical_unit_conversion.volumes_per_second / 60
+            num_minutes = seg.num_frames / p.physical_unit_conversion.volumes_per_second / 60
             df_reversals.append({'dataset_name': name, 
                                 'position': i, 
                                 'Laser wavelength': laser_wavelength, 
@@ -1813,6 +1814,12 @@ def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_ma
                                     'position': [i]*len(all_rev_durations), 
                                     'Laser wavelength': [laser_wavelength]*len(all_rev_durations), 
                                     'all_rev_durations': all_rev_durations}))
+            if len(all_rev_durations) == 1:
+                message = f"Dataset {name}, segment {i} (Laser {laser_wavelength} nm) has only 1 reversal with duration {all_rev_durations[0]:.2f} seconds."
+                if DEBUG:
+                    raise ValueError(f"DEBUG: {message}")
+                else:
+                    logging.warning(f"WARNING: {message}")
 
             if calculate_speed:
                 _df_speed = calc_speed_dataframe({seg.shortened_name: seg})
