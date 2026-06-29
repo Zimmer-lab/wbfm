@@ -1782,14 +1782,14 @@ def fix_index_transposed(df, vps):
     return df
 
 
-def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_manual_annotation, calculate_speed=True):
+def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_manual_annotation, calculate_speed=True, immob=False):
     df_reversals = []
     df_all_reversals = []
     df_speed = []
     
     for name, p in all_projects.items():
         # For each project, split it into 3 and then append to the appropriate list
-        manual_split_annotation = manual_annotation_of_dataset_splits(immob=False)
+        manual_split_annotation = manual_annotation_of_dataset_splits(immob=immob)
         starts_stops = manual_split_annotation[p.shortened_name]
         all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
 
