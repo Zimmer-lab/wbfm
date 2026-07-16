@@ -647,7 +647,7 @@ def _update_axis_properties(fig, old_fig, i_col, num_figs, opt, xaxis_name, yaxi
         print(f"  {yaxis_name} domain: {yaxis_obj.domain}")
 
 
-def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref_paper=True,
+def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref_paper=True, preserve_subplot_domains=True,
                            horizontal=True, hide_interior_xlabels=False, custom_subplot_opt=None, DEBUG=False, **kwargs):
     """
     Combine multiple plotly figures into a single figure, all on one row or column.
@@ -729,7 +729,8 @@ def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref
             fig.add_shape(shape, **opt)
         
         # Update axis properties while preserving domains
-        _update_axis_properties(fig, old_fig, i_col, len(all_figs), opt, xaxis_name, yaxis_name, horizontal, hide_interior_xlabels, DEBUG)
+        if preserve_subplot_domains:
+            _update_axis_properties(fig, old_fig, i_col, len(all_figs), opt, xaxis_name, yaxis_name, horizontal, hide_interior_xlabels, DEBUG)
         
     # Force yref for shapes to 'paper'
     if force_yref_paper:

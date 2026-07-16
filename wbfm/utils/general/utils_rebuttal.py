@@ -1781,7 +1781,8 @@ def fix_index_transposed(df, vps):
     return df
 
 
-def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_manual_annotation, calculate_speed=True, immob=False, DEBUG=False):
+def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_manual_annotation, calculate_speed=True, immob=False, split_projects=True,
+                                         DEBUG=False):
     df_reversals = []
     df_all_reversals = []
     df_speed = []
@@ -1789,10 +1790,13 @@ def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_ma
     for name, p in all_projects.items():
         if DEBUG:
             print(f"Processing project {name} with laser wavelengths {laser_wavelengths}")
-        # For each project, split it into 3 and then append to the appropriate list
-        manual_split_annotation = manual_annotation_of_dataset_splits(immob=immob)
-        starts_stops = manual_split_annotation[p.shortened_name]
-        all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
+        if split_projects:
+            # For each project, split it into 3 and then append to the appropriate list
+            manual_split_annotation = manual_annotation_of_dataset_splits(immob=immob)
+            starts_stops = manual_split_annotation[p.shortened_name]
+            all_segments = split_project_data_in_time(p, starts_stops, verbose=0)
+        else:
+            all_segments = [p]  # No subsegments, just the whole project
 
         for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
             rev_starts, rev_ends = seg.worm_posture_class.get_starts_and_ends_of_reversals(use_manual_annotation=use_manual_annotation)
