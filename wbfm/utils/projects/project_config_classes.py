@@ -646,7 +646,9 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         return self.get_preprocessing_class().num_slices
 
     def get_num_slices_robust(self):
-        """Only for backwards compatibility; function is now in PreprocessingSettings"""
+        """
+        Original function is now in PreprocessingSettings, which works in 99% of cases when fluorescence data is uncorrupted
+        """
         return self.get_preprocessing_class().get_num_slices_robust()
 
     @property
@@ -655,7 +657,9 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         return self.get_preprocessing_class().num_frames
 
     def get_num_frames_robust(self):
-        """Only for backwards compatibility; function is now in PreprocessingSettings"""
+        """
+        Original function is now in PreprocessingSettings, which works in 99% of cases when fluorescence data is uncorrupted
+        """
         return self.get_preprocessing_class().get_num_frames_robust()
 
     def get_red_and_green_grid_alignment_bigtiffs(self) -> Tuple[List[str], List[str]]:

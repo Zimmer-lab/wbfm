@@ -494,7 +494,11 @@ class ProjectData:
 
     @cached_property
     def num_frames(self) -> int:
-        """Note that this is cached so that a user can overwrite the number of frames"""
+        """
+        Note that this is cached so that a user can overwrite the number of frames
+
+        Note also that this is actually the number of fluorescence volumes... but it would be too big of a breaking change to rename it
+        """
         num_frames = None
         if self.project_config is not None:
             try:
@@ -505,9 +509,25 @@ class ProjectData:
             # Then try calculate from the processed data, not the raw
             if self.red_data is not None:
                 num_frames = self.red_data.shape[0]
+
         if num_frames is None:
-            # Loads the raw data, which may be slow
-            num_frames = self.project_config.get_num_frames_robust()
+            # Loads the raw fluorescence data, which may be slow
+            try:
+                num_frames = self.project_config.get_num_frames_robust()
+            except FileNotFoundError:
+                num_frames = None
+
+        if num_frames is None:
+            # Then try calculate from the behavior video, not the fluorescence
+            try:
+                beh_video = self.worm_posture_class.raw_behavior_video
+                if beh_video is not None:
+                    num_high_res_frames = beh_video.shape[0]
+                    frames_per_volume = self.physical_unit_conversion.frames_per_volume
+                    num_frames = int(num_high_res_frames / frames_per_volume)
+            except FileNotFoundError:
+                num_frames = None
+        
         return num_frames
     
 

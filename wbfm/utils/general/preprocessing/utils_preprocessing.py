@@ -514,6 +514,7 @@ class PreprocessingSettings(RawFluorescenceData):
         return dat
 
     def open_raw_data_as_4d_dask(self, red_not_green=True) -> Optional[da.Array]:
+        """Opens the raw fluorescence data as a 4d dask array, with shape (time, z, y, x)"""
         dat = self._open_raw_data(red_not_green)
         if dat is None:
             return None
@@ -572,6 +573,8 @@ class PreprocessingSettings(RawFluorescenceData):
     def get_num_frames_robust(self):
         """
         Tries to read from the config file, but if that fails then read the raw data file
+
+        If the raw data file is not found, then raises FileNotFoundError
 
         Returns
         -------
