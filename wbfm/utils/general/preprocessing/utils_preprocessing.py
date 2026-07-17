@@ -453,7 +453,7 @@ class PreprocessingSettings(RawFluorescenceData):
         return raw_volume
 
     @lru_cache(maxsize=4)
-    def _open_raw_data(self, red_not_green=True, actually_open=True) -> Optional[MicroscopeDataReader]:
+    def _open_raw_data(self, red_not_green=True, actually_open=True, DEBUG=False) -> Optional[MicroscopeDataReader]:
         """
         Open the raw data file, which used to be a .btf file but is now an ndtiff folder
 
@@ -504,6 +504,8 @@ class PreprocessingSettings(RawFluorescenceData):
             if actually_open:
                 try:
                     dat = MicroscopeDataReader(fname, as_raw_tiff=False, verbose=0)
+                    if DEBUG:
+                        print(f"Opened {fname} as a MicroscopeDataReader with shape {dat.dask_array.shape}")
                 except (KeyError, tifffile.TiffFileError):
                     logging.warning(f"Could not open {fname} as a MicroscopeDataReader; "
                                     f"possibly it is not a valid ndtiff folder")
@@ -513,9 +515,9 @@ class PreprocessingSettings(RawFluorescenceData):
 
         return dat
 
-    def open_raw_data_as_4d_dask(self, red_not_green=True) -> Optional[da.Array]:
+    def open_raw_data_as_4d_dask(self, red_not_green=True, DEBUG=False) -> Optional[da.Array]:
         """Opens the raw fluorescence data as a 4d dask array, with shape (time, z, y, x)"""
-        dat = self._open_raw_data(red_not_green)
+        dat = self._open_raw_data(red_not_green, DEBUG=DEBUG)
         if dat is None:
             return None
         dat_out = da.squeeze(dat.dask_array)

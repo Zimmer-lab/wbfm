@@ -132,7 +132,8 @@ class WormFullVideoPosture:
 
     def _validate_and_downsample(self, df: Optional[Union[pd.DataFrame, pd.Series]], fluorescence_fps: bool,
                                  reset_index=False, use_physical_time=None,
-                                 manual_annotation=False, force_downsampling=False, remove_idx_of_tracking_failures=True) -> Optional[Union[pd.DataFrame, pd.Series]]:
+                                 manual_annotation=False, force_downsampling=False, remove_idx_of_tracking_failures=True,
+                                 DEBUG=False) -> Optional[Union[pd.DataFrame, pd.Series]]:
         """
         Final postprocessing step for any annotation or data vector: removes tracking failure indices,
         downsamples to fluorescence frame rate if needed, shortens to trace length, and assigns the
@@ -190,6 +191,9 @@ class WormFullVideoPosture:
                 needs_subsampling = fluorescence_fps and not self.manual_beh_annotation_already_converted_to_fluorescence_fps
             else:
                 needs_subsampling = fluorescence_fps and not self.beh_annotation_already_converted_to_fluorescence_fps
+            if DEBUG:
+                print(f"needs_subsampling={needs_subsampling}, remove_idx_of_tracking_failures={remove_idx_of_tracking_failures}, df.shape={df.shape}, df.index={df.index}")
+                
             # Get cleaned and downsampled dataframe
             try:
                 if remove_idx_of_tracking_failures:
@@ -205,21 +209,27 @@ class WormFullVideoPosture:
                     else:
                         raise NotImplementedError
             except IndexError as e:
-                print(df)
-                print(df.shape)
-                print(self.tracking_failure_idx)
-                print(self.subsample_indices)
+                if DEBUG:
+                    print(df)
+                    print(df.shape)
+                    print(self.tracking_failure_idx)
+                    print(self.subsample_indices)
                 raise e
             # Shorten to the correct length, if necessary. Note that we have to check for series or dataframe
             if needs_subsampling:
+                if DEBUG:
+                    print(f"Before shortening to trace length, df.shape={df.shape}, df.index={df.index}")
                 df = self._shorten_to_trace_length(df)
+                if DEBUG:
+                    print(f"After shortening to trace length, df.shape={df.shape}, df.index={df.index}")
 
             # Index postprocessing
             if reset_index:
                 df.reset_index(drop=True, inplace=True)
             else:
                 df = self.convert_index_to_physical_time(df, fluorescence_fps, use_physical_time)
-
+        if DEBUG:
+            print(f"After index conversion, df.shape={df.shape}, df.index={df.index}")
         return df
 
     def convert_index_to_physical_time(self, df, fluorescence_fps, use_physical_time=None):
