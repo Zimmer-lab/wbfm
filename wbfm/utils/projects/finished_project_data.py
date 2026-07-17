@@ -3222,32 +3222,54 @@ def split_project_data_in_time(project_data: "ProjectData",
         segments_spec.append((s, e))
 
     segments: List[ProjectData] = []
+    if verbose:
+        print("==============================================================================")
+        print(f"Splitting project data into {len(segments_spec)} segments with total length {T}")
+
     for start, stop in segments_spec:
         if verbose:
-            print(f"Creating segment for frames [{start}:{stop}] (project T={T})")
+            print(f"    Creating segment for frames [{start}:{stop}] (project T={T})")
+
+        slice_kwargs = dict(start=start, stop=stop, verbose=verbose, off_by_one_tolerance=off_by_one_tolerance)
 
         new_pd = copy(project_data)
-        new_pd = slice_time_like_object(new_pd, start, stop, T=T, copy_obj=False,
-                                        load_cached=False, verbose=verbose,
-                                        reference_T=None, allow_rate_conversion=False,
-                                        off_by_one_tolerance=off_by_one_tolerance)
+        new_pd = slice_time_like_object(
+            new_pd, 
+            T=T, 
+            copy_obj=False,
+            load_cached=False,
+            reference_T=None, 
+            allow_rate_conversion=False, 
+            **slice_kwargs
+        )
 
         posture = getattr(project_data, "worm_posture_class", None)
         if posture is not None:
-            # These attributes need to be sliced, i.e. they are pandas-like
-            posture_ref_T = T if also_split_high_res_fields else None
+            # First split time series at the same frame rate as the traces, most likely manual annotation
             posture_copy = slice_time_like_object(
                 posture,
-                start,
-                stop,
-                T=None,
+                T=T,
                 copy_obj=True,
                 load_cached=True,
-                verbose=verbose,
-                reference_T=posture_ref_T,
-                allow_rate_conversion=also_split_high_res_fields,
-                off_by_one_tolerance=off_by_one_tolerance
+                reference_T=None,
+                allow_rate_conversion=False,
+                **slice_kwargs
             )
+
+            if also_split_high_res_fields:
+                if verbose:
+                    print(f"    Splitting worm_posture_class to high-res timebase for frames [{start}:{stop}]")
+                # Split the same class again
+                posture_copy = slice_time_like_object(
+                    posture_copy,
+                    T=None,  # Will detect the high frame rate
+                    copy_obj=False,
+                    load_cached=True,
+                    reference_T=T,  # Will use this to convert the split points to the high frame rate
+                    allow_rate_conversion=True,
+                    **slice_kwargs
+                )
+            
             setattr(new_pd, "worm_posture_class", posture_copy)
 
             # These attributes need to be offset, i.e. they are lists of indices

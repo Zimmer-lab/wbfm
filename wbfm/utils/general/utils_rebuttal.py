@@ -1801,6 +1801,8 @@ def get_behavior_stats_from_sub_projects(all_projects, laser_wavelengths, use_ma
         for i, (laser_wavelength, seg) in enumerate(zip(laser_wavelengths, all_segments)):
             rev_starts, rev_ends = seg.worm_posture_class.get_starts_and_ends_of_reversals(use_manual_annotation=use_manual_annotation)
             raw_num_rev = len(rev_starts)
+            if DEBUG:
+                print(f"    Segment {i} (Laser {laser_wavelength} nm): Found {raw_num_rev} reversals")
 
             all_rev_durations = (np.array(rev_ends) - np.array(rev_starts)) / p.physical_unit_conversion.volumes_per_second
             mean_rev_duration = np.mean(all_rev_durations)
