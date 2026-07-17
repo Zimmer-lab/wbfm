@@ -182,8 +182,9 @@ class PhysicalUnitConversion:
         # Second, load from the raw data config file (only needed for flyback removal, i.e. data that isn't included)
         raw_data_cfg = project_cfg.get_raw_data_config()
         if not raw_data_cfg.has_valid_self_path:
-            opt['num_flyback_planes_discarded'] = 0
-            logging.debug("No raw data config found; assuming no flyback planes discarded")
+            # Default for Zimmer lab as of March 2026
+            opt['num_flyback_planes_discarded'] = 2
+            logging.warning(f"No raw data config found; assuming {opt['num_flyback_planes_discarded']} flyback planes discarded")
         elif not raw_data_cfg.config.get('flyback_saved', False):
             num_flyback_planes_discarded = raw_data_cfg.config.get('num_flyback_planes_discarded', None)
             if num_flyback_planes_discarded is None:

@@ -10,7 +10,7 @@ from wbfm.utils.nn_utils.superglue import SuperGlueFullVolumeNeuronImageFeatures
     SuperGlueModel, NeuronImageFeaturesDataModuleFromMultipleProjects
 from wbfm.utils.projects.finished_project_data import ProjectData
 from wbfm.utils.projects.utils_redo_steps import correct_tracks_dataframe_using_project
-from wbfm.utils.general.hardcoded_paths import load_hardcoded_neural_network_paths
+from wbfm.utils.general.utils_hardcoded import load_hardcoded_neural_network_paths
 
 
 def main():

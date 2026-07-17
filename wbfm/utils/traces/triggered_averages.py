@@ -31,7 +31,7 @@ from wbfm.utils.external.utils_zeta_statistics import calculate_zeta_cumsum, jit
 from wbfm.utils.external.utils_matplotlib import paired_boxplot_from_dataframes
 from wbfm.utils.external.utils_jupyter import check_plotly_rendering
 from wbfm.utils.general.utils_paper import apply_figure_settings
-from wbfm.utils.general.hardcoded_paths import neurons_with_confident_ids
+from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
 from wbfm.utils.general.high_performance_pandas import get_names_from_df
 from wbfm.utils.visualization.filtering_traces import filter_gaussian_moving_average
 from wbfm.utils.visualization.utils_plot_traces import plot_with_shading, plot_with_shading_plotly
@@ -355,7 +355,15 @@ class TriggeredAverageIndices:
                 self.to_nan_points_of_state_before_point = False
 
         if self.num_events == 0:
-            logging.warning(f"No instances of state {self.behavioral_state} found in behavioral annotation!!")
+            if self.behavioral_annotation_is_continuous:
+                logging.warning(f"No events found above threshold {self.behavioral_annotation_threshold} in continuous behavioral annotation!!")
+                logging.warning(f"Features of the time series: min={self.behavioral_annotation.min()}, max={self.behavioral_annotation.max()}, mean={self.behavioral_annotation.mean()}, std={self.behavioral_annotation.std()}")
+            else:
+                logging.warning(f"No instances of state {self.behavioral_state} found in behavioral annotation!!")
+            logging.warning(f"More information: behavioral_annotation_is_continuous={self.behavioral_annotation_is_continuous}, behavioral_annotation_threshold={self.behavioral_annotation_threshold}, "
+                            f"behavioral_annotation unique values={self.behavioral_annotation.unique()}, only_allow_events_during_state={self.only_allow_events_during_state} "
+                            f"raw number of events before filtering={len(get_contiguous_blocks_from_column(self.binary_state, already_boolean=True, skip_boolean_check=True)[0])}")
+            raise NoBehaviorAnnotationsError("No events found for triggered average. See warnings for more details.")
 
     @property
     def binary_state(self) -> pd.Series:
@@ -853,7 +861,7 @@ class TriggeredAverageIndices:
 
         return ax
 
-    def plot_events_over_trace_from_name(self, trace, ax=None):
+    def plot_events_over_trace_from_name(self, trace, ax=None, fig_opt=None):
         """
         Plots the indices stored here over a trace (for debugging)
 
@@ -865,8 +873,10 @@ class TriggeredAverageIndices:
         -------
 
         """
+        if fig_opt is None:
+            fig_opt = {}
         if ax is None:
-            fig, ax = plt.subplots(dpi=100)
+            fig, ax = plt.subplots(dpi=100, **fig_opt)
         ax.plot(trace)
         self.plot_events_over_trace(trace, ax)
         return ax

@@ -8,7 +8,7 @@ import tensorflow as tf
 tf.__version__  # tf must be imported, see https://github.com/pytorch/pytorch/issues/81140
 from wbfm.utils.neuron_matching.utils_candidate_matches import fit_umap_using_frames
 
-from wbfm.utils.external.utils_pandas import fill_missing_indices_with_nan
+from wbfm.utils.external.utils_pandas import ensure_dense_dataframe, fill_missing_indices_with_nan
 from wbfm.utils.neuron_matching.long_range_matching import _unpack_for_track_tracklet_matching, \
     extend_tracks_using_global_tracking, greedy_matching_using_node_class, \
     combine_tracklets_using_matching, _save_graphs_and_combined_tracks
@@ -84,8 +84,7 @@ def track_using_using_config(project_cfg, use_superglue_tracker=False, DEBUG=Fal
 
     # Save
     out_fname = '3-tracking/postprocessing/df_tracks_postprocessed.h5'
-    out_fname = tracking_cfg.save_data_in_local_project(df_final, out_fname, also_save_csv=True,
-                                                        make_sequential_filename=True)
+    out_fname = tracking_cfg.save_data_in_local_project(df_final, out_fname, also_save_csv=True, make_sequential_filename=False)
     out_fname = tracking_cfg.unresolve_absolute_path(out_fname)
     tracking_cfg.config['leifer_params']['output_df_fname'] = str(out_fname)
 
@@ -93,8 +92,7 @@ def track_using_using_config(project_cfg, use_superglue_tracker=False, DEBUG=Fal
     if use_multiple_templates:
         out_fname = '3-tracking/postprocessing/df_tracks_template-0.h5'
         for df in all_dfs_raw:
-            out_fname = tracking_cfg.save_data_in_local_project(df, out_fname, also_save_csv=False,
-                                                                make_sequential_filename=True)
+            out_fname = tracking_cfg.save_data_in_local_project(df, out_fname, also_save_csv=False, make_sequential_filename=False)
 
     tracking_cfg.update_self_on_disk()
 
@@ -309,6 +307,7 @@ def match_tracks_and_tracklets_using_config(project_config: ModularProjectConfig
     # SAVE
     if to_save:
         with safe_cd(project_data.project_dir):
+            df_final = ensure_dense_dataframe(df_final, verbose=2)
             _save_graphs_and_combined_tracks(df_final, final_matching_no_conflict, final_matching_with_conflict,
                                              global_tracklet_neuron_graph,
                                              track_config, worm_obj,

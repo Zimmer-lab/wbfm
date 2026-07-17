@@ -509,7 +509,7 @@ def convert_calcium_videos_to_nwb(nwbfile, video_dict: dict, device, CalcImaging
         #smallest meaningful difference (in specified unit) between values in data: i.e. level of precision
         rate=rate,
         imaging_volume=CalcImagingVolume,
-        # dimension=None, #  Gives a warning; what should this be?
+        dimension=video_data.shape if video_data is not None else None,
     )
 
     nwbfile.add_acquisition(calcium_image_series)
@@ -730,11 +730,12 @@ def convert_segmentation_video_to_nwb(CalcImagingVolume, device, segmentation_vi
         device=device,
         unit="Voxel gray counts",
         scan_line_rate=2995.,
-        # dimension=None, #  Gives a warning; what should this be?,
+        dimension=segmentation_video.shape,  # This should be the shape of the video in TXYZ
         resolution=1.,
         # smallest meaningful difference (in specified unit) between values in data: i.e. level of precision
         rate=rate,  # sampling rate in hz
         imaging_volume=CalcImagingVolume,
+        dimension=segmentation_video.shape
     )
     return CalciumSegSeries
 

@@ -14,7 +14,7 @@ from wbfm.utils.projects.finished_project_data import load_all_projects_in_folde
 # main function
 from wbfm.utils.visualization.behavior_comparison_plots import NeuronToUnivariateEncoding
 from wbfm.utils.visualization.multiproject_wrappers import MultiProjectBehaviorPlotterWithBehavior
-from wbfm.utils.general.hardcoded_paths import load_paper_datasets, get_summary_visualization_dir
+from wbfm.utils.general.utils_hardcoded import load_paper_datasets, get_summary_visualization_dir
 
 # Initialize sacred experiment
 ex = Experiment(save_git_info=False)

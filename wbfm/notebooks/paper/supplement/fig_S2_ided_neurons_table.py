@@ -175,7 +175,6 @@ non_nan_melt[non_nan_melt['Neuron Name'] == 'AIBR']
 # In[23]:
 
 
-
 fig = px.bar(non_nan_melt, color='Dataset Type', x='Neuron Name', y='Count',
        barmode='group', color_discrete_map=plotly_paper_color_discrete_map(),
             category_orders={'Dataset Type': ['Freely Moving (GCaMP)', 'Immobilized (GCaMP)', 'Freely Moving (GFP)']})
@@ -246,7 +245,6 @@ fig.write_image(fname)
 # In[25]:
 
 
-
 fig = px.bar(non_nan_fraction, color='Dataset Type', x='Neuron Name', y='Count',
        barmode='group', color_discrete_map=plotly_paper_color_discrete_map(),
             category_orders={'Dataset Type': ['Freely Moving (GCaMP)', 'Immobilized (GCaMP)', 'Freely Moving (GFP)']})
@@ -285,7 +283,6 @@ id_export.index = id_export.index.map(data_type_name_mapping(include_mutant=True
 
 
 # In[27]:
-
 
 
 fname = 'ids/ids_per_dataset_type.xlsx'

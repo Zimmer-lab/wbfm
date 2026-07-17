@@ -2,8 +2,13 @@ import concurrent
 import logging
 import shutil
 from collections import defaultdict
-
-from wbfm.utils.external.utils_pandas import combine_columns_with_suffix
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from copy import copy
+from typing import Sequence, List, Optional
+import numpy as np
+import dask.array as da
+from wbfm.utils.external.utils_pandas import combine_columns_with_suffix, drop_if_present, select_if_present
 
 import tables
 from methodtools import lru_cache
@@ -18,7 +23,7 @@ from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 from wbfm.utils.external.utils_jupyter import executing_in_notebook
 from wbfm.utils.external.utils_zarr import zarr_reader_folder_or_zipstore
 from wbfm.utils.external.custom_errors import NoMatchesError, NoNeuronsError, NoBehaviorAnnotationsError, \
-    IncompleteConfigFileError, DataSynchronizationError
+    IncompleteConfigFileError, DataSynchronizationError, MissingAnalysisError
 from wbfm.utils.general.postprocessing.utils_imputation import impute_missing_values_in_dataframe
 from wbfm.utils.general.postures.centerline_classes import WormFullVideoPosture
 from wbfm.utils.neuron_matching.class_reference_frame import ReferenceFrame
@@ -36,7 +41,7 @@ from tqdm.auto import tqdm
 
 from wbfm.utils.projects.neuropal_manager import NeuropalManager
 from wbfm.utils.traces.triggered_averages import plot_triggered_average_from_matrix_low_level
-from wbfm.utils.general.hardcoded_paths import read_names_of_neurons_to_id, neurons_with_confident_ids
+from wbfm.utils.general.utils_hardcoded import default_discrete_behaviors, read_names_of_neurons_to_id, neurons_with_confident_ids
 from wbfm.utils.external.utils_pandas import dataframe_to_numpy_zxy_single_frame, df_to_matches, \
     get_column_name_from_time_and_column_value, fix_extra_spaces_in_dataframe_columns, \
     get_contiguous_blocks_from_column, make_binary_vector_from_starts_and_ends, fill_missing_indices_with_nan, \
@@ -52,7 +57,7 @@ from wbfm.utils.tracklets.tracklet_class import DetectedTrackletsAndNeurons
 from wbfm.utils.projects.plotting_classes import TracePlotter, TrackletAndSegmentationAnnotator
 from wbfm.utils.segmentation.util.utils_metadata import DetectedNeurons
 from wbfm.utils.projects.project_config_classes import ModularProjectConfig, SubfolderConfigFile
-from wbfm.utils.general.utils_filenames import read_if_exists, pickle_load_binary, \
+from wbfm.utils.general.utils_filenames import add_name_suffix, read_if_exists, pickle_load_binary, \
     load_file_according_to_precedence, pandas_read_any_filetype, get_sequential_filename
 from wbfm.utils.projects.utils_project import safe_cd
 # from functools import cached_property # Only from python>=3.8
@@ -695,8 +700,8 @@ class ProjectData:
             try:
                 # First check if there is an nwb file at all
                 cfg_nwb = project_data.project_config.get_nwb_config()
-            except PermissionError as e:
-                project_data.logger.warning(f"Hybrid loading was set to True, but got a permission error; unable to load nwb. If there is no nwb file, this is not a problem. Full error: {e}")
+            except (PermissionError, FileNotFoundError) as e:
+                project_data.logger.warning(f"Hybrid loading was set to True, but got an error; unable to load nwb. If there is no nwb file, this is not a problem. Full error: {e}")
                 allow_hybrid_loading = False
 
         if not loaded_via_nwb and allow_hybrid_loading:
@@ -1039,6 +1044,7 @@ class ProjectData:
                                rename_neurons_using_manual_ids: bool = False,
                                z_score: bool = False,
                                binary_behaviors: bool = False,
+                               additional_behaviors: list = None,
                                add_constant: bool = False,
                                verbose=0,
                                **kwargs):
@@ -1055,12 +1061,15 @@ class ProjectData:
         """
 
         if binary_behaviors:
-            behavior_codes = ['rev', 'ventral_turn', 'dorsal_turn', 'pause', 'self_collision']
+            behavior_codes = default_discrete_behaviors()
         else:
             behavior_codes = ['signed_middle_body_speed', 'ventral_only_body_curvature', 'ventral_only_head_curvature',
                               'dorsal_only_body_curvature', 'dorsal_only_head_curvature']
                               #'worm_nose_peak_frequency', 'worm_head_peak_frequency',
                               #'worm_speed_body_peak_frequency']
+        if additional_behaviors is not None:
+            behavior_codes = behavior_codes + additional_behaviors
+
         behavior_dict = {}
         for code in behavior_codes:
             behavior_dict[code] = self.calculate_behavior_trace(code, **kwargs)[1]
@@ -1111,13 +1120,13 @@ class ProjectData:
                             residual_mode: Optional[str] = None,
                             nan_tracking_failure_points: bool = False,
                             nan_using_ppca_manifold: bool = False,
-                            remove_invalid_neurons: bool = True,
                             return_fast_scale_separation: bool = False,
                             return_slow_scale_separation: bool = False,
                             rename_neurons_using_manual_ids: bool = False,
                             manual_id_confidence_threshold: int = 1,
                             use_physical_time: Optional[bool] = None,
                             remove_tail_neurons: bool = True,
+                            remove_invalid_neurons: bool = True,
                             always_keep_manual_ids: bool = True,
                             use_paper_options: bool = False,
                             only_keep_confident_ids: bool = False,
@@ -1155,6 +1164,7 @@ class ProjectData:
             Note: iterative algorithm that takes around a minute
         high_pass_bleach_correct: Filters by removing very slow drifts, i.e. a gaussian of sigma = num_frames / 5
         remove_tail_neurons: Removes neurons that are annotated with "tail" in the manual annotation
+        remove_invalid_neurons: Removes neurons that are annotated with "invalid" in the Notes column of the manual annotation
         verbose
         kwargs: Args to pass to calculate_traces; updates the default 'opt' dict above
             See TracePlotter for options
@@ -1174,7 +1184,11 @@ class ProjectData:
             if remove_tail_neurons:
                 tail_names = self.tail_neuron_names()
                 tail_names = [n for n in tail_names if n in get_names_from_df(df)]
-                df = df.drop(columns=tail_names)
+                df = drop_if_present(df, tail_names)
+            if remove_invalid_neurons:
+                invalid_names = self.invalid_neuron_names()
+                invalid_names = [n for n in invalid_names if n in get_names_from_df(df)]
+                df = drop_if_present(df, invalid_names)
             return df
 
         opt = dict(
@@ -1192,7 +1206,7 @@ class ProjectData:
         else:
             user_passed_neuron_names = True
         if remove_invalid_neurons:
-            invalid_names = self.finished_neuron_names(finished_not_invalid=False)
+            invalid_names = self.invalid_neuron_names()
             neuron_names = tuple([n for n in neuron_names if n not in invalid_names])
 
         # TODO: this doesn't work if the only neuron name passed is a manually id'ed name
@@ -1206,7 +1220,7 @@ class ProjectData:
             if not user_passed_neuron_names:
                 names = self.well_tracked_neuron_names(min_nonnan, remove_invalid_neurons,
                                                        always_keep_manual_ids=always_keep_manual_ids)
-                df_drop = df.loc[:, names].copy()
+                df_drop = select_if_present(df, names)
                 # df_drop = df[names].copy()
             else:
                 self.logger.warning("min_nonnan was passed, but neuron_names was also passed. Ignoring min_nonnan")
@@ -1309,7 +1323,11 @@ class ProjectData:
         if remove_tail_neurons:
             tail_names = self.tail_neuron_names()
             tail_names = [n for n in tail_names if n in get_names_from_df(df)]
-            df = df.drop(columns=tail_names)
+            df = drop_if_present(df, tail_names)
+        if remove_invalid_neurons:
+            invalid_names = self.invalid_neuron_names()
+            invalid_names = [n for n in invalid_names if n in get_names_from_df(df)]
+            df = drop_if_present(df, invalid_names)
 
         # Optional: rename columns to use manual ids, if found
         if rename_neurons_using_manual_ids:
@@ -1339,9 +1357,9 @@ class ProjectData:
         """Copy all paper traces from the .cache folder to the traces folder"""
         source_folder = self.data_cacher.cache_dir
         target_folder = self.project_config.get_traces_config().absolute_subfolder
-        # Copy every .h5 file
+        # Copy a set of .h5 files
         for fname in os.listdir(source_folder):
-            if fname.endswith('.h5'):
+            if fname in ['paper_traces.h5', 'paper_traces_red.h5', 'paper_traces_green.h5', 'paper_traces_no_interpolation.h5']:
                 source_path = os.path.join(source_folder, fname)
                 target_path = os.path.join(target_folder, fname)
                 shutil.copy(source_path, target_path)
@@ -1373,26 +1391,36 @@ class ProjectData:
         df = df.reindex(sorted(df.columns), axis=1)
         return df
 
-    def calc_pca_modes(self, n_components=10, flip_pc1_to_have_reversals_high=True, return_pca_weights=False,
-                       return_pca_object=False, multiply_by_variance=False, combine_left_right=False, **trace_kwargs) \
-            -> Tuple[pd.DataFrame, np.array]:
+    def calc_pca_modes(self, n_components=10, flip_pc1_to_have_reversals_high=True, 
+                       multiply_by_variance=False, combine_left_right=False, **trace_kwargs) \
+            -> Tuple[pd.DataFrame, pd.DataFrame, np.array]:
         """
-        Calculates the PCA modes of the traces, and optionally flips the first mode to have reversals high
+        Calculates the PCA modes and weights of the traces, and optionally flips the first mode to have reversals high
         This allows comparison of PC1 across datasets
 
-        Returns the modes (or weights if return_pca_weights is True) and the explained variance as a vector
-        OR: returns the PCA object itself, if return_pca_object is True
+        Returns both the PCA weights (loadings) and modes (scores), plus the explained variance
 
         Parameters
         ----------
-        n_components
-        flip_pc1_to_have_reversals_high
-        return_pca_weights
-        trace_kwargs
+        n_components : int, default 10
+            Number of PCA components to compute
+        flip_pc1_to_have_reversals_high : bool, default True
+            Whether to flip PC1 to be anticorrelated with reversals/AVA
+        multiply_by_variance : bool, default False
+            Whether to scale modes by their explained variance
+        combine_left_right : bool, default False
+            Whether to combine left/right neuron pairs
+        trace_kwargs : dict
+            Additional kwargs passed to calc_default_traces
 
         Returns
         -------
-
+        pca_weights : pd.DataFrame
+            PCA loadings (components), shape (n_features, n_components)
+        pca_modes : pd.DataFrame
+            PCA scores (transformed data), shape (n_samples, n_components)
+        explained_variance_ratio : np.array
+            Fraction of variance explained by each component
         """
         trace_kwargs['interpolate_nan'] = True
         trace_kwargs['rename_neurons_using_manual_ids'] = True
@@ -1400,51 +1428,52 @@ class ProjectData:
         X = self.calc_default_traces(**trace_kwargs)
         if combine_left_right:
             X = combine_columns_with_suffix(X, suffixes=['L', 'R'], how='mean')
-        X = fill_nan_in_dataframe(X, do_filtering=False)
-        X -= X.mean()
-        pca = PCA(n_components=n_components, whiten=False)
-        if return_pca_weights:
-            pca.fit(X)
-            pca_weights = pca.components_.T
-        pca.fit(X.T)
-        pca_modes = pca.components_.T
+        # X = fill_nan_in_dataframe(X, do_filtering=False)
+
+        pipe = Pipeline([
+            ('subtract_mean', StandardScaler(with_mean=True, with_std=False)),
+            ('pca', PCA(n_components=n_components, whiten=False))
+        ])
+        pca = pipe.named_steps['pca']
+        
+        pipe.fit(X)
+        pca_weights = pca.components_.T
+        pca_modes = pipe.transform(X)
+        # Modes should be z-scored, not have the original data variance
+        pca_modes = pca_modes / np.sqrt(pca.explained_variance_)
+
         if multiply_by_variance:
             pca_modes *= pca.explained_variance_
 
-        if return_pca_object:
-            return pca
-
         if flip_pc1_to_have_reversals_high:
-            # Calculate the speed, and define the sign of the first PC to be anticorrelated to speed
             reversal_time_series = None
-            try:
-                reversal_time_series = self.worm_posture_class.worm_speed(fluorescence_fps=True, reset_index=True,
-                                                                          signed=True)
-            except NoBehaviorAnnotationsError:
-                pass
-
             # Instead of behavior, see if there is an ID'ed AVA neuron
+            for candidate_name in ['AVA', 'AVAL', 'AVAR', 'RIM', 'RIML', 'RIMR']:
+                if candidate_name in X:
+                    reversal_time_series = -X[candidate_name]
+                    break
+
+            # Calculate the speed, and define the sign of the first PC to be anticorrelated to speed
             if reversal_time_series is None:
-                for candidate_name in ['AVA', 'AVAL', 'AVAR']:
-                    if candidate_name in X:
-                        reversal_time_series = -X[candidate_name]
-                        break
-                else:
-                    self.logger.warning("Could not calculate speed or AVA, so not flipping PC1")
+                try:
+                    reversal_time_series = self.worm_posture_class.worm_speed(fluorescence_fps=True, reset_index=True,
+                                                                            signed=True)
+                except (NoBehaviorAnnotationsError, ValueError):
+                    pass
 
             # If we have a reversal time series, flip the first PC to be anticorrelated with it
             if reversal_time_series is not None:
                 correlation = np.corrcoef(pca_modes[:, 0], reversal_time_series)[0, 1]
                 if correlation > 0:
-                    if return_pca_weights:
-                        pca_weights[:, 0] = -pca_weights[:, 0]
-                    else:
-                        pca_modes[:, 0] = -pca_modes[:, 0]
+                    pca_weights[:, 0] = -pca_weights[:, 0]
+                    pca_modes[:, 0] = -pca_modes[:, 0]
+            else:
+                self.logger.warning("Could not calculate speed or AVA, so not flipping PC1")
 
-        if return_pca_weights:
-            return pd.DataFrame(pca_weights, index=X.columns), pca.explained_variance_ratio_
-        else:
-            return pd.DataFrame(pca_modes, index=X.index), pca.explained_variance_ratio_
+        return pd.DataFrame(pca_weights, index=X.columns), \
+               pd.DataFrame(pca_modes, index=X.index), \
+               pca.explained_variance_ratio_, \
+               pipe
 
     def calc_correlation_to_pc1(self, **trace_kwargs):
         """
@@ -1473,7 +1502,7 @@ class ProjectData:
 
     def calc_plateau_state_using_pc1(self, replace_nan=True, DEBUG=False, **trace_kwargs):
         # Get the trace that will be used to calculate the plateau state
-        pca_modes, _ = self.calc_pca_modes(n_components=1, **trace_kwargs)
+        pca_modes, _, _, _ = self.calc_pca_modes(n_components=1, **trace_kwargs)
         pc1 = pd.Series(pca_modes.loc[:, 0])
         # Calculate plateaus using worm posture class method
         plateaus, working_pw_fits = self.worm_posture_class.calc_plateau_state_from_trace(pc1, n_breakpoints=2,
@@ -1913,7 +1942,7 @@ class ProjectData:
                                                           prepend_subfolder=True)
         return excel_fname
 
-    def build_neuron_editor_gui(self, neuropal_subproject=False):
+    def build_neuron_editor_gui(self, neuropal_subproject=False) -> Optional['NeuronNameEditor']:
         """
         Initialize a QT table interface for editing neurons
 
@@ -1984,6 +2013,10 @@ class ProjectData:
             from wbfm.gui.utils.utils_gui import NeuronNameEditor
             manual_neuron_name_editor = NeuronNameEditor(neurons_to_id=neurons_to_id)
             manual_neuron_name_editor.import_dataframe(df, fname)
+            # Create a backup excel file in the same folder, in case of corruption
+            fname_backup = add_name_suffix(fname, '_backup')
+            df.to_excel(fname_backup, index=False)
+
         except (PermissionError, tables.exceptions.HDF5ExtError):
             self.logger.warning(f"Could not open manual annotation file at ({fname}); "
                                 f"will not be able to save, thus this GUI will not be opened")
@@ -2117,6 +2150,21 @@ class ProjectData:
         if self.df_manual_tracking is not None and 'Notes' in self.df_manual_tracking:
             tail_ids = self.df_manual_tracking['Notes'].str.contains('tail', case=False)
             names = list(self.df_manual_tracking['Neuron ID'][tail_ids].values)
+        else:
+            names = []
+        return names
+
+    def invalid_neuron_names(self):
+        """
+        Searches the "Notes" column of the manual annotation file for neurons that have been marked as "invalid"
+
+        Returns
+        -------
+
+        """
+        if self.df_manual_tracking is not None and 'Notes' in self.df_manual_tracking:
+            invalid_ids = self.df_manual_tracking['Notes'].str.contains('invalid', case=False)
+            names = list(self.df_manual_tracking['Neuron ID'][invalid_ids].values)
         else:
             names = []
         return names
@@ -2649,7 +2697,7 @@ def plot_pca_modes_from_project(project_data: ProjectData, n_components=3, trace
     if trace_kwargs is None:
         trace_kwargs = {}
 
-    pca_modes, var_explained = project_data.calc_pca_modes(n_components=n_components, **trace_kwargs)
+    pca_modes, _, var_explained, _ = project_data.calc_pca_modes(n_components=n_components, **trace_kwargs)
 
     # Use physical time axis
     x = project_data.x_for_plots
@@ -2707,7 +2755,7 @@ def plot_pca_projection_3d_from_project(project_data: ProjectData, trace_kwargs=
     if states_to_remove is None:
         states_to_remove = [BehaviorCodes.UNKNOWN]
 
-    pca_proj, var_explained = project_data.calc_pca_modes(**trace_kwargs, interpolate_nan=True)
+    pca_proj, _, var_explained, _ = project_data.calc_pca_modes(**trace_kwargs, interpolate_nan=True)
     var_explained *= 100
 
     if t_end is not None:
@@ -2942,3 +2990,280 @@ def rename_manual_ids_from_excel_in_project(project_data: ProjectData, dryrun=Fa
         project_data.data_cacher.rename_columns_in_existing_cached_dataframes(previous2new)
     else:
         print(f"Modifications to be made: {[(k, v) for k, v in previous2new.items() if k!=v]}")
+
+
+def get_time_length_from_object(obj, fields_to_ignore=None, verbose=0) -> Optional[int]:
+    if fields_to_ignore is None:
+        fields_to_ignore = set()
+
+    if hasattr(obj, "num_frames"):
+        val = getattr(obj, "num_frames")
+        if val is not None:
+            try:
+                if verbose >= 1:
+                    print(f"get_time_length_from_object: inferred time length from num_frames attribute: {val}")
+                return int(val)
+            except (TypeError, ValueError):
+                print(f"get_time_length_from_object: num_frames present but not coercible to int ({val})")
+
+    for k, v in vars(obj).items():
+        if k in fields_to_ignore:
+            if verbose >= 2:
+                print(f"get_time_length_from_object: skipping field {k} due to fields_to_ignore")
+            continue
+        if isinstance(v, (pd.DataFrame, pd.Series)) and len(v) > 0:
+            if verbose >= 1:
+                print(f"get_time_length_from_object: inferring time length from DataFrame/Series attribute {k} with shape {v.shape}")
+            return len(v)
+        if isinstance(v, np.ndarray) and getattr(v, "ndim", 0) > 0 and v.shape[0] > 0:
+            if verbose >= 1:
+                print(f"get_time_length_from_object: inferring time length from ndarray attribute {k} with shape {v.shape}")
+            return int(v.shape[0])
+        # dask arrays have tuple-like shape
+        if hasattr(v, "shape") and isinstance(getattr(v, "shape"), tuple) and len(v.shape) > 0 and v.shape[0] > 0:
+            try:
+                if verbose >= 1:
+                    print(f"get_time_length_from_object: inferring time length from dask array attribute {k} with shape {v.shape}")
+                return int(v.shape[0])
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def slice_time_like_object(
+    obj,
+    start: int,
+    stop: int,
+    T: int = None,
+    copy_obj: bool = True,
+    load_cached: bool = False,
+    verbose: bool = False,
+    reference_T: Optional[int] = None,
+    allow_rate_conversion: bool = False,
+    off_by_one_tolerance: int = 1
+):
+    """
+    Return a (shallow) copy of obj where time-major attributes (DataFrame/Series, ndarray, dask.Array)
+    whose length/shape[0] == T (or inferable) are sliced to [start:stop].
+
+    Behavior specifics:
+    - If T is None it will be inferred.
+    - If reference_T is provided and allow_rate_conversion=True, start/stop are interpreted
+      in the reference timebase and will be mapped to the object's timebase.
+    - Fields whose length differs from T by <= off_by_one_tolerance are still sliced but a
+      message will be printed in verbose mode.
+    - load_cached=True will attempt to materialize properties/cached-properties before slicing.
+    """
+    new_obj = copy(obj) if copy_obj else obj
+
+    # materialize only known descriptors if requested
+    if load_cached:
+        cls_dict = getattr(obj.__class__, "__dict__", {})
+        for nm, descriptor in cls_dict.items():
+            is_property = isinstance(descriptor, property)
+            is_cached_prop = descriptor.__class__.__name__.lower().endswith("cached_property")
+            if not (is_property or is_cached_prop):
+                continue
+            try:
+                getattr(obj, nm)
+            except (AttributeError, TypeError, NoBehaviorAnnotationsError, MissingAnalysisError) as e:
+                if verbose:
+                    print(f"slice_time_like_object: skipping materialization of {obj.__class__.__name__}.{nm}: {e}")
+
+    timelike_fields_to_ignore = set(["tracking_failure_idx"])
+
+    # infer T if needed
+    if T is None:
+        T = get_time_length_from_object(obj, fields_to_ignore=timelike_fields_to_ignore, verbose=verbose)
+    if T is None:
+        if verbose:
+            print(f"slice_time_like_object: no time-length inferred for {obj.__class__.__name__}; nothing to slice")
+        return new_obj
+
+    # if conversion requested, convert start/stop from reference timebase -> obj timebase
+    if reference_T is not None and allow_rate_conversion:
+        obj_T = get_time_length_from_object(obj, fields_to_ignore=timelike_fields_to_ignore, verbose=verbose)
+        if obj_T is None:
+            raise RuntimeError(f"Cannot determine target time-length to convert from reference_T={reference_T}")
+        if obj_T == reference_T:
+            mapped_start, mapped_stop = start, stop
+        else:
+            scale = obj_T / float(reference_T)
+            mapped_start = int(round(start * scale))
+            mapped_stop = int(round(stop * scale))
+            if verbose:
+                print(f"slice_time_like_object: converting [{start}:{stop}] (ref T={reference_T}) "
+                      f"-> [{mapped_start}:{mapped_stop}] (obj T={obj_T}), scale={scale:.6f}")
+        # bounds check using obj_T
+        if not (0 <= mapped_start < mapped_stop <= obj_T):
+            raise ValueError(f"Converted slice [{mapped_start}:{mapped_stop}] out of bounds for object length {obj_T}")
+        start_idx, stop_idx, target_T = mapped_start, mapped_stop, obj_T
+    else:
+        # no conversion — operate in object's timebase
+        start_idx, stop_idx, target_T = start, stop, T
+        if not (0 <= start_idx < stop_idx <= target_T):
+            raise ValueError(f"Invalid slice bounds [{start_idx}:{stop_idx}] for inferred length T={target_T}")
+
+    sliced_fields: List[str] = []
+    # iterate only instance attributes
+    for name, val in list(vars(obj).items()):
+        # DataFrame/Series handling
+        if isinstance(val, (pd.DataFrame, pd.Series)):
+            try:
+                val_len = len(val)
+            except TypeError:
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} — len() not supported")
+                continue
+            if val_len == target_T:
+                setattr(new_obj, name, val.iloc[start_idx:stop_idx].copy())
+                sliced_fields.append(name)
+                continue
+            # tolerance handling for off-by-one differences
+            if abs(val_len - target_T) <= off_by_one_tolerance:
+                # cap the stop_idx to available length
+                adj_stop = min(stop_idx, val_len)
+                if verbose:
+                    print(f"slice_time_like_object: field {name} length {val_len} differs from expected {target_T}, "
+                          f"using slice [{start_idx}:{adj_stop}]")
+                setattr(new_obj, name, val.iloc[start_idx:adj_stop].copy())
+                sliced_fields.append(name)
+                continue
+            else:
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} — length {val_len} does not match target {target_T}")
+                continue
+
+        # numpy arrays
+        if isinstance(val, np.ndarray):
+            ndims = getattr(val, "ndim", 0)
+            if ndims == 0 or ndims > 3:
+                continue
+            val_len = val.shape[0]
+            if val_len == target_T:
+                setattr(new_obj, name, val[start_idx:stop_idx].copy())
+                sliced_fields.append(name)
+                continue
+            if abs(val_len - target_T) <= off_by_one_tolerance:
+                adj_stop = min(stop_idx, val_len)
+                if verbose:
+                    print(f"slice_time_like_object: field {name} ndarray length {val_len} differs from {target_T}, "
+                          f"using slice [{start_idx}:{adj_stop}]")
+                setattr(new_obj, name, val[start_idx:adj_stop].copy())
+                sliced_fields.append(name)
+                continue
+            else:
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} ndarray — length {val_len} != target {target_T}")
+                continue
+
+        # dask array / array-like with shape
+        if hasattr(val, "shape") and isinstance(getattr(val, "shape"), tuple) and 3 > len(val.shape) > 0:
+            try:
+                val_len = int(val.shape[0])
+            except (TypeError, ValueError):
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} — non-indexable shape")
+                continue
+            if val_len == target_T:
+                setattr(new_obj, name, val[start_idx:stop_idx])
+                sliced_fields.append(name)
+                continue
+            if abs(val_len - target_T) <= off_by_one_tolerance:
+                adj_stop = min(stop_idx, val_len)
+                if verbose:
+                    print(f"slice_time_like_object: field {name} shape[0]={val_len} differs from {target_T}, using [{start_idx}:{adj_stop}]")
+                setattr(new_obj, name, val[start_idx:adj_stop])
+                sliced_fields.append(name)
+                continue
+            else:
+                if verbose:
+                    print(f"slice_time_like_object: skipping {name} — shape[0] {val_len} != target {target_T}")
+                continue
+
+    if verbose:
+        print(f"Sliced {len(sliced_fields)} fields on {obj.__class__.__name__} [{start_idx}:{stop_idx}]: {sliced_fields}")
+
+    return new_obj
+
+
+def split_project_data_in_time(project_data: "ProjectData",
+                               starts_stops: Sequence[tuple],
+                               also_split_high_res_fields: bool = True,
+                               off_by_one_tolerance: int = 1,
+                               verbose: bool = False) -> List["ProjectData"]:
+    """
+    Split ProjectData into explicit time segments.
+
+    - starts_stops: sequence of (start, stop) tuples defining segments.
+    - convert_posture_to_high_res: if True, maps project's indices to posture timebase when slicing worm_posture_class.
+    - off_by_one_tolerance: tolerate small length mismatches.
+    """
+    if not starts_stops:
+        raise ValueError("starts_stops must be a non-empty sequence of (start, stop) tuples")
+    if not isinstance(starts_stops, (list, tuple)):
+        raise TypeError("starts_stops must be a sequence of (start, stop) tuples")
+
+    T = get_time_length_from_object(project_data)
+    if T is None:
+        raise RuntimeError("Unable to determine canonical time length for splitting")
+
+    segments_spec: List[tuple] = []
+    for seg in starts_stops:
+        if not (isinstance(seg, (list, tuple)) and len(seg) == 2):
+            raise ValueError("Each element of starts_stops must be a (start, stop) tuple")
+        s, e = int(seg[0]), int(seg[1])
+        if s < 0 or e < 0:
+            raise ValueError("start and stop must be non-negative")
+        if s >= e:
+            raise ValueError("start must be strictly less than stop")
+        if e > T:
+            raise ValueError(f"stop index {e} exceeds project length {T}")
+        segments_spec.append((s, e))
+
+    segments: List[ProjectData] = []
+    for start, stop in segments_spec:
+        if verbose:
+            print(f"Creating segment for frames [{start}:{stop}] (project T={T})")
+
+        new_pd = copy(project_data)
+        new_pd = slice_time_like_object(new_pd, start, stop, T=T, copy_obj=False,
+                                        load_cached=False, verbose=verbose,
+                                        reference_T=None, allow_rate_conversion=False,
+                                        off_by_one_tolerance=off_by_one_tolerance)
+
+        posture = getattr(project_data, "worm_posture_class", None)
+        if posture is not None:
+            # These attributes need to be sliced, i.e. they are pandas-like
+            posture_ref_T = T if also_split_high_res_fields else None
+            posture_copy = slice_time_like_object(
+                posture,
+                start,
+                stop,
+                T=None,
+                copy_obj=True,
+                load_cached=True,
+                verbose=verbose,
+                reference_T=posture_ref_T,
+                allow_rate_conversion=also_split_high_res_fields,
+                off_by_one_tolerance=off_by_one_tolerance
+            )
+            setattr(new_pd, "worm_posture_class", posture_copy)
+
+            # These attributes need to be offset, i.e. they are lists of indices
+            for attr_name in ["tracking_failure_idx"]:
+                attr_val = getattr(posture, attr_name, None)
+                if isinstance(attr_val, (list, np.ndarray)):
+                    # filter and offset
+                    new_attr_val = [idx - start for idx in attr_val if start <= idx < stop-1]
+                    setattr(new_pd.worm_posture_class, attr_name, new_attr_val)
+
+        new_pd.num_frames = stop - start
+        for cache_name in ("_trace_plotter", "data_cacher", "_nwb_io", "_nwb_obj"):
+            if hasattr(new_pd, cache_name):
+                setattr(new_pd, cache_name, None)
+
+        new_pd._custom_frame_indices = list(range(start, stop))
+        segments.append(new_pd)
+
+    return segments

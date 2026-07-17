@@ -245,7 +245,10 @@ class DetectedNeurons:
         If there are no neurons, the returns two empty lists
         """
         if t in self.volumes_with_no_neurons:
-            return [], []
+            if as_dataframe:
+                return None
+            else:
+                return [], []
         all_metadata = self.segmentation_metadata[t].copy()
         column_names = self._column_names.copy()
         # Reformat using the new column names

@@ -1,14 +1,17 @@
 import logging
 import math
 import os
+import threading
 from functools import partial
 from pathlib import Path
 from typing import Optional, Union, Callable, List
 import pandas as pd
 from matplotlib.colors import TwoSlopeNorm
 import numpy as np
+import plotly
 import scipy.io
 from sklearn.decomposition import PCA
+from pandas.errors import IndexingError
 
 from wbfm.utils.general.utils_paper import paper_trace_settings, paper_figure_page_settings, \
     apply_figure_settings, behavior_name_mapping
@@ -16,7 +19,7 @@ from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes, options_
 from wbfm.utils.external.custom_errors import NoNeuronsError, NoBehaviorAnnotationsError
 from wbfm.utils.external.utils_matplotlib import get_twin_axis
 from wbfm.utils.external.utils_neuron_names import int2name_neuron, name2int_neuron_and_tracklet
-from wbfm.utils.external.utils_pandas import cast_int_or_nan
+from wbfm.utils.external.utils_pandas import cast_int_or_nan, combine_columns_with_suffix
 from matplotlib import transforms, pyplot as plt
 from matplotlib.ticker import NullFormatter, MultipleLocator
 from tqdm.auto import tqdm
@@ -37,6 +40,39 @@ from wbfm.utils.general.utils_paper import plotly_paper_color_discrete_map
 ## New functions for use with project_config files
 ##
 
+
+def _ensure_noninteractive_backend_for_batch(logger=None):
+    """
+    Switch to a non-interactive backend when plotting in a worker thread or headless session.
+    """
+    backend = plt.get_backend().lower()
+    running_outside_main_thread = threading.current_thread() is not threading.main_thread()
+    running_headless = not os.environ.get("DISPLAY")
+    if backend == "agg":
+        return
+    try:
+        if running_outside_main_thread or running_headless:
+            plt.switch_backend("Agg")
+            if logger is not None:
+                logger.info("Switched matplotlib backend to Agg for batch plotting")
+    except Exception as e:
+        if logger is not None:
+            logger.warning(f"Could not switch matplotlib backend to Agg: {e}")
+
+
+def _close_figure_like(fig_like):
+    """
+    Close matplotlib Figure and seaborn ClusterGrid objects safely.
+    """
+    if fig_like is None:
+        return
+    real_figure = getattr(fig_like, "fig", None)
+    if real_figure is None:
+        real_figure = getattr(fig_like, "figure", None)
+    if real_figure is None:
+        real_figure = fig_like
+    plt.close(real_figure)
+
 def make_grid_plot_from_project(project_data: ProjectData,
                                 channel_mode: str = 'ratio',
                                 calculation_mode: str = 'integration',
@@ -45,6 +81,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
                                 color_using_behavior=True,
                                 remove_outliers=False,
                                 bleach_correct=True,
+                                remove_invalid_neurons=True,
                                 behavioral_correlation_shading=None,
                                 direct_shading_dict=None,
                                 df_traces: pd.DataFrame=None,
@@ -78,6 +115,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
     color_using_behavior: if behavioral annotation exists, shade background for reversals and turns
     remove_outliers: trace calculation option; see calc_default_traces
     bleach_correct: trace calculation option; see calc_default_traces
+    remove_invalid_neurons: trace calculation option; see calc_default_traces
     behavioral_correlation_shading: correlate to a particular behavior; see factory_correlate_trace_to_behavior_variable
     direct_shading_dict: instead of dynamic calculation using behavioral_correlation_shading, pass a value per neuron
     share_y_axis: subplot option
@@ -92,6 +130,8 @@ def make_grid_plot_from_project(project_data: ProjectData,
     -------
 
     """
+    _ensure_noninteractive_backend_for_batch(getattr(project_data, "logger", None))
+
     # Evaluate possible recursion
     if trace_kwargs is None:
         trace_kwargs = {}
@@ -101,7 +141,8 @@ def make_grid_plot_from_project(project_data: ProjectData,
         opt = dict(project_data=project_data,
                    calculation_mode=calculation_mode,
                    color_using_behavior=color_using_behavior,
-                   bleach_correct=bleach_correct)
+                   bleach_correct=bleach_correct,
+                   remove_invalid_neurons=remove_invalid_neurons)
         for mode in all_modes:
             make_grid_plot_from_project(channel_mode=mode, **opt)
         # Second, remove outliers and filter
@@ -126,6 +167,7 @@ def make_grid_plot_from_project(project_data: ProjectData,
     if df_traces is None:
         trace_options = {'channel_mode': channel_mode, 'calculation_mode': calculation_mode, 'filter_mode': filter_mode,
                          'remove_outliers': remove_outliers, 'bleach_correct': bleach_correct,
+                         'remove_invalid_neurons': remove_invalid_neurons,
                          'neuron_names': tuple(neuron_names), 'min_nonnan': min_nonnan}
         trace_options.update(trace_kwargs)
         df_traces = project_data.calc_default_traces(**trace_options)
@@ -194,8 +236,10 @@ def make_grid_plot_from_project(project_data: ProjectData,
         except ValueError as e:
             logger.warning(f"Couldn't save dataframe to {fname}; likely due to a duplicate column")
             logger.warning(f"Error: {e}")
+        # Close figure after saving to free memory; figure is already on disk
+        plt.close(fig)
 
-    return fig
+    return getattr(fig, "fig", getattr(fig, "figure", fig))
 
 
 def make_grid_plot_from_dataframe(df: pd.DataFrame, neuron_names_to_plot: list = None, **kwargs):
@@ -436,7 +480,6 @@ def make_grid_plot_from_callables(get_data_func: callable,
 
     """
     
-    
     if fig_opt is None:
         fig_opt = {}
     if shade_plot_kwargs is None:
@@ -491,6 +534,8 @@ def make_grid_plot_from_callables(get_data_func: callable,
     if logger is not None:
         logger.info(f"Found {num_neurons} neurons; shaping to grid of shape {(num_rows, num_columns)}")
     if fig is None:
+        # Disable interactive mode to suppress "GUI outside main thread" warning in batch contexts
+        plt.ioff()
         fig, original_axes = plt.subplots(num_rows, num_columns, **default_fig_opt)
         new_fig = True
     else:
@@ -670,173 +715,6 @@ def get_measurement_channel(t_dict):
 ## For interactivity
 ##
 
-class ClickableGridPlot:
-    def __init__(self, project_data, verbose=3):
-
-        # Set up grid plot
-        opt = dict(channel_mode='ratio',
-                   calculation_mode='integration',
-                   filter_mode='rolling_mean',
-                   to_save=False)
-
-        mplstyle.use('fast')
-        with safe_cd(project_data.project_dir):
-            fig = make_grid_plot_from_project(project_data, **opt)
-
-        self.fig = fig
-        self.project_data = project_data
-
-        # Set up metadata objects
-        names = project_data.neuron_names
-        self.selected_neurons = {n: {"List ID": 0, "Proposed Name": n} for n in names}
-        self.current_list_index = 1
-        self.current_selected_label = None
-        self.verbose = verbose
-
-        # Set up text box for modifying names
-        # plt.subplots_adjust(bottom=0.2)
-        # axbox = plt.axes([0.1, 0.05, 0.8, 0.075])
-        # self.text_box = TextBox(axbox, 'Modify neuron name', initial="initial_text")
-        # self.text_box.on_submit(self.modify_neuron_name)
-
-        # Finish
-        self.connect()
-        # Load file and add initial colors, if any
-        self.load_previous_file()
-        plt.show()
-
-    def connect(self):
-        cid = self.fig.canvas.mpl_connect('button_press_event', self.shade_selected_subplot_callback)
-        cid = self.fig.canvas.mpl_connect('key_press_event', self.update_current_list_index)
-        cid = self.fig.canvas.mpl_connect('close_event', self.write_file)
-
-    def update_current_list_index(self, event):
-        if event.key in ['1', '2', '3']:
-            self.current_list_index = int(event.key)
-        else:
-            self.current_list_index = 0
-
-        print(f"Current list index: {self.current_list_index}")
-
-    def modify_neuron_name(self, text):
-        self.selected_neurons[self.current_selected_label]["Proposed Name"] = text
-
-    def update_selected_label(self, new_label):
-        self.current_selected_label = new_label
-        # self.text_box.set_val(new_label)
-
-    def get_color_from_list_index(self):
-        print(f"Getting color: {self.current_list_index}")
-        if self.current_list_index == 1:
-            return 'green'
-        elif self.current_list_index == 2:
-            return 'blue'
-        else:
-            return 'red'
-
-    def shade_selected_subplot_callback(self, event):
-        ax = event.inaxes
-        if self.verbose >= 3:
-            print(event)
-            print(ax)
-        if ax is None or len(ax.lines) == 0:
-            return
-        button_pressed = event.button
-
-        self.shade_selected_subplot(ax, button_pressed)
-
-    def shade_selected_subplot(self, ax, button_pressed):
-
-        line = ax.lines[0]
-        label = line.get_label()
-        self.update_selected_label(label)
-
-        # Button codes: https://matplotlib.org/stable/api/backend_bases_api.html#matplotlib.backend_bases.MouseButton
-        if button_pressed == 1:
-            # Left click = select neuron
-            if self.selected_neurons[label]["List ID"] == self.current_list_index:
-                print(f"{label} already selected")
-            else:
-                print(f"Selecting {label}")
-                self._reset_shading(ax)
-
-                y = line.get_ydata()
-                color = self.get_color_from_list_index()
-
-                shading = ax.axhspan(np.nanmin(y), np.nanmax(y), xmax=len(y), facecolor=color, alpha=0.25, zorder=-100)
-                ax.draw_artist(shading)
-
-                self.selected_neurons[label]["List ID"] = self.current_list_index
-
-        elif button_pressed == 3:
-            # Right click = deselect
-            if self.selected_neurons[label]["List ID"] == 0:
-                print(f"{label} not selected")
-            else:
-                print(f"Deselecting {label}")
-                self._reset_shading(ax)
-                plt.draw()
-                self.selected_neurons[label]["List ID"] = 0
-        else:
-            print("Button press detected, but did nothing")
-        # From: https://stackoverflow.com/questions/29277080/efficient-matplotlib-redrawing
-        ax.figure.canvas.blit(ax.bbox)
-        # if verbose >= 2:
-        #     print("Currently selected neuron:")
-        #     print(self.selected_neurons)
-
-    def _reset_shading(self, ax):
-        if len(ax.patches) > 0:
-            [p.remove() for p in ax.patches]
-            # ax.patches = []
-
-    def write_file(self, event):
-        log_dir = self.project_data.project_config.get_visualization_config(make_subfolder=True).absolute_subfolder
-        fname = os.path.join(log_dir, 'selected_neurons.csv')
-        # fname = get_sequential_filename(fname)
-        print(f"Saving: {fname}")
-
-        df = pd.DataFrame(self.selected_neurons)
-        df.T.to_csv(path_or_buf=fname, index=True)
-        fname = Path(fname).with_suffix('.xlsx')
-        df.T.to_excel(fname, index=True)
-        # df = pd.DataFrame(self.selected_neurons, index=[0])
-        # df.to_csv(path_or_buf=fname, header=True, index=False)
-
-        print(df.T)
-
-    def load_previous_file(self):
-        visualization_directory = self.project_data.project_config.get_visualization_config().absolute_subfolder
-        fname = os.path.join(visualization_directory, 'selected_neurons.csv')
-        if not os.path.exists(fname):
-            print(f"Did not find previous state at: {fname}")
-            return
-        else:
-            # plt.show(block=False)
-            self.fig.canvas.draw()
-            print(f"Reading previous state from: {fname}")
-            df = pd.read_csv(fname, index_col=0)
-
-            axes = self.fig.axes
-            button_pressed = 1
-
-            for ax, (name, list_index) in zip(axes, df.iterrows()):
-                if list_index[0] == 0:
-                    continue
-
-                # Add the shading to this axis
-                print(f"Shading {name} with index {list_index[0]} and name {list_index[1]}")
-                self.current_list_index = list_index[0]
-                self.shade_selected_subplot(ax, button_pressed)
-
-                # Also add the info to the dict
-                self.selected_neurons[name]["List ID"] = list_index[0]
-                self.selected_neurons[name]["Proposed Name"] = list_index[1]
-
-        plt.draw()
-        self.current_list_index = 1
-
-
 def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwargs=None, trace_kwargs=None,
                                also_plot_zscore=False, neuron_names_to_plot=None):
     """
@@ -909,6 +787,11 @@ def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwa
             fname = 'heatmap_zscore.png'
             fname = traces_cfg.resolve_relative_path(fname, prepend_subfolder=True)
             fig_zscore.savefig(fname)
+        
+        # Close figures after saving to free memory; figures are already on disk
+        _close_figure_like(fig)
+        if also_plot_zscore:
+            _close_figure_like(fig_zscore)
 
     return fig
 
@@ -916,6 +799,9 @@ def make_heatmap_using_project(project_data: ProjectData, to_save=True, plot_kwa
 def make_default_summary_plots_using_config(proj_dat: ProjectData):
     # Note: reloads the project data to properly read the new trace h5 files
     logger = proj_dat.logger
+    # Disable interactive mode for batch processing to prevent matplotlib threading warnings
+    plt.ioff()
+    _ensure_noninteractive_backend_for_batch(logger)
     logger.info("Making default grid plots")
     grid_opt = paper_trace_settings()
     grid_opt['channel_mode'] = 'all'
@@ -944,6 +830,22 @@ def make_default_summary_plots_using_config(proj_dat: ProjectData):
         logger.warning("Failed to make PC1 grid plot; if this is a test project this may be expected")
         logger.info(e)
         pass
+    
+    # Aggressively close all remaining figures after batch processing to prevent memory exhaustion
+    logger.info("Summary plots complete; clearing matplotlib figure cache")
+    try:
+        logging.info(f"Currently open figures: {plt.get_fignums()}")
+        # Close figures individually first to avoid segfaults with seaborn clustermap figures
+        for fig_num in plt.get_fignums():
+            try:
+                plt.close(fig_num)
+            except Exception as e:
+                logger.debug(f"Error closing figure {fig_num}: {e}")
+        # Final cleanup
+        plt.close('all')
+    except Exception as e:
+        logger.warning(f"Error during matplotlib cleanup: {e}. Continuing anyway.")
+        # Suppress segfaults during cleanup since figures are already on disk
 
 
 def make_default_triggered_average_plots(project_cfg, to_save=True):
@@ -1093,7 +995,7 @@ def make_summary_interactive_heatmap_with_pca(project_cfg, to_save=True, to_show
 
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     num_pca_modes_to_plot = 3
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_pca_modes_to_plot, trace_opt=trace_opt, **kwargs)
 
     rows = 1 + num_pca_modes_to_plot + 2
@@ -1107,7 +1009,8 @@ def make_summary_interactive_heatmap_with_pca(project_cfg, to_save=True, to_show
                         horizontal_spacing=0.04, vertical_spacing=0.05,
                         subplot_titles=subplot_titles,
                         specs=[[{}, {}, {}, {}],
-                               [{}, {"rowspan": 4, "colspan": 3, "type": "scene"}, None, None],
+                            #    [{}, {"rowspan": 4, "colspan": 3, "type": "scene"}, None, None],
+                               [{}, {"rowspan": 4, "colspan": 3}, None, None],
                                [{}, None, None, None],
                                [{}, None, None, None],
                                [{}, None, None, None],
@@ -1130,7 +1033,7 @@ def make_summary_interactive_heatmap_with_pca(project_cfg, to_save=True, to_show
     ### Second column
     for trace, trace_opt in zip(weights_list, weights_opt_list):
         fig.add_trace(trace, **trace_opt)
-    fig.add_traces(phase_plot_list, **phase_plot_list_opt)
+    fig.add_traces(phase_plot_list, rows=phase_plot_list_opt['row']-1, cols=phase_plot_list_opt['col'])
     fig.add_trace(var_explained_line, **var_explained_line_opt)
 
     ### Final updates
@@ -1202,15 +1105,42 @@ def make_summary_heatmap_and_subplots(project_cfg, to_save=True, to_show=False, 
 
     Parameters
     ----------
-    project_cfg
-    to_save
-    to_show
-    trace_opt
-    kwargs
+    project_cfg : ProjectConfig
+        Project configuration object
+    to_save : bool, default True
+        Whether to save the figures
+    to_show : bool, default False
+        Whether to display the figures
+    trace_opt : dict, optional
+        Trace calculation options
+    include_speed_subplot : bool, default True
+        Whether to include a speed subplot
+    ethogram_on_top : bool, default False
+        Whether to place ethogram on top of heatmap
+    output_folder : str, optional
+        Output folder path
+    base_width : float or list, default 0.5
+        Base width for figures
+    base_height : float or list, default 0.3
+        Base height for figures
+    **kwargs
+        Additional keyword arguments
 
     Returns
     -------
-
+    fig1 : plotly.graph_objects.Figure
+        Heatmap figure
+    fig2 : plotly.graph_objects.Figure
+        PCA modes and behavior traces figure
+    plotted_data : dict
+        Dictionary containing plotted time series with keys:
+        - 'neural_activity': Neural activity heatmap (neurons × time)
+        - 'time_axis': Time axis values
+        - 'neuron_names': List of neuron names
+        - 'pca_modes': PCA components dataframe
+        - 'speed': Worm speed time series
+        - 'pca_weights': PCA weights dataframe
+        - 'variance_explained': Explained variance ratios
     """
 
     if trace_opt is None:
@@ -1228,7 +1158,7 @@ def make_summary_heatmap_and_subplots(project_cfg, to_save=True, to_show=False, 
 
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     num_pca_modes_to_plot = 3
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_pca_modes_to_plot, trace_opt=trace_opt, **kwargs)
 
     # Build figure 1: heatmap
@@ -1332,18 +1262,22 @@ def make_summary_heatmap_and_subplots(project_cfg, to_save=True, to_show=False, 
         _save_plotly_all_types(fig1, project_data, fname='summary_only_heatmap_plot.html', output_folder=output_folder)
         _save_plotly_all_types(fig2, project_data, fname='summary_only_pca_plot.html', output_folder=output_folder)
 
-    return fig1, fig2
+    return fig1, fig2, plotted_data
 
 
 def _save_plotly_all_types(fig, project_data, fname='summary_trace_plot.html', output_folder=None):
     trace_cfg = project_data.project_config.get_traces_config()
     # Save in the actual project
-    fname = trace_cfg.resolve_relative_path(fname, prepend_subfolder=True)
-    fig.write_html(str(fname))
-    fname = Path(fname).with_suffix('.png')
-    fig.write_image(str(fname))
-    fname = Path(fname).with_suffix('.svg')
-    fig.write_image(str(fname))
+    try:
+        fname = trace_cfg.resolve_relative_path(fname, prepend_subfolder=True)
+        fig.write_html(str(fname))
+        fname = Path(fname).with_suffix('.png')
+        fig.write_image(str(fname))
+        fname = Path(fname).with_suffix('.svg')
+        fig.write_image(str(fname))
+    except PermissionError:
+        print(f"Permission error when trying to save in project directory; skipping HTML save and saving PNG and SVG in local folder instead")
+        pass
     # Save in a local folder
     if output_folder is not None:
         fname = Path(fname).with_suffix('.svg')
@@ -1362,6 +1296,7 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
                                                      crop_x_axis=True, row_heights=None, x_range=None,
                                                      apply_figure_size_settings=True, discrete_behaviors=False,
                                                      showlegend=True, eigenworm_behaviors=False,
+                                                     plot_separately=False,
                                                      **kwargs):
     """
     Similar to make_summary_interactive_heatmap_with_pca, but with a kymograph instead of the neural traces
@@ -1373,10 +1308,15 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     project_cfg
     to_save
     to_show
+    plot_separately : bool, default False
+        If True, returns two separate figures: one with kymograph and ethogram, one with behavior traces.
+        If False, returns a single combined figure with all elements.
 
     Returns
     -------
-
+    fig or (fig_kymograph, fig_behavior) : plotly figure or tuple of figures
+        If plot_separately is False, returns a single figure.
+        If plot_separately is True, returns a tuple of (fig_kymograph, fig_behavior).
     """
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     if x_range is None:
@@ -1388,42 +1328,87 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     num_modes_to_plot = len(behavior_alias_dict)
     behavior_kwargs = dict(fluorescence_fps=False, reset_index=False)
     behavior_kwargs.update(kwargs['behavior_kwargs']) if 'behavior_kwargs' in kwargs else {}
-    kwargs['behavior_kwargs'] =behavior_kwargs
+    kwargs['behavior_kwargs'] = behavior_kwargs
     additional_shaded_states = []#[BehaviorCodes.SLOWING, BehaviorCodes.HEAD_CAST]
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, _row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, _row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_modes_to_plot, use_behavior_traces=True, behavior_alias_dict=behavior_alias_dict,
         additional_shaded_states=additional_shaded_states, showlegend=showlegend, **kwargs)
 
-    # One column with a heatmap, (short) ethogram, and kymograph
-    rows = 1 + num_modes_to_plot + 1
-    if not discrete_behaviors and not eigenworm_behaviors:
-        # Will add speed manually
-        rows += 1
-    cols = 1
-    if row_heights is None:
-        row_heights = _row_heights[:rows]
+    # Determine figure layout
+    if plot_separately:
+        # Create separate figures for kymograph and behaviors
+        # Kymograph only (one row)
+        rows_kymo = 1
+        # Calculate number of behavior rows: 1 for ethogram + number of behavior traces
+        num_trace_rows = sum(len(v) if isinstance(v, list) else 1 for v in behavior_alias_dict.values())
+        if not discrete_behaviors and not eigenworm_behaviors:
+            num_trace_rows += 1  # speed will be added later
+        rows_behavior = 1 + num_trace_rows  # 1 row for ethogram + trace rows
+        cols = 1
+
+        # Create custom row heights for separate figures
+        # Kymograph gets one reasonable height
+        kymo_heights = [0.6]
+        # Behavior figure: ethogram gets smaller height, traces get equal heights
+        behavior_heights = [0.15] + [0.1] * num_trace_rows
+        
+        # Kymograph figure (single row)
+        fig_kymo = make_subplots(rows=rows_kymo, cols=cols, shared_xaxes=False, shared_yaxes=False,
+                                 row_heights=kymo_heights, vertical_spacing=0.05,
+                                 subplot_titles=['Kymograph'])
+        # Behavior figure: first row = ethogram, remaining rows = individual behavior traces
+        fig_behavior = make_subplots(rows=rows_behavior, cols=cols, shared_xaxes=False, shared_yaxes=False,
+                                     row_heights=behavior_heights, vertical_spacing=0.02)
+
+        figures_to_process = [
+            (fig_kymo, 'kymo', rows_kymo),
+            (fig_behavior, 'behavior', rows_behavior)
+        ]
     else:
-        row_heights = row_heights
+        # Combined figure
+        rows = 1 + num_modes_to_plot + 1
+        if not discrete_behaviors and not eigenworm_behaviors:
+            # Will add speed manually
+            rows += 1
+        cols = 1
+        if row_heights is None:
+            row_heights = _row_heights[:rows]
+        else:
+            row_heights = row_heights
 
-    # Build figure
-    ## Kymograph and ethogram (large image subplots)
-    subplot_titles = ['', '']
-    subplot_titles.extend(list(behavior_alias_dict.keys()))
-    # subplot_titles.append('Speed')
-    fig = make_subplots(rows=rows, cols=cols, shared_xaxes=False, shared_yaxes=False,
-                        row_heights=row_heights, vertical_spacing=0.02,
-                        #subplot_titles=subplot_titles
-                        )
-    fig.update_layout(
-        width=800,
-        height=600
-    )
+        # Build figure
+        ## Kymograph and ethogram (large image subplots)
+        subplot_titles = ['', '']
+        subplot_titles.extend(list(behavior_alias_dict.keys()))
+        # subplot_titles.append('Speed')
+        fig = make_subplots(rows=rows, cols=cols, shared_xaxes=False, shared_yaxes=False,
+                            row_heights=row_heights, vertical_spacing=0.02,
+                            #subplot_titles=subplot_titles
+                            )
+        # fig.update_layout(
+        #     width=800,
+        #     height=600
+        # )
 
-    for opt in ethogram_opt:
-        fig.add_shape(**opt, row=2, col=1)
-    kymograph_opt['row'] = 1
-    fig.add_trace(kymograph, **kymograph_opt)
+        for opt in ethogram_opt:
+            fig.add_shape(**opt, row=2, col=1)
+        kymograph_opt['row'] = 1
+        fig.add_trace(kymograph, **kymograph_opt)
+        
+        figures_to_process = [(fig, 'combined', rows)]
 
+    # Add kymograph and ethogram to appropriate figure
+    if plot_separately:
+        # Add to kymograph figure (no ethogram here)
+        fig_kymo = figures_to_process[0][0]
+        kymograph_opt['row'] = 1
+        fig_kymo.add_trace(kymograph, **kymograph_opt)
+        # Move ethogram to the behavior figure (row 1)
+        fig_behavior = figures_to_process[1][0]
+        for opt in ethogram_opt:
+            fig_behavior.add_shape(**opt, row=1, col=1)
+        fig = fig_behavior  # Current working figure for behavior traces
+    
     ## Add behavior traces
     # I am adding multiple traces to a single plot, which the original function wasn't designed for
     # So I have to manually check the size of behavior_alias_dict and add the traces correctly
@@ -1440,11 +1425,23 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
             trace, trace_opt = trace_list[i_num_traces_used], trace_opt_list[i_num_traces_used]
             i_num_traces_used += 1
 
-            fig.add_trace(trace, **trace_opt)
+            if plot_separately:
+                # Adjust row numbers for separate behavior figure (starts at row 1)
+                adjusted_trace_opt = trace_opt.copy()
+                adjusted_trace_opt['row'] = trace_opt['row'] - rows_kymo #(1 if trace_opt['row'] > 2 else 0)
+                fig.add_trace(trace, **adjusted_trace_opt)
+            else:
+                fig.add_trace(trace, **trace_opt)
+            
             num_before_adding_shapes = len(fig.layout.shapes)
             for shade_opt in trace_shading_opt:
-                shade_opt['y1'] = 1-row_heights[0]  # Default is half the overall plot
-                fig.add_shape(**shade_opt, row=trace_opt['row'], col=trace_opt['col'])
+                if plot_separately:
+                    shade_opt['y1'] = 1.0  # Full height for separate figure
+                    row = trace_opt['row'] - rows_kymo
+                else:
+                    shade_opt['y1'] = 1-_row_heights[0]  # Default is relative to overall plot
+                    row = trace_opt['row']
+                fig.add_shape(**shade_opt, row=row, col=trace_opt['col'])
             # Force yref in all of these new shapes, which doesn't really work for subplots
             # But here it is hardcoded as 50% of the overall plot (extending across subplots)
             for i in range(num_before_adding_shapes, len(fig.layout.shapes)):
@@ -1461,34 +1458,83 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     #     for i in range(num_before_adding_shapes, len(fig.layout.shapes)):
     #         fig.layout.shapes[i]['yref'] = 'paper'
 
-    ### Final updates
+    ### Final updates - apply to kymograph figure if separate
+    if plot_separately:
+        fig_kymo = figures_to_process[0][0]
+        fig_kymo.update_xaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True, matches='x')
+        if crop_x_axis:
+            fig_kymo.update_xaxes(dict(range=x_range), row=1, col=1, overwrite=True)
+        fig_kymo.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True)
+        
+        # Flip the kymograph
+        fig_kymo.update_yaxes(dict(autorange='reversed'), col=1, row=1, overwrite=True)
+        fig_kymo.update_yaxes(dict(showticklabels=True, showgrid=False, title='Body<br>Segment'), col=1, row=1)
+        fig_kymo.update_xaxes(dict(showticklabels=True, title=project_data.x_label_for_plots), row=1, col=1, overwrite=True)
+        
+        if apply_figure_size_settings:
+            apply_figure_settings(fig_kymo, width_factor=0.3, height_factor=0.35, plotly_not_matplotlib=True)
+        
+        if to_show:
+            fig_kymo.show()
+        if to_save:
+            fname_kymo = 'summary_behavior_plot_kymograph_only.html'
+            if keep_reversal_turns:
+                fname_kymo = 'summary_behavior_plot_kymograph_only_with_reversal_turns.html'
+            _save_plotly_all_types(fig_kymo, project_data, fname=fname_kymo)
+    
+    # Apply updates to behavior figure (separate or combined)
     fig.update_xaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True, matches='x')
-    if crop_x_axis:
+    if crop_x_axis and not plot_separately:
         fig.update_xaxes(dict(range=x_range), row=1, col=1, overwrite=True)
     fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True)
-    fig.update_xaxes(dict(showticklabels=True, title=project_data.x_label_for_plots),
-                     row=5, col=1, overwrite=True,)
-
-    # Flip the kymograph
-    fig.update_yaxes(dict(autorange='reversed'), col=1, row=1, overwrite=True)
-    # Note: specific to the paper figure
-    fig.update_yaxes(dict(showticklabels=True, showgrid=False, title='Body<br>Segment'), col=1, row=1)
-    if discrete_behaviors:
-        fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=1)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Turn<br>Annotations'), col=1, row=3)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Other<br>Annotations'), col=1, row=4)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards<br>Annotation'), col=1, row=5)
-    elif eigenworm_behaviors:
-        fig.update_yaxes(dict(showticklabels=False, showgrid=False, title='Body Segment'), col=1, row=1)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=3)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=4)
-        fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards'), col=1, row=5)
+    
+    if plot_separately:
+        # For separate behavior figure, place x-axis labels on the bottom row of the behavior figure
+        fig.update_xaxes(dict(showticklabels=True, title=project_data.x_label_for_plots),
+                         row=rows_behavior, col=1, overwrite=True)
     else:
-        fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature'), col=1, row=3)
-        fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature'), col=1, row=4)
-        fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=5)
-    # Move the subplot titles down
-    # fig.update_annotations(yshift=-7)
+        # For combined figure
+        fig.update_xaxes(dict(showticklabels=True, title=project_data.x_label_for_plots),
+                         row=5, col=1, overwrite=True)
+        
+        # Flip the kymograph
+        fig.update_yaxes(dict(autorange='reversed'), col=1, row=1, overwrite=True)
+        fig.update_yaxes(dict(showticklabels=True, showgrid=False, title='Body<br>Segment'), col=1, row=1)
+
+    if discrete_behaviors:
+        if plot_separately:
+            base = 1  # ethogram occupies row 1
+            fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=base)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Turn<br>Annotations'), col=1, row=base+1)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Other<br>Annotations'), col=1, row=base+2)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards<br>Annotation'), col=1, row=base+3)
+        else:
+            fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=1)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Turn<br>Annotations'), col=1, row=3)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Other<br>Annotations'), col=1, row=4)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards<br>Annotation'), col=1, row=5)
+    elif eigenworm_behaviors:
+        if plot_separately:
+            base = 1
+            fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=base)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=base+1)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=base+2)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards'), col=1, row=base+3)
+        else:
+            fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, row=1)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=3)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Eigenworms'), col=1, row=4)
+            fig.update_yaxes(dict(showticklabels=False, showgrid=True, title='Backwards'), col=1, row=5)
+    else:
+        if plot_separately:
+            base = 1
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature<br>(1/mm)'), col=1, row=base+1)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature<br>(1/mm)'), col=1, row=base+2)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=base+3)
+        else:
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Head<br>Curvature<br>(1/mm)'), col=1, row=3)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Body<br>Curvature<br>(1/mm)'), col=1, row=4)
+            fig.update_yaxes(dict(showticklabels=True, showgrid=True, title='Velocity<br>(mm/s)', range=[-0.25, 0.15]), col=1, row=5)
 
     if not discrete_behaviors:
         fig.update_layout(showlegend=False, overwrite=True)
@@ -1501,13 +1547,20 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
 
     # Add zero line to the speed plot
     if not discrete_behaviors and not eigenworm_behaviors:
+        # Put zero line on the bottom-most behavior row when separate, otherwise keep original row
+        target_row = rows_behavior if plot_separately else 5
         fig.update_yaxes(dict(showticklabels=True, showgrid=True, griddash='dash', gridcolor='black'),
+                         zerolinecolor='black', zerolinewidth=2,
                          range=[-0.22, 0.14],
                          tickmode='array', tickvals=[-0.22, 0],
-                         row=5, overwrite=True)
+                         row=target_row, overwrite=True)
 
     # Get the colormaps and legends in the right places, and not overlapping
-    fig.update_layout(
+    if plot_separately:
+        _fig = fig_kymo
+    else:
+        _fig = fig
+    _fig.update_layout(
         coloraxis2=dict(colorscale='RdBu',
                         colorbar=dict(
                             len=0.5,
@@ -1518,7 +1571,7 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
                             title=dict(text=r'Curvature (1/mm)', font=dict(size=14))
                         )),
     )
-    fig.update_layout(
+    _fig.update_layout(
         showlegend=True,
         legend=dict(
           yanchor="middle",
@@ -1545,7 +1598,9 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
     # )
 
     if to_show:
-        fig.show()
+        if plot_separately:
+            figures_to_process[0][0].show()  # Show kymograph
+        fig.show()  # Show behavior
 
     if to_save:
         # Change fname depending on whether we're keeping reversal turns
@@ -1555,7 +1610,10 @@ def make_summary_interactive_kymograph_with_behavior(project_cfg, to_save=True, 
             fname = 'summary_behavior_plot_kymograph.html'
         _save_plotly_all_types(fig, project_data, fname=fname)
 
-    return fig
+    if plot_separately:
+        return (figures_to_process[0][0], fig)
+    else:
+        return fig
 
 
 def _get_behavior_dict(discrete_behaviors, eigenworm_behaviors):
@@ -1592,7 +1650,7 @@ def make_summary_interactive_heatmap_with_kymograph(project_cfg, to_save=True, t
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
     num_pca_modes_to_plot = 3
     kwargs['behavior_kwargs'] = dict(fluorescence_fps=False, reset_index=False)
-    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list = build_all_plot_variables_for_summary_plot(
+    column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data = build_all_plot_variables_for_summary_plot(
         project_data, num_pca_modes_to_plot, **kwargs)
 
     # One column with a heatmap, (short) ethogram, and kymograph
@@ -1902,7 +1960,7 @@ def make_full_summary_interactive_plot(project_cfg, to_save=True, to_show=False,
 def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plot=3, keep_reversal_turns=False,
                                               use_manual_annotations=False, use_behavior_traces=False,
                                               behavior_alias_dict=None, behavior_kwargs=None, showlegend=True,
-                                              additional_shaded_states=None, trace_opt: dict = None, DEBUG=False):
+                                              additional_shaded_states=None, trace_opt: dict = None, use_alternate_cmap=False, DEBUG=False):
     if behavior_kwargs is None:
         behavior_kwargs = dict(fluorescence_fps=True, reset_index=False)
     if behavior_alias_dict is None:
@@ -1912,25 +1970,23 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
         default_trace_opt.update(trace_opt)
     df_traces = project_data.calc_default_traces(**default_trace_opt)
     x_for_plots_volumes = project_data.x_for_plots
-    # x_for_plots_behavior = project_data.worm_posture_class.x_physical_time_frames
 
-    df_traces_no_nan = fill_nan_in_dataframe(df_traces.copy(), do_filtering=True)
-    # Calculate pca modes, and use them to sort
-    pca_weights = PCA(n_components=10)
-    pca_modes = PCA(n_components=10)
-    df_mean_subtracted = df_traces_no_nan - df_traces_no_nan.mean()
-    pca_weights.fit(df_mean_subtracted)
-    pca_modes.fit(df_mean_subtracted.T)
+    # Calculate pca modes and weights using the class method
+    df_pca_weights, df_pca_modes_full, var_explained_full, pipe = project_data.calc_pca_modes(n_components=10, 
+                                                                                          **default_trace_opt)
+    pca_obj = pipe.named_steps['pca']
     # Preprocess
     df_tmp = df_traces
     # df_tmp -= df_tmp.min()
-    ind_sort = np.argsort(pca_weights.components_[0, :])
+    ind_sort = np.argsort(df_pca_weights.iloc[:, 0].values)
     dat = df_tmp.T.iloc[ind_sort, :]
     neuron_names = list(dat.index)
-    df_pca_modes = pd.DataFrame(pca_modes.components_[0:num_pca_modes_to_plot, :].T)
-    col_names = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
-    df_pca_modes.columns = col_names
+    
+    # Use the already-computed modes from the method
+    df_pca_modes = df_pca_modes_full.iloc[:, :num_pca_modes_to_plot].copy()
+    df_pca_modes.columns = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
     df_pca_modes.set_index(x_for_plots_volumes, inplace=True)
+    col_names = df_pca_modes.columns
 
     has_behavior = True
     try:
@@ -1951,12 +2007,11 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
         # Then we are working in behavioral space, and the x axis should be set properly in the worm_posture class
         pass
 
-    df_pca_weights = pd.DataFrame(pca_weights.components_[0:num_pca_modes_to_plot, :].T)
-    col_names = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
-    df_pca_weights.columns = col_names
+    df_pca_weights = df_pca_weights.iloc[:, :num_pca_modes_to_plot].copy()
+    df_pca_weights.columns = [f'mode {i}' for i in range(num_pca_modes_to_plot)]
     df_pca_weights.index = neuron_names
     df_pca_weights = df_pca_weights.iloc[ind_sort, :].reset_index(drop=True)
-    var_explained = pca_modes.explained_variance_ratio_[:7]
+    var_explained = pca_obj.explained_variance_ratio_[:7]
     # Initialize options for all subplots
     subplot_titles = ['Traces sorted by PC1', '', 'PCA weights', '', '', 'Phase plot',
                       'PCA modes', '', '', 'Middle Body Speed', 'Variance Explained']
@@ -2078,7 +2133,10 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
             logging.warning('No manual annotations found')
             beh_vec = None
     if beh_vec is None:
-        beh_vec = project_data.worm_posture_class.beh_annotation(**behavior_kwargs, include_pause=True)
+        try:
+            beh_vec = project_data.worm_posture_class.beh_annotation(**behavior_kwargs, include_pause=True)
+        except NoBehaviorAnnotationsError:
+            beh_vec = None
     ethogram_cmap_opt = dict(include_reversal_turns=keep_reversal_turns, include_pause=True)
     if beh_vec is None:
         # If still none, that means there are no annotations (e.g. it is immobilized)
@@ -2094,10 +2152,10 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
         except ValueError:
             # Then we are working in behavioral space, and we don't need this
             pass
-        # print(f'Unique state codes for ethogram: {[s.full_name for s in beh_vec.iloc[:, 0].unique()]}')
         ethogram_opt = options_for_ethogram(beh_vec, **ethogram_cmap_opt, include_turns=True,
                                             to_extend_short_states=True,
-                                            additional_shaded_states=additional_shaded_states, DEBUG=False)
+                                            additional_shaded_states=additional_shaded_states,
+                                            use_alternate_cmap=use_alternate_cmap)
     ### 3d phase plot
     ethogram_cmap = BehaviorCodes.ethogram_cmap(**ethogram_cmap_opt)
     # Use the same behaviors as the ethogram
@@ -2132,19 +2190,31 @@ def build_all_plot_variables_for_summary_plot(project_data, num_pca_modes_to_plo
                 # print(f'KeyError: {e} on behavior {state_code.full_name}')
                 pass
 
-    except ValueError as e:
+    except (IndexingError, ValueError) as e:
         # Then we are working in behavioral space, and we don't need a phase plot
         print(f'ValueError: {e}; if only the behavior is being plotted, this is not a problem')
         phase_plot_list = []
 
-    phase_plot_list_opt = dict(row=3, col=2, pca_obj=pca_weights)
+    phase_plot_list_opt = dict(row=3, col=2, pca_obj=pca_obj)
     ### Variance explained
     var_explained_line = go.Scatter(x=np.arange(1, len(var_explained)+1), y=var_explained, showlegend=False)
     var_explained_line_opt = dict(row=6, col=2, secondary_y=False)
 
+    # Package the plotted time series data
+    plotted_data = {
+        'neural_activity': dat,
+        'time_axis': x_for_plots_volumes,
+        'neuron_names': neuron_names,
+        'pca_modes': df_pca_modes,
+        'speed': speed,
+        'pca_weights': df_pca_weights,
+        'variance_explained': var_explained,
+        'beh_vec': beh_vec
+    }
+
     return column_widths, ethogram_opt, heatmap, heatmap_opt, kymograph, kymograph_opt, phase_plot_list, \
         phase_plot_list_opt, row_heights, subplot_titles, trace_list, trace_opt_list, trace_shading_opt, \
-        var_explained_line, var_explained_line_opt, weights_list, weights_opt_list
+        var_explained_line, var_explained_line_opt, weights_list, weights_opt_list, plotted_data
 
 
 def make_summary_hilbert_triggered_average_grid_plot(project_cfg, i_body_segment=41,
@@ -2282,3 +2352,123 @@ def _make_trajectory_plot(project_data, **kwargs):
                              ))
 
     return phase_plot_list
+
+
+def plot_stacked_neurons(project, neurons_to_plot: list, show_full=False, x_range=None, 
+                         cmap = plotly.colors.qualitative.D3, to_show=True, trace_opt=None, DEBUG=False, **beh_kwargs):
+    """
+    Plot stacked neuron traces, with the ability to combine pairs in two different ways:
+    1. If the basename is given (e.g. AVA, not AVAL or AVAR), then the average of left and right is plotted
+    2. If a list is passed, then that list is plotted on top. In this case the row label is the combined strings
+    If a neuron is missing, it's color will be skipped to match colors across datasets with incomplete IDs.
+
+    Example:
+    neurons_to_plot = ['RID', 
+                   'BAGR', 'BAGL', 
+                   'RMEV', 'RMED', 
+                   'AVAR', 'AVAL', ]
+    """
+    if trace_opt is None:
+        trace_opt = dict()
+    opt = dict(interpolate_nan=False, min_nonnan=0, rename_neurons_using_manual_ids=True, manual_id_confidence_threshold = 0,
+               use_paper_options=True)
+    opt.update(trace_opt)
+    df = project.calc_default_traces(**opt)
+
+    df_combined = combine_columns_with_suffix(df.copy(), suffixes=['R', 'L'])
+
+    def _get_y_from_colname(col):
+        if col in df:
+            y = df[col].copy()
+        elif col in df_combined:
+            y = df_combined[col].copy()
+        else:
+            # Make a dummy time series so that the offsets are the same
+            y = None
+        return y
+    
+    def _get_rowname_from_colname(col):
+        if isinstance(col, list):
+            if len(col) == 2 and col[0].endswith('R') and col[1].endswith('L'):
+                return col[0][:-1] + 'R/L'
+            elif len(col) == 2 and col[0].endswith('V') and col[1].endswith('D'):
+                return col[0][:-1] + 'V/D'
+            else:
+                return '/'.join(col)
+        else:
+            return col
+    
+    trace_list, trace_opt_list, row_names = [], [], []
+    def _add_trace_for_col(col, i_traces, i_row):
+        y = _get_y_from_colname(col)
+        if y is None:
+            return False
+        basename = _get_rowname_from_colname(col)
+        trace = go.Scatter(y=y, x=y.index, showlegend=DEBUG, name=basename, 
+                           line=dict(color=cmap[i_traces%len(cmap)], width=2))
+        trace_opt = dict(row=i_row, col=1, secondary_y=False)
+        if DEBUG:
+            print(f'Adding trace for {col} at row {i_row} with color {cmap[i_traces%len(cmap)]} (color index {i_traces%len(cmap)})')
+        # Modify directly in this function
+        trace_list.append(trace)
+        trace_opt_list.append(trace_opt)
+        return True
+
+    i_trace = 0
+    for i_row, col in enumerate(neurons_to_plot):
+        if isinstance(col, list):
+            for c in col:
+                actually_added = _add_trace_for_col(c, i_trace, i_row+1)
+                i_trace += 1
+        else:
+            actually_added = _add_trace_for_col(col, i_trace, i_row+1)
+            i_trace += 1
+        # Build row name from either list or string directly
+        row_names.append(_get_rowname_from_colname(col))
+    fig = make_subplots(rows=i_row+1, cols=1, shared_xaxes=True, shared_yaxes=False,
+                        # row_heights=row_heights, column_widths=column_widths,
+                        horizontal_spacing=0.04, vertical_spacing=0.0)
+    
+    for trace, trace_opt in zip(trace_list, trace_opt_list):
+        fig.add_trace(trace, **trace_opt)
+    
+    ### Final updates
+    apply_figure_settings(fig, width_factor=0.3, height_factor=0.3, plotly_not_matplotlib=True)
+    # Remove ticks
+    if not show_full:
+        fig.update_xaxes(range=[0, 300])
+    fig.update_xaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True, matches='x')
+    # fig.update_yaxes(dict(showticklabels=False, showgrid=False), col=1, overwrite=True)
+
+    fig.update_xaxes(dict(showticklabels=True, title='Time (seconds)'), row=i_row+1, col=1, overwrite=True, )
+    # Remove black lines for all but bottom subplot
+    for i in range(i_row+1):
+        fig.update_xaxes(showline=True, linecolor='black', row=i+1, overwrite=True)
+        # if i < i_row+1:
+        #     fig.update_xaxes(showline=False, row=i+1, overwrite=True)
+        #     if DEBUG:
+        #         print(f'Removed x axis line for row {i+1}')
+        title = title = f"{row_names[i]}<br>(ΔR/R<sub>50</sub>)"
+        fig.update_yaxes(title_text=title, row=i+1, overwrite=True)
+
+    if DEBUG:
+        # Add title to legend
+        fig.update_layout(
+            legend=dict(
+                title=dict(text='Example<br>neurons', font=dict(size=14)),
+                # yanchor="top",
+                # y=1,
+                # xanchor="left",
+                # x=1.02
+            )
+        )
+    
+    project.shade_axis_using_behavior(plotly_fig=fig, **beh_kwargs)
+
+    if x_range is not None:
+        fig.update_xaxes(dict(range=x_range), overwrite=True)
+        
+    if to_show:
+        fig.show()
+
+    return fig

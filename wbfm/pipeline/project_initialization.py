@@ -93,14 +93,26 @@ def build_project_structure_from_config(config: dict, logger: logging.Logger = N
 
     project_fname, _ = build_project_structure(project_config_updates, basename)
 
-    # Copy simple raw data files to the project; for now just stage_position
+    # Copy simple raw data files to the project: stage position and raw data config
+    project_config = ModularProjectConfig(project_fname)
+    beh_folder = project_config.get_behavior_config().absolute_subfolder
+
     from wbfm.utils.general.postures.centerline_classes import WormFullVideoPosture
     stage_position_filename = WormFullVideoPosture.find_stage_position_in_folder(parent_data_folder)
     if stage_position_filename is not None:
-        project_config = ModularProjectConfig(project_fname)
-        beh_folder = project_config.get_behavior_config().absolute_subfolder
-        # Copy just this file
         shutil.copy(stage_position_filename, osp.join(beh_folder, Path(stage_position_filename).name))
+    else:
+        project_config.logger.warning("No stage position file found; some behavior steps may crash.")
+
+    # Don't treat it as a config class, because it loads a default dict by if it doesn't find the file, which is the case here since we haven't copied it yet. 
+    # Just copy the file directly
+    try:
+        raw_data_config_fname = project_config.get_remote_raw_data_config_filename()
+        # Rename, because the original name is just "config.yaml"
+        new_fname = osp.join(beh_folder, 'raw_data_config.yaml')
+        shutil.copy(raw_data_config_fname, new_fname)
+    except FileNotFoundError:
+        project_config.logger.warning("No raw data config found; kymograph signing will not work properly and some behavior steps may crash.")
 
     # If there is a neuropal dataset to add, do so
     if 'neuropal_path' in config:

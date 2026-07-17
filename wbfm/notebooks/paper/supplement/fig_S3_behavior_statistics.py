@@ -474,7 +474,6 @@ df_duration.columns
 # In[46]:
 
 
-
 states = ['BehaviorCodes.FWD', 'BehaviorCodes.REV']
 titles = ["Fwd", "Bwd"]
 
@@ -515,7 +514,6 @@ for x, t in zip(states, titles):
 
 
 # In[37]:
-
 
 
 fig = px.histogram(df_duration.melt(id_vars=['dataset_name', 'genotype']), 
@@ -567,7 +565,6 @@ df_frequency = pd.concat([df_frequency_gcamp, df_frequency_gfp])
 
 
 # In[41]:
-
 
 
 states = ['BehaviorCodes.FWD', 'BehaviorCodes.REV']
@@ -925,7 +922,6 @@ df_duration['BehaviorCodes.SLOWING'] /= fps
 # In[ ]:
 
 
-
 states = ['BehaviorCodes.SLOWING']
 titles = ["slowing"]
 
@@ -1167,7 +1163,6 @@ model.plot()
 # # Scratch: other distributions
 
 # In[ ]:
-
 
 
 model = surpyval.Exponential.fit(x=duration_vec, c=censored_vec)

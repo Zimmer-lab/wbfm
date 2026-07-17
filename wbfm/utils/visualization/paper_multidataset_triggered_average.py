@@ -30,7 +30,7 @@ from wbfm.utils.traces.triggered_averages import clustered_triggered_averages_fr
     calc_p_value_using_ttest_triggered_average, FullDatasetTriggeredAverages
 from wbfm.utils.general.high_performance_pandas import get_names_from_df
 from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation, convert_channel_mode_to_axis_label
-from wbfm.utils.external.custom_errors import NoBehaviorAnnotationsError
+from wbfm.utils.external.custom_errors import NeuronNotFoundError, NoBehaviorAnnotationsError
 
 
 @dataclass
@@ -410,10 +410,10 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                          'raw_dt': 'Time relative to\nDorsal Turn (s)',
                          'global_rev': 'Time relative to\nReversal (s)',
                          'global_fwd': 'Time relative to\nForward (s)',
-                         'residual': 'Time relative to\nventral undulation (s)',
+                         'residual': 'Time relative to\ndorsal undulation (s)',
                          'residual_collision': 'Time relative to\nself-collision (s)',
-                         'residual_rectified_fwd': 'Time relative to\nventral undulation (s)',
-                         'residual_rectified_rev': 'Time relative to\nventral undulation (s)',
+                         'residual_rectified_fwd': 'Time relative to\ndorsal undulation (s)',
+                         'residual_rectified_rev': 'Time relative to\ndorsal undulation (s)',
                          'kymo': 'Time (s)',
                          'stimulus': 'Time (s)',
                          'self_collision': 'Time relative to\nself-collision (s)',}
@@ -639,7 +639,7 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
         if color is None:
             color = self.get_color_from_data_type(trigger_type, is_mutant=is_mutant)
         df_subset = self.get_traces_single_neuron(neuron_name, trigger_type,
-                                                  return_individual_traces=return_individual_traces, DEBUG=DEBUG)
+                                                return_individual_traces=return_individual_traces, DEBUG=DEBUG)
 
         if df_subset.shape[1] == 0:
             logging.debug(f"Neuron name {neuron_name} not found, skipping")
@@ -832,6 +832,8 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             print(f"Found {len(neuron_names)} neurons with name {neuron_name}")
             print(f"Neuron names: {neuron_names}")
         df_subset = df.loc[:, neuron_names]
+        if df_subset.empty:
+            raise NeuronNotFoundError(f"No neurons found with name {neuron_name} for trigger type {trigger_type}")
         return df_subset
 
     def get_valid_neuron_names(self, trigger_type, remove_nonided_neurons=True):
@@ -888,27 +890,33 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                                                                 color=color, **kwargs)
         return fig, ax
 
-    def plot_events_over_trace(self, neuron_name, trigger_type, dataset_name=None, output_foldername=None, **kwargs):
+    def plot_events_over_trace(self, neuron_name, trigger_type, dataset_name=None, output_foldername=None, 
+                               fig_opt=None, ignore_errors=True, **kwargs):
         """
         Plot the full trace with the event
 
         Loops through individual triggered average objects and plots the full trace with the event.
         """
+        if fig_opt is None:
+            fig_opt = dict()
 
         these_intermediates = self.intermediates_dict[trigger_type][0]
         for _dataset, triggered_average_class in these_intermediates.items():
             if dataset_name is not None and dataset_name != _dataset:
                 continue
 
-            fig, ax = plt.subplots(dpi=100)
+            fig, ax = plt.subplots(dpi=100, **fig_opt)
             try:
                 triggered_average_class.plot_events_over_trace(neuron_name, ax=ax, **kwargs)
                 if 'rev' in trigger_type:
                     self.all_projects[_dataset].shade_axis_using_behavior()
                 plt.title(f"{neuron_name} - {_dataset}")
                 plt.show()
-            except KeyError:
+            except KeyError as e:
+                print(f"Error plotting {neuron_name} for dataset {_dataset}: {e}")
                 # print(f"Neuron {neuron_name} not found in {name}; skipping")
+                if not ignore_errors:
+                    raise e
                 continue
 
     def ttest_before_and_after(self, neuron_name, trigger_type, gap=0):
@@ -1011,6 +1019,17 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
 
         return all_names_to_keep, all_all_p_values, all_all_effect_sizes
 
+    def print_statistics(self):
+        for trigger_type in self.intermediates_dict.keys():
+            print(f"Trigger type: {trigger_type}")
+            triggered_average_dict = self.intermediates_dict[trigger_type][0]
+            these_events = []
+            for _dataset, triggered_average_class in tqdm(triggered_average_dict.items(), leave=False):
+                # print(f"  Dataset: {_dataset}")
+                these_events.append(triggered_average_class.ind_class.num_events)
+            print(f"  Number of datasets: {len(these_events)}")
+            print(f"  Max number of events: {max(these_events)}; Min number of events: {min(these_events)}; Average number of events: {np.mean(these_events)}")
+
 
 @dataclass
 class PaperExampleTracePlotter(PaperColoredTracePlotter):
@@ -1043,7 +1062,7 @@ class PaperExampleTracePlotter(PaperColoredTracePlotter):
         return dict(dpi=300, figsize=(10/3, 10/2), gridspec_kw={'wspace': 0.0, 'hspace': 0.0})
 
     def plot_triple_traces(self, neuron_name, title=False, legend=False, round_y_ticks=False,
-                           output_foldername=None, combine_lr=False, **kwargs):
+                           output_foldername=None, combine_lr=False, shading_kwargs=None, **kwargs):
         """
         Plot the three traces (raw, global, residual) on the same plot.
         If output_foldername is not None, save the plot in that folder.
@@ -1057,6 +1076,8 @@ class PaperExampleTracePlotter(PaperColoredTracePlotter):
         -------
 
         """
+        if shading_kwargs is None:
+            shading_kwargs = dict()
         df_traces, df_traces_residual, df_traces_global = self._load_triple_traces(combine_lr=combine_lr)
 
         fig_opt = self.get_figure_opt()
@@ -1090,7 +1111,7 @@ class PaperExampleTracePlotter(PaperColoredTracePlotter):
                 ax.set_xticks([])
             else:
                 ax.set_xlabel("Time (s)")
-            self.project.shade_axis_using_behavior(ax)
+            self.project.shade_axis_using_behavior(ax, **shading_kwargs)
 
         # Remove space between subplots
         plt.subplots_adjust(hspace=0)
@@ -1317,8 +1338,12 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
         all_boxplot_data_dfs_single_type = []
         all_idx_range_single_type = []
         for neuron in neuron_list:
-            means_before, means_after, idx_range = obj.get_boxplot_before_and_after(neuron, trigger_type,
-                                                                                    **ttest_kwargs)
+            try:
+                means_before, means_after, idx_range = obj.get_boxplot_before_and_after(neuron, trigger_type,
+                                                                                        **ttest_kwargs)
+            except NeuronNotFoundError:
+                print(f"Neuron {neuron} not found; skipping")
+                continue
             # Sanity check: are any of the lists entirely nan?
             if np.all(np.isnan(means_before)) or np.all(np.isnan(means_after)):
                 raise ValueError(f"Neuron {neuron} has all nan values for before or after the event:"
@@ -1346,9 +1371,9 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
     df_boxplot = pd.concat(all_boxplot_data_dfs)
     df_boxplot = _add_color_columns_to_df(df_boxplot, trigger_type=trigger_type)
     if df_p_values is None:
-        df_p_values = _calc_p_value(df_boxplot, groupby_columns=['neuron', 'is_mutant_str'])  # .reset_index(level=1)
-        df_p_values['p_value_corrected'] = multipletests(df_p_values['p_value'].values.squeeze(),
-                                                         method='fdr_bh', alpha=0.05)[1]
+        df_p_values = _calc_p_value(df_boxplot, groupby_columns=['neuron', 'is_mutant_str'])
+        raw_p_values = df_p_values['p_value'].dropna()
+        df_p_values.loc[raw_p_values.index, 'p_value_corrected'] = multipletests(raw_p_values.values.squeeze(), method='fdr_bh', alpha=0.05)[1]
 
     # Modify colors to use green for immobilized
     # This is not the only case where is it immobilized, but it is the only one we are plotting
@@ -1377,7 +1402,7 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
         precalculated_p_values = df_p_values.loc[neuron_name, 'p_value_corrected'].to_dict()
         add_p_value_annotation(fig, x_label='all', show_ns=True, show_only_stars=True, separate_boxplot_fig=False,
                                precalculated_p_values=precalculated_p_values,
-                               height_mode='top_of_data', has_multicategory_index=True, DEBUG=False)
+                               height_mode='top_of_data', has_multicategory_index=True, DEBUG=False, **kwargs)
 
         fig.update_layout(showlegend=False, yaxis_title=None, xaxis_title=None)
         # Modify offsetgroup to have only 2 types (rev and fwd), not one for each legend entry
@@ -1425,10 +1450,14 @@ def plot_triggered_averages_from_triggered_average_classes(neuron_list: List[str
             fig, ax = None, None
             show_x_label = 'URX' in neuron_name
             for obj, is_mutant in zip(plotter_classes, is_mutant_vec):
-                fig, ax = obj.plot_triggered_average_single_neuron(neuron_name, trigger_type, is_mutant=is_mutant,
-                                                                   fig=fig, ax=ax, show_x_label=show_x_label,
-                                                                   output_folder=output_dir, df_idx_range=df_idx_range,
-                                                                   **kwargs)
+                try:
+                    fig, ax = obj.plot_triggered_average_single_neuron(neuron_name, trigger_type, is_mutant=is_mutant,
+                                                                    fig=fig, ax=ax, show_x_label=show_x_label,
+                                                                    output_folder=output_dir, df_idx_range=df_idx_range,
+                                                                    **kwargs)
+                except NeuronNotFoundError:
+                    print(f"Neuron {neuron_name} not found; skipping")
+                    continue
 
             all_figs[neuron_name] = fig
             if to_show:

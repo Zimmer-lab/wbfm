@@ -4,25 +4,38 @@
 
 # Function to display a help message
 function show_help {
-  echo "Usage: $0 [-g] [-r] [-h] <gfp>"
+  echo "Usage: $0 [-g] [-a] [-r] [-c] [-h] <gfp>"
   echo "  -g: Use GFP data"
   echo "  -s: Use simple eigenworms (1 and 2 only)"
-  echo "  -r: Trace mode; should be one of 'None', 'pca_global', 'pca_global_1'"
+  echo "  -t: Alternate parent folder for the traces, specifically the suffix; see export_data_for_hierarchical_model(). Examples are 'avb_hiscl', and 'avb_hiscl_control'"
+  echo "  -r: Trace mode; should be one of 'None', 'pca_global', 'pca_global_1', 'cca_continuous', 'discrete'; default is pca_global"
+  echo "  -c: Run temporal-split CV comparison instead of full model fitting"
+  echo "  -k: Keep large deterministic variables (curvature_term, mu, etc.) in saved traces"
+  echo "  -d: debug mode, which only runs a single neuron (few iterations) for testing"
   echo "  -h: Show this help message"
 }
 
 # Get all user flags
 use_gfp="false"
+parent_folder_suffix=""
 use_raw_trace="false"
-while getopts gsr: flag
+debug="false"
+simple_eigenworms="false"
+cv_comparison="false"
+keep_large_vars="false"
+while getopts gt:sr:dckh flag
 do
     case "${flag}" in
         g) use_gfp="true";;
+        t) parent_folder_suffix=${OPTARG};;
         s) simple_eigenworms="true";;
         r) residual_mode=${OPTARG};;
+        d) debug="true";;
+        c) cv_comparison="true";;
+        k) keep_large_vars="true";;
         h) show_help
            exit 0;;
-        *) raise error "Unknown flag"
+        *) echo "Error: Unknown flag"; exit 1;;
     esac
 done
 
@@ -74,8 +87,6 @@ neuron_list=(
 'OLQDL'
 'AQR'
 'RIBR'
-'AIBR'
-'AIBL'
 'IL2VL'
 'URAVL'
 'URAVR'
@@ -98,18 +109,6 @@ neuron_list=(
 'DB01'
 'DB02'
 'DD01'
-#'ANTIcorR'
-#'ANTIcorL'
-#'VG_anter_FWD_no_curve_L'
-#'VG_anter_FWD_no_curve_R'
-#'VG_middle_FWD_ramp_L'
-#'VG_middle_FWD_ramp_R'
-#'VG_middle_ramping_L'
-#'VG_middle_ramping_R'
-#'VG_post_FWD_L'
-#'VG_post_FWD_R'
-#'VG_post_turning_L'
-#'VG_post_turning_R'
 'SIAVL'
 'SIAVR'
 'SAAVL'
@@ -122,8 +121,6 @@ neuron_list=(
 'RMDDR'
 'RMDVL'
 'RMDVR'
-'AVFL'
-'AVFR'
 'AWBL'
 'AWBR'
 'AWAL'
@@ -139,11 +136,19 @@ neuron_list=(
 
 CMD="/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm/wbfm/utils/external/utils_pymc.py"
 # Changes if running on gfp
-if [ "$do_gfp" == "true" ]; then
+if [ "$use_gfp" == "true" ]; then
   LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_gfp/logs"
+elif [ "$parent_folder_suffix" ]; then
+  LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling_${parent_folder_suffix}/logs"
 else
   LOG_DIR="/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/hierarchical_modeling/logs"
 fi
+
+if [ "$residual_mode" ]; then
+  LOG_DIR="${LOG_DIR}_${residual_mode}"
+fi
+
+mkdir -p "$LOG_DIR"
 
 # I don't have access to the SLURM_ARRAY_TASK_ID variable, so I'm going to use the following workaround
 # Create a temporary file to actually dispatch
@@ -152,11 +157,14 @@ NUM_TASKS=${#neuron_list[@]}
 
 # Set of option-specific variables
 # gfp datasets are much faster to run
+NUM_HOURS=18
+MEM_PER_TASK=128G
 if [ "$use_gfp" == "true" ]; then
-  CMD="$CMD --do_gfp"
+  CMD="$CMD --gfp"
   NUM_HOURS=6
-else
-  NUM_HOURS=18
+  MEM_PER_TASK=32G
+elif [ "$parent_folder_suffix" ]; then
+  CMD="$CMD --parent_folder_suffix $parent_folder_suffix"
 fi
 
 if [ "$simple_eigenworms" == "true" ]; then
@@ -167,15 +175,30 @@ if [ "$residual_mode" ]; then
   CMD="$CMD --residual_mode $residual_mode"
 fi
 
+if [ "$cv_comparison" == "true" ]; then
+  CMD="$CMD --cv_comparison"
+fi
+
+EXTRA_SBATCH_ARGS=""
+if [ "$keep_large_vars" == "true" ]; then
+  CMD="$CMD --keep_large_vars"
+  EXTRA_SBATCH_ARGS="#SBATCH --license=scratch-highio"
+fi
+
+if [ "$debug" == "true" ]; then
+  CMD="$CMD --debug"
+  NUM_TASKS=1
+  NUM_HOURS=1
+fi
+
 # Actually run
 cat << EOF > $SLURM_SCRIPT
 #!/bin/bash
 #SBATCH --array=0-$(($NUM_TASKS-1))
 #SBATCH --time=0-0$NUM_HOURS:00:00
-#SBATCH --mem=64G
-#SBATCH --cpus-per-task=6
-#SBATCH --partition=short,basic
-#SBATCH --license=scratch-highio
+#SBATCH --mem=$MEM_PER_TASK
+#SBATCH --cpus-per-task=12
+$EXTRA_SBATCH_ARGS
 
 # Reproduce the list for the subfile
 my_list=(${neuron_list[@]})
@@ -186,7 +209,13 @@ echo "Running model for neuron: \$task_string with command: $CMD"
 # https://github.com/pymc-devs/pymc/issues/1463
 export PYTENSOR_FLAGS="base_compiledir=\$TMPDIR/.pytensor"
 
-python $CMD --neuron_name \$task_string > $LOG_DIR/log_\$task_string.txt
+LOG_FILE="$LOG_DIR/log_\$task_string.txt"
+if [ DEBUG == "true" ]; then
+  LOG_FILE="$LOG_DIR/log_debug.txt"
+fi
+python $CMD --neuron_name \$task_string > \$LOG_FILE 2>&1
+
+echo "Finished running model for neuron: \$task_string"
 EOF
 
 # Submit the SLURM script

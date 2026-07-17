@@ -115,7 +115,6 @@ for name, project in tqdm(all_projects.items()):
 # In[33]:
 
 
-
 fig = make_full_summary_interactive_plot(project, to_save=False, to_show=True,
                                                       apply_figure_size_settings=True, showlegend=True, crop_x_axis=False)
 

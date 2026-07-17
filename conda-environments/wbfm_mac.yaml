@@ -1,0 +1,72 @@
+# wbfm.yaml
+
+# Made by Julia Riedl: wbfm env for apple M5 Pro
+# update:  conda env update -f wbfm.yaml
+
+# Intended to be used with the long-term support (lts) version of pytorch
+
+channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+  - bioconda
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - pandas
+  - tqdm
+  - zarr
+  - scipy
+  - torchaudio
+  - matplotlib
+  - scikit-learn
+  - scikit-image
+  - networkx
+  - lmfit
+  - natsort
+  - snakemake
+  - napari[all]
+  - pytorch
+  - torchvision
+  - torchaudio
+  - plotly
+  - tables
+  - pip:
+    - tifffile==2023.7.10
+    - simpleitk==2.2.1
+    - opencv-python-headless
+    - networkx
+    - tensorflow
+    - sacred
+    - ruamel.yaml
+    - stardist  # Use 0.8.4 for printing fix, but not actually necessary
+    - hashfs
+    - tinydb
+    - tinydb-serialization
+    - openpyxl
+    - pytest
+    - backports.cached_property
+    - pytorch-lightning
+    - wandb
+    - seaborn
+    - hdbscan
+    - statsmodels
+    - ppca
+    - methodtools
+    - kaleido
+    - skan==0.9 # For behavior pipeline
+    - loguru  # For imutils
+    - ndtiff
+    - ndstorage
+    - torchio
+    - umap-learn
+    - pynwb
+    - ndx_multichannel_volume
+    - arviz
+    - xlrd
+    - submitit
+    - kaleido
+    - git+https://github.com/Zimmer-lab/wbfm@main
+    - git+https://github.com/Zimmer-lab/imutils@master
+    - git+https://github.com/Zimmer-lab/centerline_behavior_annotation@main

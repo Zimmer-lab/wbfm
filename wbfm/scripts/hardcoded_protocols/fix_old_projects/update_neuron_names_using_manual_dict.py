@@ -1,5 +1,5 @@
 from tqdm.auto import tqdm
-from wbfm.utils.general.hardcoded_paths import load_all_paper_datasets
+from wbfm.utils.general.utils_hardcoded import load_all_paper_datasets
 from wbfm.utils.projects.finished_project_data import rename_manual_ids_in_project
 from wbfm.utils.external.custom_errors import NoNeuronsError
 

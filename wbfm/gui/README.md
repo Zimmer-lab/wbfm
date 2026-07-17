@@ -135,6 +135,52 @@ This will save everything by default.
 None of the trace dataframes will be automatically updated with new neuron IDs.
 See the [tutorial notebook](https://github.com/Zimmer-lab/wbfm/blob/dev/wbfm/notebooks/tutorials/remake_paper_traces.ipynb) for step by step instructions to regenerate these dataframes.
 
+### Custom Timeseries Integration
+
+The trace explorer and dashboard support loading user-defined timeseries for correlation analysis with neural traces.
+
+#### Setup
+
+1. Create the folder inside your project directory:
+   ```bash
+   mkdir -p /path/to/project/behavior/custom_timeseries
+   ```
+
+2. Add CSV files with this exact format (columns must be named `frame` and `value`):
+   ```csv
+   frame,value
+   0,1.23
+   1,1.45
+   2,1.67
+   ```
+   - Both columns must contain numeric data
+   - The `frame` column is used only for row ordering; actual frame values are ignored during resampling. The timeseries is evenly distributed across the recording and linearly interpolated to match the neural trace frame count, regardless of the original indices
+   - The filename (without `.csv`) becomes the timeseries name in the GUI
+   - See `wbfm/scripts/postprocessing/generate_custom_timeseries_template.py` for a reference script
+
+3. Launch the GUI. Custom timeseries appear automatically in the **Reference trace** dropdown with a `custom:` prefix (e.g. `custom:temperature`)
+
+#### Using Custom Timeseries
+
+**Trace Explorer (napari):**
+- Select a custom timeseries from the **Reference trace** dropdown to overlay it on the subplot
+- Click **Add Layer** next to **Correlation to reference trace** to create a colored heatmap layer showing per-neuron correlations (red = positive, blue = negative)
+
+#### Notes
+
+- Files starting with `._` (macOS resource forks) are automatically ignored
+- Invalid CSV files are skipped with a warning in the console
+- Timeseries are automatically resampled to match the neural trace frame count via linear interpolation
+
+
+### Loading Neuropal Stacks in the GUI
+
+There are 2 main steps that have to happen in order to be able to open NeuroPal stacks in the Napari viewer. 
+
+1. NeuroPAL stack has to be copied into the project folder (see: [wbfm/scripts/postprocessing/0+add_neuropal_to_project.py](https://github.com/Zimmer-lab/wbfm/blob/a3881cfca2eccead8dc1e425cf77f6d25cee005c/wbfm/scripts/postprocessing/0%2Badd_neuropal_to_project.py))
+2. NeuroPAL stack has to be segmented (see: [0+segment_neuropal_in_project.py](https://github.com/Zimmer-lab/wbfm/blob/a3881cfca2eccead8dc1e425cf77f6d25cee005c/wbfm/scripts/postprocessing/0%2Bsegment_neuropal_in_project.py))
+
+
 ### Detailed explanation: tracklet/segmentation correction
 
 We have created a [YouTube](https://youtube.com/playlist?list=PL0LLlJzm-VqQhX4Kw2KqoeccJVk4jhPS3) tutorial playlist.

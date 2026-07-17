@@ -6,6 +6,7 @@ from enum import Flag, auto
 from pathlib import Path
 from typing import List, Union, Optional, Dict
 
+from cv2 import add
 import matplotlib
 import numpy as np
 import pandas as pd
@@ -24,7 +25,7 @@ import plotly.graph_objects as go
 
 from wbfm.utils.general.high_performance_pandas import get_names_from_df
 from wbfm.utils.visualization.filtering_traces import fill_nan_in_dataframe, filter_gaussian_moving_average
-from wbfm.utils.general.hardcoded_paths import get_summary_visualization_dir
+from wbfm.utils.general.utils_hardcoded import get_summary_visualization_dir
 from wbfm.utils.external.utils_pandas import pad_events_in_binary_vector
 
 
@@ -300,28 +301,23 @@ class BehaviorCodes(Flag):
         #     return None
 
     @classmethod
-    def base_colormap(cls) -> List[str]:
+    def base_colormap(cls, use_alternate_cmap=False) -> List[str]:
         # See: https://plotly.com/python/discrete-color/
-        # cmap = px.colors.qualitative.Set1.copy()
-        # # Manually reorder some things to match better with prior work
-        # cmap[0], cmap[1] = cmap[1], cmap[0]  # Blue REV and red FWD
-        # cmap[3], cmap[6] = cmap[6], cmap[3]  # Switch brown and purple
-        # cmap.pop(3)  # Remove purple because it's hard to distinguish from blue
-
-        # return px.colors.qualitative.Set1_r.copy()
-        # cmap = px.colors.qualitative.Set2.copy()
-        # cmap = px.colors.qualitative.Vivid_r.copy()
-        # cmap = px.colors.qualitative.Dark2.copy()
-        cmap = px.colors.qualitative.Dark2.copy()
-        cmap[3], cmap[5] = cmap[5], cmap[3]  # Switch pink and gold
-        # Move gray to the front
-        # cmap.insert(0, cmap.pop(7))
+        if use_alternate_cmap:
+            cmap = px.colors.qualitative.D3.copy()
+            gray = px.colors.qualitative.T10[9]
+            # Move gray to first (forward), then green (reverse)
+            cmap[0], cmap[7] = gray, cmap[0]
+            cmap[1], cmap[2] = cmap[2], cmap[1]
+        else:
+            cmap = px.colors.qualitative.Dark2.copy()
+            cmap[3], cmap[5] = cmap[5], cmap[3]  # Switch pink and gold
         return cmap
 
     @classmethod
     def ethogram_cmap(cls, include_turns=True, include_reversal_turns=False, include_quiescence=False,
                       include_collision=False, additional_shaded_states=None, include_pause=True,
-                      use_plotly_style_strings=True, include_custom=False, include_stimulus=False) -> Dict['BehaviorCodes', str]:
+                      use_plotly_style_strings=True, include_custom=False, include_stimulus=False, use_alternate_cmap=False) -> Dict['BehaviorCodes', str]:
         """
         Colormap for shading as a stand-alone ethogram
 
@@ -333,7 +329,7 @@ class BehaviorCodes(Flag):
             {BehaviorCodes.FWD: '#E41A1C'}
 
         """
-        base_cmap = cls.base_colormap()
+        base_cmap = cls.base_colormap(use_alternate_cmap=use_alternate_cmap)
         cmap = {cls.UNKNOWN: None, cls.TRACKING_FAILURE: None,
                 cls.FWD: base_cmap[0],
                 cls.REV: base_cmap[1],
@@ -418,6 +414,9 @@ class BehaviorCodes(Flag):
                 return [int(num)/255 for num in integers]
             cmap = {k: matplotlib.colors.to_hex(str_2_tuple(v)) if v else v for k, v in cmap.items()}
 
+        # Add basic strings, not just enums
+        cmap.update({state.name: color for state, color in cmap.items()})
+
         return cmap
 
     # @classmethod
@@ -492,8 +491,7 @@ class BehaviorCodes(Flag):
             return individual_names
 
     @classmethod
-    def default_state_hierarchy(cls, use_strings=False,
-                                include_slowing=True, include_self_collision=False):
+    def default_state_hierarchy(cls, use_strings=False, include_slowing=True, include_self_collision=False, DEBUG=False):
         """
         Returns the default state hierarchy for this behavior
 
@@ -506,14 +504,17 @@ class BehaviorCodes(Flag):
         if include_slowing:
             vec.insert(3, cls.SLOWING)
         if include_self_collision:
-            vec.insert(1, cls.SELF_COLLISION)
+            vec.insert(0, cls.SELF_COLLISION)
+        # if DEBUG:
+        #     print(f"Default state hierarchy: {vec}")
+
         if use_strings:
             return [v.name for v in vec]
         else:
             return vec
 
     @classmethod
-    def convert_to_simple_states(cls, query_state: 'BehaviorCodes'):
+    def convert_to_simple_states(cls, query_state: 'BehaviorCodes', **kwargs):
         """
         Collapses simultaneous states into one-state-at-a-time, using a hardcoded hierarchy
 
@@ -522,7 +523,7 @@ class BehaviorCodes(Flag):
 
         """
 
-        for state in cls.default_state_hierarchy():
+        for state in cls.default_state_hierarchy(**kwargs):
             if state in query_state:
                 return state
         return cls.UNKNOWN
@@ -539,7 +540,7 @@ class BehaviorCodes(Flag):
         return query_vec.apply(lambda x: cls.PAUSE if cls.PAUSE in x else x)
 
     @classmethod
-    def convert_to_simple_states_vector(cls, query_vec: pd.Series):
+    def convert_to_simple_states_vector(cls, query_vec: pd.Series, **kwargs):
         """
         Uses convert_to_simple_states on a vector
 
@@ -551,7 +552,7 @@ class BehaviorCodes(Flag):
         -------
 
         """
-        return query_vec.apply(cls.convert_to_simple_states)
+        return query_vec.apply(lambda x: cls.convert_to_simple_states(x, **kwargs))
 
     @classmethod
     def plot_behaviors(cls, vec: pd.Series):
@@ -578,6 +579,14 @@ def options_for_ethogram(beh_vec, shading=False, include_reversal_turns=False, i
 
     if shading is True, then the ethogram will be partially transparent, to be drawn on top of a trace
 
+    Example usage to make a standalone ethogram:
+    fig = go.Figure()
+    ethogram_opt = options_for_ethogram(beh_vector, shading=False, include_reversal_turns=True)
+    for opt in ethogram_opt:
+        fig.add_shape(**opt)
+    fig.show()  # Note that this will be zoomed in
+
+
     Parameters
     ----------
     beh_vec
@@ -593,6 +602,10 @@ def options_for_ethogram(beh_vec, shading=False, include_reversal_turns=False, i
     -------
 
     """
+    if include_collision:
+        additional_shaded_states = additional_shaded_states or []
+        additional_shaded_states.append(BehaviorCodes.SELF_COLLISION)
+
     all_shape_opt = []
     if shading:
         cmap_func = lambda state: BehaviorCodes.shading_cmap_func(state,
@@ -1062,7 +1075,7 @@ def approximate_behavioral_annotation_using_pc1(project_cfg, trace_kwargs=None, 
     opt = dict(use_paper_options=True, interpolate_nan=True)
     if trace_kwargs is not None:
         opt.update(trace_kwargs)
-    pca_modes, _ = project_data.calc_pca_modes(n_components=2, flip_pc1_to_have_reversals_high=True,
+    _, pca_modes, _, _ = project_data.calc_pca_modes(n_components=2, flip_pc1_to_have_reversals_high=True,
                                                **opt)
     pc0 = pca_modes.loc[:, 0]
 
@@ -1440,7 +1453,7 @@ def calculate_rise_high_fall_low(y, min_length=5, height=0.5, width=5, prominenc
     return beh_vec
 
 
-def shade_using_behavior(beh_vector, ax=None, behaviors_to_ignore=(BehaviorCodes.SELF_COLLISION, ),
+def shade_using_behavior(beh_vector, ax=None, behaviors_to_ignore=(BehaviorCodes.SELF_COLLISION, ), include_collision=False,
                          cmap=None, index_conversion=None,
                          additional_shaded_states: Optional[List['BehaviorCodes']]=None, alpha=1.0,
                          DEBUG=False, **kwargs):
@@ -1470,6 +1483,11 @@ def shade_using_behavior(beh_vector, ax=None, behaviors_to_ignore=(BehaviorCodes
     -------
 
     """
+    if include_collision:
+        behaviors_to_ignore = tuple(set(behaviors_to_ignore) - set([BehaviorCodes.SELF_COLLISION]))
+        additional_shaded_states = additional_shaded_states or []
+        additional_shaded_states.append(BehaviorCodes.SELF_COLLISION)
+
     if cmap is None:
         cmap = lambda state: BehaviorCodes.shading_cmap_func(state,
                                                              additional_shaded_states=additional_shaded_states)
@@ -1478,6 +1496,8 @@ def shade_using_behavior(beh_vector, ax=None, behaviors_to_ignore=(BehaviorCodes
 
     # Get all behaviors that exist in the data and the cmap
     beh_vector = pd.Series(beh_vector)
+    # Convert compound states to simple states before plotting
+    beh_vector = BehaviorCodes.convert_to_simple_states_vector(beh_vector, include_self_collision=include_collision, DEBUG=DEBUG)
     # data_behaviors = beh_vector.unique()
     # cmap_behaviors = pd.Series(BehaviorCodes.possible_colors(include_complex_states=include_complex_states))
     # Note that this returns a numpy array in the end
@@ -1509,7 +1529,6 @@ def shade_using_behavior(beh_vector, ax=None, behaviors_to_ignore=(BehaviorCodes
         print(f"Cmap: {[cmap(b) for b in all_behaviors]}")
 
     # Loop through the remaining behaviors, and use the binary vector to shade per behavior
-    beh_vector = pd.Series(beh_vector)
     for b in all_behaviors:
         binary_vec = BehaviorCodes.vector_equality(beh_vector, b)
         color = cmap(b)

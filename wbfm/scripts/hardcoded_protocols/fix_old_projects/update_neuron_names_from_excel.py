@@ -1,5 +1,5 @@
 from tqdm.auto import tqdm
-from wbfm.utils.general.hardcoded_paths import load_all_paper_datasets
+from wbfm.utils.general.utils_hardcoded import load_all_paper_datasets
 from wbfm.utils.projects.finished_project_data import rename_manual_ids_from_excel_in_project
 
 if __name__ == '__main__':

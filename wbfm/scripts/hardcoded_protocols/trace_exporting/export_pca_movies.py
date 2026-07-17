@@ -4,7 +4,7 @@ from pathlib import Path
 from tqdm.auto import tqdm
 import argparse
 
-from wbfm.utils.general.hardcoded_paths import load_paper_datasets
+from wbfm.utils.general.utils_hardcoded import load_paper_datasets
 from wbfm.utils.visualization.utils_export_videos import save_video_of_heatmap_and_pca_with_behavior
 
 if __name__ == '__main__':

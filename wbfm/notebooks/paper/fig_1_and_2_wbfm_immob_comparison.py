@@ -72,18 +72,19 @@ project_data_immob2 = all_projects_immob['ZIM2165_immob_adj_set_2_worm2-2022-11-
 
 
 # # Same individual: fm and immob
-# fname = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-23_ZIM2165_worm5-2022-12-06/project_config.yaml'
+# fname = '/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-23_ZIM2165_worm5-2022-12-06/project_config.yaml'
 # project_data_fm2immob_fm = ProjectData.load_final_project_data_from_config(fname, verbose=0)
 
-# fname = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-41_ZIM2165_immob_worm5-2022-12-06'
+# fname = '/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-41_ZIM2165_immob_worm5-2022-12-06'
 # project_data_fm2immob_immob = ProjectData.load_final_project_data_from_config(fname, verbose=0)
 
 # # Same individual: fm and immob
-# # fname = '/lisc/data/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-23_ZIM2165_worm5-2022-12-06/project_config.yaml'
+# # fname = '/lisc/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_17-23_ZIM2165_worm5-2022-12-06/project_config.yaml'
 # # project_data_fm2immob_fm2 = ProjectData.load_final_project_data_from_config(fname, verbose=0)
 
 # fname = '/scratch/neurobiology/zimmer/fieseler/wbfm_projects/2022-12-06_wbfm_to_immob/2022-12-06_11-07_ZIM2165_immob_worm1-2022-12-06/project_config.yaml'
 # project_data_fm2immob_immob2 = ProjectData.load_final_project_data_from_config(fname, verbose=0)
+
 
 
 # In[8]:
@@ -312,7 +313,6 @@ export_legend_for_paper(reversal_shading=True, fname=fname)
 # In[36]:
 
 
-
 fname = 'intro/reversal_and_collision_legend.png'
 export_legend_for_paper(reversal_shading=True, fname=fname, include_self_collision=True)
 
@@ -421,7 +421,6 @@ from wbfm.utils.general.hardcoded_paths import neurons_with_confident_ids
 
 
 # In[191]:
-
 
 
 wbfm_weights = calc_pca_weights_for_all_projects(all_projects_gcamp, use_paper_options=True, combine_left_right=True,

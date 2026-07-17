@@ -7,11 +7,11 @@ from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
 
 from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_color_discrete_map
-from wbfm.utils.general.hardcoded_paths import (get_hierarchical_modeling_dir, role_of_neuron_dict,
+from wbfm.utils.general.utils_hardcoded import (get_hierarchical_modeling_dir, role_of_neuron_dict,
                                                 neurons_with_confident_ids)
 
 
-def main(combine_left_right=True):
+def calculate_dimensionality_of_single_neurons(combine_left_right=True, verbose=0):
     output_folder = '/home/charles/Current_work/repos/dlc_for_wbfm/wbfm/notebooks/paper/intro/dimensionality'
 
     # Import traces (gcamp and immob)
@@ -73,6 +73,12 @@ def main(combine_left_right=True):
     enough_immob = neuron_counts_immob[neuron_counts_immob >= min_neurons].index
     enough_neurons = enough_gcamp.intersection(enough_immob).intersection(
         neurons_with_confident_ids(combine_left_right))
+    if verbose >= 1:
+        print(f'Number of neurons with at least {min_neurons} datasets in both conditions: {len(enough_neurons)}')
+        if verbose >= 2:
+            print(f'Neurons: {enough_neurons.tolist()}')
+            print(f'Immob neurons: {enough_immob.tolist()}')
+            print(f'Gcamp neurons: {enough_gcamp.tolist()}')
     df = df[df[neuron_row_name].isin(enough_neurons)]
 
     # Sort by mean variance explained in immob (not gcamp) per neuron
@@ -149,7 +155,7 @@ def main(combine_left_right=True):
     new_col = new_col.map(lambda x: x if x != 'Inter, ' else 'Interneuron')
     new_col = new_col.str.replace('Sensory, ', 'Sensory')
     new_col = new_col.str.replace('SensorySensory', 'Sensory')
-    new_col = new_col.str.replace('SensoryReverse', 'Sensory')
+    new_col = new_col.str.replace('SensoryBackward', 'Sensory')
     # new_col = new_col.str.replace('Forward', 'Forward')
     # new_col = new_col.str.replace('Reverse', 'Reverse')
     df_combined['combined_role'] = new_col
@@ -158,7 +164,7 @@ def main(combine_left_right=True):
                      # symbol='role', color='fwd_rev',
                      color='combined_role',
                      color_discrete_map=plotly_paper_color_discrete_map(),
-                     category_orders={'combined_role': ['Sensory', 'Interneuron', 'Motor', 'Inter, Forward', 'Inter, Reverse']},
+                     category_orders={'combined_role': ['Sensory', 'Interneuron', 'Motor', 'Inter, Forward', 'Inter, Backward']},
                      hover_name=df_combined.index)
                      #title='Effect sizes and p values of the difference in variance explained between immob and gcamp')
 
@@ -202,5 +208,5 @@ def main(combine_left_right=True):
 
 
 if __name__ == '__main__':
-    main(combine_left_right=False)
-    main(combine_left_right=True)
+    calculate_dimensionality_of_single_neurons(combine_left_right=False)
+    calculate_dimensionality_of_single_neurons(combine_left_right=True)

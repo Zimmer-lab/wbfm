@@ -65,7 +65,7 @@ def detrend_exponential_lmfit(y_with_nan, x=None, ind_subset=None, restore_mean_
         const_mod = ConstantModel(prefix='const_')
         model = model + const_mod
     if ind_subset is None:
-        ind_subset = np.where(~np.isnan(y_with_nan))[0]
+        ind_subset = y_with_nan.index[np.where(~np.isnan(y_with_nan))[0]]
     if x is None:
         x = ind_subset
     else:
@@ -87,7 +87,9 @@ def detrend_exponential_lmfit(y_with_nan, x=None, ind_subset=None, restore_mean_
 
         y_corrected_with_nan = np.empty_like(y_with_nan)
         y_corrected_with_nan[:] = np.nan
+        y_corrected_with_nan = pd.Series(y_corrected_with_nan, index=y_with_nan.index)
         y_corrected_with_nan[ind_subset] = y_corrected
+        y_corrected_with_nan = y_corrected_with_nan.values  # Keep legacy behavior
         flag = True
 
     except (TypeError, ValueError):

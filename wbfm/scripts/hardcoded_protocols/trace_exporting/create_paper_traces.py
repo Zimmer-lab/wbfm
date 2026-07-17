@@ -5,7 +5,7 @@ import sys
 import time
 import traceback
 
-from wbfm.utils.general.hardcoded_paths import load_all_paper_datasets
+from wbfm.utils.general.utils_hardcoded import load_all_paper_datasets
 from wbfm.utils.projects.finished_project_data import ProjectData
 from submitit import AutoExecutor, LocalJob, DebugJob
 

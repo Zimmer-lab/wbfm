@@ -17,7 +17,7 @@ from wbfm.utils.neuron_matching.matches_class import MatchesWithConfidence
 from wbfm.utils.nn_utils.model_image_classifier import NeuronEmbeddingModel
 from wbfm.utils.nn_utils.superglue import SuperGlueModel, SuperGlueUnpackerWithTemplate
 from wbfm.utils.projects.finished_project_data import ProjectData, template_matches_to_dataframe
-from wbfm.utils.general.hardcoded_paths import load_hardcoded_neural_network_paths
+from wbfm.utils.general.utils_hardcoded import load_hardcoded_neural_network_paths
 
 
 # TODO: also save hyperparameters (doesn't work in jupyter notebooks)

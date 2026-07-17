@@ -22,7 +22,7 @@ from wbfm.utils.general.utils_filenames import check_exists, resolve_mounted_pat
 from wbfm.utils.projects.utils_project import safe_cd, update_project_config_path, \
     update_snakemake_config_path, RawFluorescenceData
 from wbfm.utils.external.utils_yaml import edit_config, load_config
-from wbfm.utils.general.hardcoded_paths import default_raw_data_config
+from wbfm.utils.general.utils_hardcoded import default_raw_data_config
 from wbfm.utils.external.custom_errors import RawDataFormatError
 
 
@@ -96,7 +96,7 @@ class ConfigFileWithProjectContext:
         logger = setup_root_logger(log_filename)
         return logger
 
-    def update_self_on_disk(self):
+    def update_self_on_disk(self, raise_error_if_failed=False):
         fname = self.absolute_self_path
         self.logger.info(f"Updating config file {fname} on disk")
         # Make sure none of the values are Path objects, which will crash the yaml dump and leave an empty file!
@@ -108,7 +108,9 @@ class ConfigFileWithProjectContext:
         try:
             edit_config(fname, self.config)
         except PermissionError as e:
-            if Path(self._self_path).is_absolute():
+            if raise_error_if_failed:
+                raise e
+            elif Path(self._self_path).is_absolute():
                 self.logger.debug(f"Skipped updating nonlocal file: {fname}")
             else:
                 # Then it was a local file, and the error was real
@@ -197,7 +199,7 @@ class ConfigFileWithProjectContext:
         self.logger.info(f"Saving at local path: {self.unresolve_absolute_path(abs_path)}")
         check_exists(abs_path, allow_overwrite)
         if suffix == '.h5':
-            ensure_dense_dataframe(data).to_hdf(abs_path, key="df_with_missing")
+            data.to_hdf(abs_path, key="df_with_missing")
         elif suffix == '.csv':
             data.to_csv(abs_path)
         elif suffix == '.xlsx':
@@ -365,9 +367,37 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         fname = Path(self.config['subfolder_configs']['traces'])
         return SubfolderConfigFile(**self._check_path_and_load_config(fname))
 
+    def get_remote_raw_data_config_filename(self) -> str:
+        """
+        Get the yaml file for the raw data itself; old projects have this stored with the raw data
+
+        See default_raw_data_config() for the default values
+        """
+        
+        fname = self.get_folder_for_all_channels()
+        if fname is None:
+            raise FileNotFoundError
+        fname = Path(fname).joinpath('config.yaml')
+        if not fname.exists():
+            raise FileNotFoundError
+        return str(fname)
+
+    def get_local_raw_data_config_filename(self) -> str:
+        """
+        See get_remote_raw_data_config_filename() for the old location of the raw data config; this is the new location, which is local to the project
+            See default_raw_data_config() for the default values
+        """
+        fname = self.get_behavior_config().absolute_subfolder
+        fname = Path(fname).joinpath('raw_data_config.yaml')
+        if not fname.exists():
+            raise FileNotFoundError
+        return str(fname)
+
     def get_raw_data_config(self) -> SubfolderConfigFile:
         """
         This is a different kind of config file, which is present in the raw data folder, and not in the local project
+        
+        See default_raw_data_config() for the default values
 
         Returns
         -------
@@ -375,17 +405,18 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
         """
         fname = None
         try:
-            fname = self.get_folder_for_all_channels()
-            if fname is None:
-                raise FileNotFoundError
-            fname = Path(fname).joinpath('config.yaml')
-            return SubfolderConfigFile(**self._check_path_and_load_config(fname))
+            fname = self.get_local_raw_data_config_filename()
+            return SubfolderConfigFile(**self._check_path_and_load_config(Path(fname)))
         except FileNotFoundError:
-            # Allow a hardcoded default... fragile, but necessary for projects with deleted raw data
-            cfg = default_raw_data_config()
-            self._logger.debug(f"Could not find file {fname}; "
-                               f"Using hardcoded default raw data config: {cfg}")
-            return SubfolderConfigFile(_self_path=None, _config=cfg, project_dir=self.project_dir)
+            try:
+                fname = self.get_remote_raw_data_config_filename()
+                return SubfolderConfigFile(**self._check_path_and_load_config(Path(fname)))
+            except FileNotFoundError:
+                # Allow a hardcoded default... fragile, but necessary for projects with deleted raw data
+                cfg = default_raw_data_config()
+                self._logger.debug(f"Could not find file {fname}; "
+                                f"Using hardcoded default raw data config: {cfg}")
+                return SubfolderConfigFile(_self_path=None, _config=cfg, project_dir=self.project_dir)
 
     def get_nwb_config(self, make_subfolder=True) -> SubfolderConfigFile:
         fname = self.config['subfolder_configs'].get('nwb', None)
@@ -1086,8 +1117,9 @@ def make_project_like(project_path: str, target_directory: str,
     assert project_path.endswith('.yaml'), f"Must pass a valid config file: {project_path}"
     assert os.path.exists(project_path), f"Must pass a project that exists: {project_path}"
     assert os.path.exists(target_directory), f"Must pass a folder that exists: {target_directory}"
-
-
+    if steps_to_keep is None:
+        steps_to_keep = []
+        
     target_project_name, old_project_dir = make_project_name_like(project_path, target_directory,
                                                               target_suffix=target_suffix,
                                                               new_project_name=new_project_name,

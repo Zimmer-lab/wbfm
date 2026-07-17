@@ -17,7 +17,7 @@ import zarr
 from pathlib import Path
 import os
 import seaborn as sns
-from wbfm.utils.general.hardcoded_paths import load_paper_datasets
+from wbfm.utils.general.utils_hardcoded import load_paper_datasets
 
 
 from sklearn.decomposition import PCA

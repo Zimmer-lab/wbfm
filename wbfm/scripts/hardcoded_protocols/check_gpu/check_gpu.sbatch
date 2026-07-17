@@ -6,7 +6,7 @@
 #SBATCH --output=log_gpu_test-%j.out    # Standard output and error log
 #SBATCH --time=0:10:00
 #SBATCH --gres=gpu:1
-#SBATCH --constraint="l40s|a30|t4|v100|l4"
+#SBATCH --constraint="l40s|a30|t4|l4"
 
 pwd; hostname; date
 

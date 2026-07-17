@@ -87,7 +87,7 @@ for name, p in tqdm(all_projects_immob.items()):
     beh_annotation_kwargs = {}
     ethogram_cmap_kwargs = {}
     
-    X_r, var_explained = p.calc_pca_modes(n_components=3, multiply_by_variance=False)
+    _, X_r, var_explained, _ = p.calc_pca_modes(n_components=3, multiply_by_variance=False)
     df_latents = pd.DataFrame(X_r)
     
     beh_annotation = dict(fluorescence_fps=True, reset_index=True, include_collision=False, include_turns=True,
@@ -176,7 +176,7 @@ for name, p in tqdm(all_projects_good.items()):
     beh_annotation_kwargs = {}
     ethogram_cmap_kwargs = {}
     
-    X_r, var_explained = p.calc_pca_modes(n_components=3, multiply_by_variance=False)
+    _, X_r, var_explained, _ = p.calc_pca_modes(n_components=3, multiply_by_variance=False)
     df_latents = pd.DataFrame(X_r)
     
     beh_annotation = dict(fluorescence_fps=True, reset_index=True, include_collision=False, include_turns=True,

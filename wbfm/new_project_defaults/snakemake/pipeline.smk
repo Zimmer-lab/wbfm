@@ -6,7 +6,7 @@ from wbfm.utils.external.custom_errors import NoBehaviorDataError, RawDataFormat
 from wbfm.utils.projects.finished_project_data import ProjectData
 import snakemake
 
-from wbfm.utils.general.hardcoded_paths import load_hardcoded_neural_network_paths
+from wbfm.utils.general.utils_hardcoded import load_hardcoded_neural_network_paths
 
 
 configfile: "snakemake_config.yaml"
@@ -424,10 +424,10 @@ rule sam2_segment:
         # Enable CuDNN backend for faster attention
         export TORCH_CUDNN_SDPA_ENABLED=1
 
-        module load cuda-toolkit/12.9.0
+        module load CUDA/12.9.1
 
         # Activate the environment and the correct cuda
-        source /lisc/app/conda/miniforge3/bin/activate {params.sam2_conda_env_name}
+        source /lisc/opt/sw/software/Conda/Miniforge3/bin/activate {params.sam2_conda_env_name}
 
         # Run the script directly without temp directory overhead
         python -c "from SAM2_snakemake_scripts.sam2_video_processing_miscroscope_data_loader import main; main(['-tiff_path', '{input.ndtiff_subfolder}', '-output_file_path', '{output.output_file}', '-DLC_csv_file_path', '{input.dlc_csv}', '-column_names', '{params.column_names}', '-SAM2_path', '{params.model_path}', '--batch_size', '{params.batch_size}', '--device', '${{CUDA_VISIBLE_DEVICES:-0}}'])"
@@ -523,14 +523,13 @@ rule dlc_analyze_videos:
         """
         # I started getting an error with the xml_catalog_files_libxml2 variable, so check if it is set
         if [ -z "${{xml_catalog_files_libxml2:-}}" ]; then
-            #echo "Warning: xml_catalog_files_libxml2 is not set, setting it to /lisc/app/conda/miniforge3/etc/xml/catalog"
+            #echo "Warning: xml_catalog_files_libxml2 is not set, setting it to /lisc/opt/app/conda/miniforge3/etc/xml/catalog"
             export xml_catalog_files_libxml2=""
         fi 
         
-        source /lisc/app/conda/miniforge3/bin/activate {params.dlc_conda_env}
-        module load cuda-toolkit/12.9.0
-        export LD_LIBRARY_PATH=/lisc/opt/sw/software/CUDA/12.9.1/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
-        
+        source /lisc/opt/sw/software/Conda/Miniforge3/bin/activate {params.dlc_conda_env}
+        module load CUDA/12.9.1
+
         # Also rename the output file to the expected name
         # We don't actually know the name without querying deeplabcut, so just rename it
         python -c "import deeplabcut, os; fname = deeplabcut.analyze_videos('{params.dlc_model_configfile_path}', '{input.input_avi}', videotype='avi', gputouse=${{CUDA_VISIBLE_DEVICES:-0}}, save_as_csv=True); print('Produced raw files with name: ' + fname); os.rename(f'{output_behavior_dir}/raw_stack'+fname+'.h5', '{output_behavior_dir}/raw_stack_dlc.h5'); os.rename(f'{output_behavior_dir}/raw_stack'+fname+'.csv', '{output_behavior_dir}/raw_stack_dlc.csv')"

@@ -10,7 +10,7 @@ while getopts t:n:s: flag
 do
     case "${flag}" in
         s) step_reference=${OPTARG};;
-        *) raise error "Unknown flag"
+        *) echo "Error: Unknown flag"; exit 1;;
     esac
 done
 

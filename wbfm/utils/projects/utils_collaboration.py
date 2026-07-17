@@ -1,7 +1,7 @@
 import os
 
 import pandas as pd
-from wbfm.utils.general.hardcoded_paths import get_hierarchical_modeling_dir
+from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
 from wbfm.utils.general.postures.centerline_classes import WormFullVideoPosture
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 

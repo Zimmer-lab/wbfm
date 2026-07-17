@@ -298,7 +298,6 @@ df_acc_pipeline['enough_tracked'] = df_acc_pipeline['fraction_tracked'] > 0.9
 # In[ ]:
 
 
-
 opt = dict(trendline='ols', trendline_scope="overall", trendline_color_override="black")
 
 px.scatter(df_acc_pipeline, x='matches', y='fraction_tracked', **opt,
@@ -306,7 +305,6 @@ px.scatter(df_acc_pipeline, x='matches', y='fraction_tracked', **opt,
 
 
 # In[ ]:
-
 
 
 px.scatter(df_acc_pipeline, x='mismatches', y='fraction_tracked', **opt,

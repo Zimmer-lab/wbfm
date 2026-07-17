@@ -46,5 +46,3 @@ def segment_local_data_subset(project_config, out_fname=None):
         with safe_cd(project_dir):
             _segment_full_video_2d(cfg, frame_list, mask_fname, metadata, metadata_fname, num_frames, num_slices,
                                    opt_postprocessing, preprocessing_settings, stardist_model_name, verbose, video_path)
-
-

@@ -165,14 +165,11 @@ fig.write_image(fname)
 # In[32]:
 
 
-
 # fig = px.scatter(df_all_var, x='Data Type', y='Variance', color='Data Type', log_y=True, marginal_y='box')
 # fig.show()
 
 
 # In[16]:
-
-
 
 
 # # fig = px.histogram(df_all_var, x='value', color='name', #log_x=True, 
@@ -325,7 +322,6 @@ fig.write_image(fname)
 # # Plot correlations between behavior and pca/ava
 
 # In[2]:
-
 
 
 from wbfm.utils.general.hardcoded_paths import get_hierarchical_modeling_dir

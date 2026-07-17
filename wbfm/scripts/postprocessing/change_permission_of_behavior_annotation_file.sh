@@ -5,7 +5,7 @@ while getopts s: flag
 do
     case "${flag}" in
         s) parent_dir=${OPTARG};;
-        *) raise error "Unknown flag"
+        *) echo "Error: Unknown flag"; exit 1;;
     esac
 done
 

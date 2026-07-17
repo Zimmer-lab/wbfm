@@ -29,7 +29,7 @@ behavior_paths:
     head_tail_dlc_project: /lisc/data/scratch/neurobiology/zimmer/zimmer_DLC/DLC_projects/DLCwbfm_headtailphar-Eva-2024-11-20/config.yaml
     # DLC conda environment
     dlc_conda_env_name: /lisc/data/scratch/neurobiology/zimmer/.conda/envs/deeplabcut_imutils
-    dlc_conda_env_name_only_dlc: deeplabcut-2.3.11
+    dlc_conda_env_name_only_dlc: DeepLabCut-2.3.11
     # SAM2 related paths
     sam2_model: /lisc/data/scratch/neurobiology/zimmer/schaar/code/github/segment-anything-2
     sam2_conda_env_name: /lisc/data/scratch/neurobiology/zimmer/.conda/envs/SAM2_shared

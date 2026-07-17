@@ -1,8 +1,10 @@
+import logging
 from typing import List
 
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+import statsmodels.api as sm
 from plotly.subplots import make_subplots
 
 
@@ -36,7 +38,7 @@ def plotly_boxplot_colored_boxes(df, color_list):
     return fig
 
 
-def add_trendline_annotation(fig):
+def add_trendline_annotation(fig, x_offset=0, y_offset=0):
     """
     Given a scatter plot with a trendline added, add an annotation with the slope, R² and p-value of the trendline
 
@@ -57,8 +59,8 @@ def add_trendline_annotation(fig):
     pvalue = trendline.pvalues[1]
 
     # Get a reasonable position (top right) for the annotation using the x and y max data points
-    x = np.nanmin(fig.data[0].x)
-    y = np.nanmax(fig.data[0].y)
+    x = np.nanmin(fig.data[0].x) + x_offset
+    y = np.nanmax(fig.data[0].y) + y_offset
 
     # Add the annotation
     annotation_text = f'Slope: {slope:.2f}<br>R²: {r2:.2f}<br>p-value: {pvalue:.2e}'
@@ -76,24 +78,44 @@ def add_trendline_annotation(fig):
     return fig
 
 
-def plotly_plot_mean_and_shading(df, x, y, color=None, line_name='Mean', add_individual_lines=False,
+def plotly_plot_mean_and_shading(df, x, y, color=None, line_name='Mean', shade_style='std',
+                                 add_individual_lines=False,
                                  cmap=None, x_intersection_annotation=None, annotation_kwargs=None,
-                                 annotation_position=None, fig=None, is_second_plot=False, **kwargs):
+                                 annotation_position=None, fig=None, is_second_plot=False, DEBUG=False, **kwargs):
     """
     Plot the mean of a y column for each x value, and shade the standard deviation
 
-    Note that this requires the identical x values for each group
+    Note that this requires identical x values for each group
+
+    Format expected for the dataframe (with dummy column names):
+    x   y   color
+    0   1   A
+    0   2   A
+    0   3   A
 
     Parameters
     ----------
     df
     x
     y
+    color - if not None, will plot a separate line and shading for each unique value in this column
+    line_name - name for the mean line in the legend
+    shade_style - 'std' to shade one standard deviation, 'quantile' to shade the interquartile range
+    add_individual_lines - whether to add lines for each individual group
+    cmap - optional dictionary mapping line_name to color for the mean line and shading
+    x_intersection_annotation - if not None, will add vertical and horizontal lines at the intersection of the mean line with the specified x value, and annotate with the y value at the intersection
+    annotation_kwargs - additional keyword arguments to pass to the annotation (like font size)
+    annotation_position - position for the annotation of the intersection point, options are 'top left', 'top right', 'bottom left', 'bottom right'
+    fig - optional existing figure to add to, if None will create a new figure
+    is_second_plot - whether this is the second plot in a figure, which affects whether the vertical line for the intersection annotation is plotted (to avoid plotting it twice in the same figure)
 
     Returns
     -------
 
     """
+    if DEBUG:
+        print(f"DEBUG: Starting plot_mean_and_shading with x={x}, y={y}, color={color}, line_name={line_name}, shade_style={shade_style}")
+        print(f"DEBUG: DataFrame head:\n{df.head()}")
     if annotation_kwargs is None:
         annotation_kwargs = dict()
     if annotation_position is None:
@@ -111,14 +133,25 @@ def plotly_plot_mean_and_shading(df, x, y, color=None, line_name='Mean', add_ind
             fig = plotly_plot_mean_and_shading(_df, x, y, color=color, line_name=group,
                                                add_individual_lines=False, cmap=cmap, fig=fig,
                                                x_intersection_annotation=x_intersection_annotation,
-                                               annotation_position=annotation_position, is_second_plot=is_second_plot)
+                                               annotation_position=annotation_position, is_second_plot=is_second_plot, DEBUG=DEBUG)
             is_second_plot = True
         return fig
 
     # Calculate mean and std dev for each x value
     grouped = df.groupby(x)
+    # Sanity check that there are multiple y values for each x value, otherwise the shading will be meaningless
+    if (grouped[y].count() < 2).any():
+        logging.warning(f"WARNING: Some x values have less than 2 y values, which will make the shading meaningless. Counts:\n{grouped[y].count()}")
     mean_y = grouped[y].mean()
-    std_y = grouped[y].std()
+    if shade_style == 'std':
+        shade_y = grouped[y].std()
+        upper_y = mean_y + shade_y
+        lower_y = mean_y - shade_y
+    elif shade_style == 'quantile':
+        upper_y = grouped[y].quantile(0.75)
+        lower_y = grouped[y].quantile(0.25)
+    else:
+        raise ValueError(f"Unknown shade_style: {shade_style}; valid options are 'std' and 'quantile'")
 
     if fig is None:
         fig = go.Figure()
@@ -148,15 +181,38 @@ def plotly_plot_mean_and_shading(df, x, y, color=None, line_name='Mean', add_ind
     else:
         opt['fillcolor'] = 'rgba(0,100,80,0.2)'
 
-    # Add two lines in a unique group that will have shading between them
-    fill_opt = dict(hoverinfo="skip", showlegend=False,
-                    line=dict(color='rgba(255,255,255,0)'),
-                    **opt)
+    # Shade the standard deviation area
+    shade_color = opt.get('fillcolor', 'rgba(0,100,80,0.2)')
+    if cmap is not None:
+        if '#' in cmap[line_name]:
+            shade_color = hex2rgba(cmap[line_name])
+        else:
+            shade_color = add_alpha_to_rgb(cmap[line_name])
 
-    # First one, which doesn't show up
-    fig.add_trace(go.Scatter(x=mean_y.index, y=mean_y + std_y, **fill_opt))
-    # Second one, which does show up
-    fig.add_trace(go.Scatter(x=mean_y.index, y=mean_y - std_y, fill='tonexty', **fill_opt))
+    # Single closed polygon — immune to trace ordering issues
+    fig.add_trace(go.Scatter(
+        x=list(mean_y.index) + list(mean_y.index[::-1]),
+        y=list(upper_y) + list(lower_y[::-1]),
+        fill='toself',
+        fillcolor=shade_color,
+        line=dict(color='rgba(255,255,255,0)'),
+        hoverinfo='skip',
+        showlegend=False,
+        name=f'{line_name}_shade'
+    ))
+
+    if DEBUG:
+        print(f"Adding shading with paired lines: {list(zip(upper_y, lower_y))}")
+
+    # # Add two lines in a unique group that will have shading between them
+    # fill_opt = dict(hoverinfo="skip", showlegend=False,
+    #                 line=dict(color='rgba(255,255,255,0)'),
+    #                 **opt)
+
+    # # First one, which doesn't show up
+    # fig.add_trace(go.Scatter(x=mean_y.index, y=upper_y, **fill_opt))
+    # # Second one, which does show up
+    # fig.add_trace(go.Scatter(x=mean_y.index, y=lower_y, fill='tonexty', **fill_opt))
 
     if x_intersection_annotation is not None:
         y_value_at_x = mean_y.loc[x_intersection_annotation]
@@ -346,8 +402,8 @@ def get_nonoverlapping_text_positions(x, y, all_text, fig, weight=100, k=None, a
     return fig
 
 
-def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref_paper=True,
-                           horizontal=True, DEBUG=False, **kwargs):
+def combine_plotly_figures_old(all_figs, show_legends: List[bool] = None, force_yref_paper=True,
+                           horizontal=True, custom_subplot_opt=None, DEBUG=False, **kwargs):
     """
     Combine multiple plotly figures into a single figure, all on one row
 
@@ -361,17 +417,19 @@ def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref
     -------
 
     """
-
-    if horizontal:
-        opt = dict(rows=1, cols=len(all_figs), shared_yaxes=True, horizontal_spacing=0.01)
+    if custom_subplot_opt is None:
+        if horizontal:
+            opt = dict(rows=1, cols=len(all_figs), shared_yaxes=True, horizontal_spacing=0.01)
+        else:
+            opt = dict(rows=len(all_figs), cols=1, shared_xaxes=True, vertical_spacing=0.01)
     else:
-        opt = dict(rows=len(all_figs), cols=1, shared_xaxes=True, vertical_spacing=0.01)
+        opt = custom_subplot_opt
 
     fig = make_subplots(
         **opt, **kwargs
     )
     if DEBUG:
-        print(f"Creating subplots with {len(all_figs)} columns")
+        print(f"Creating subplots with {len(all_figs)} subplots, horizontal={horizontal}")
 
     for old_fig, i_col in zip(all_figs, range(1, len(all_figs) + 1)):
         if horizontal:
@@ -382,9 +440,33 @@ def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref
         for trace in old_fig.data:
             if show_legends is not None:
                 trace.showlegend = show_legends[i_col - 1]
+            
+            # Preserve zmin/zmax for heatmaps and set proper axis anchoring
+            if trace.type == 'heatmap':
+                # Determine the axis names for this subplot
+                xaxis_name = f'x{i_col}' if i_col > 1 else 'x'
+                yaxis_name = f'y{i_col}' if i_col > 1 else 'y'
+                
+                # Explicitly anchor to the correct subplot axes
+                trace.xaxis = xaxis_name
+                trace.yaxis = yaxis_name
+                
+                # Preserve color scale bounds
+                if hasattr(trace, 'zmin') and trace.zmin is not None:
+                    trace.update(zmin=trace.zmin)
+                if hasattr(trace, 'zmax') and trace.zmax is not None:
+                    trace.update(zmax=trace.zmax)
+                
+                if DEBUG:
+                    print(f"Heatmap trace anchored to {xaxis_name}, {yaxis_name}")
+                    print(f"  zmin: {trace.zmin}, zmax: {trace.zmax}")
+
             fig.add_trace(trace, **opt)
             if DEBUG:
-                print(f"Adding trace to row 1, col {i_col}")
+                if horizontal:
+                    print(f"Adding trace to row 1, col {i_col}")
+                else:
+                    print(f"Adding trace to row {i_col}, col 1")
         for annotation in old_fig.layout.annotations:
             fig.add_annotation(annotation, **opt)
         for shape in old_fig.layout.shapes:
@@ -398,6 +480,262 @@ def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref
         for shape in fig.layout.shapes:
             shape['yref'] = 'paper'
 
+    return fig
+
+
+def _extract_global_heatmap_settings(all_figs, DEBUG=False):
+    """
+    Extract zmin, zmax, and colorscale from the first heatmap found.
+    
+    Returns
+    -------
+    tuple of (zmin, zmax, colorscale) or (None, None, None) if no heatmap found
+    """
+    for old_fig in all_figs:
+        for trace in old_fig.data:
+            if trace.type == 'heatmap':
+                # Start with trace-level settings
+                zmin = trace.zmin
+                zmax = trace.zmax
+                colorscale = trace.colorscale
+                
+                # Check the figure layout for coloraxis (overrides trace settings)
+                if hasattr(old_fig.layout, 'coloraxis') and old_fig.layout.coloraxis:
+                    if hasattr(old_fig.layout.coloraxis, 'cmin') and old_fig.layout.coloraxis.cmin is not None:
+                        zmin = old_fig.layout.coloraxis.cmin
+                        zmax = old_fig.layout.coloraxis.cmax
+                        if DEBUG:
+                            print(f"Using layout coloraxis cmin={zmin}, cmax={zmax}")
+                    if hasattr(old_fig.layout.coloraxis, 'colorscale') and old_fig.layout.coloraxis.colorscale is not None:
+                        colorscale = old_fig.layout.coloraxis.colorscale
+                elif DEBUG:
+                    print(f"Using trace zmin={zmin}, zmax={zmax}")
+                
+                return zmin, zmax, colorscale
+    
+    return None, None, None
+
+
+def _configure_heatmap_trace(trace, i_col, num_figs, global_zmin, global_zmax, global_colorscale, DEBUG=False):
+    """
+    Configure a heatmap trace for subplot placement with shared color scale.
+    
+    Parameters
+    ----------
+    trace : plotly trace
+        Original heatmap trace to configure
+    i_col : int
+        Column number (1-indexed)
+    num_figs : int
+        Total number of figures being combined
+    global_zmin, global_zmax, global_colorscale : 
+        Shared color scale settings
+    DEBUG : bool
+        Print debug information
+    
+    Returns
+    -------
+    new_trace : plotly trace
+        Configured copy of the trace
+    """
+    import copy
+    
+    trace_xaxis = f'x{i_col}' if i_col > 1 else 'x'
+    trace_yaxis = f'y{i_col}' if i_col > 1 else 'y'
+    
+    # Create a copy to avoid modifying the original
+    new_trace = copy.deepcopy(trace)
+    new_trace.xaxis = trace_xaxis
+    new_trace.yaxis = trace_yaxis
+    
+    # Use global zmin/zmax from first heatmap
+    new_trace.zauto = False
+    new_trace.zmin = global_zmin
+    new_trace.zmax = global_zmax
+    new_trace.colorscale = global_colorscale if global_colorscale is not None else trace.colorscale
+    
+    # Remove any coloraxis reference
+    if hasattr(new_trace, 'coloraxis'):
+        new_trace.coloraxis = None
+    
+    # Ensure zmid is not set
+    if hasattr(new_trace, 'zmid'):
+        new_trace.zmid = None
+    
+    # Only show colorbar on the LAST heatmap
+    if i_col == num_figs:
+        # This is the last one - show the colorbar
+        if new_trace.colorbar is not None:
+            new_trace.colorbar.update(
+                x=1.02,
+                len=0.9,
+            )
+        else:
+            new_trace.colorbar = dict(
+                x=1.02,
+                len=0.9,
+            )
+    else:
+        # Hide colorbar for all others
+        new_trace.showscale = False
+    
+    if DEBUG:
+        print(f"\nHeatmap {i_col}:")
+        print(f"  Setting zmin={new_trace.zmin}, zmax={new_trace.zmax}, zauto={new_trace.zauto}")
+        print(f"  showscale={new_trace.showscale if hasattr(new_trace, 'showscale') else 'default'}")
+    
+    return new_trace
+
+
+def _update_axis_properties(fig, old_fig, i_col, num_figs, opt, xaxis_name, yaxis_name, horizontal, hide_interior_xlabels, DEBUG=False):
+    """
+    Update axis properties while preserving subplot domains.
+    
+    Parameters
+    ----------
+    fig : plotly figure
+        Target subplot figure
+    old_fig : plotly figure
+        Source figure with axis properties
+    i_col : int
+        Column number (1-indexed)
+    num_figs : int
+        Total number of figures
+    opt : dict
+        Row/col options for update_xaxes/update_yaxes
+    xaxis_name, yaxis_name : str
+        Axis attribute names (e.g., 'xaxis', 'xaxis2')
+    horizontal : bool
+        Whether figures are arranged horizontally
+    hide_interior_xlabels : bool
+        If True and horizontal, hide x-axis labels/titles for all but the last subplot
+    DEBUG : bool
+        Print debug information
+    """
+    # SAVE the domains BEFORE updating axes
+    xaxis_obj = getattr(fig.layout, xaxis_name)
+    yaxis_obj = getattr(fig.layout, yaxis_name)
+    saved_xdomain = xaxis_obj.domain
+    saved_ydomain = yaxis_obj.domain
+    
+    # Update axes properties but DON'T pass domain
+    old_xaxis = old_fig.layout.xaxis.to_plotly_json()
+    old_yaxis = old_fig.layout.yaxis.to_plotly_json()
+    
+    # Remove domain and anchor to preserve subplot positioning
+    old_xaxis.pop('domain', None)
+    old_yaxis.pop('domain', None)
+    old_xaxis.pop('anchor', None)
+    old_yaxis.pop('anchor', None)
+    
+    # Hide x-axis labels and title for interior subplots if requested
+    if horizontal and hide_interior_xlabels and i_col < num_figs:
+        old_xaxis['title'] = None
+        old_xaxis['showticklabels'] = False
+    
+    fig.update_xaxes(old_xaxis, **opt)
+    fig.update_yaxes(old_yaxis, **opt)
+    
+    # RESTORE the domains after update
+    getattr(fig.layout, xaxis_name).domain = saved_xdomain
+    getattr(fig.layout, yaxis_name).domain = saved_ydomain
+    
+    if DEBUG:
+        xaxis_obj = getattr(fig.layout, xaxis_name)
+        yaxis_obj = getattr(fig.layout, yaxis_name)
+        print(f"  {xaxis_name} domain: {xaxis_obj.domain}")
+        print(f"  {yaxis_name} domain: {yaxis_obj.domain}")
+
+
+def combine_plotly_figures(all_figs, show_legends: List[bool] = None, force_yref_paper=True,
+                           horizontal=True, hide_interior_xlabels=False, custom_subplot_opt=None, DEBUG=False, **kwargs):
+    """
+    Combine multiple plotly figures into a single figure, all on one row or column.
+    Handles heatmaps with shared color scales correctly.
+    
+    Parameters
+    ----------
+    all_figs : list of plotly.graph_objects.Figure
+        Figures to combine
+    show_legends : List[bool], optional
+        Whether to show legend for each figure
+    force_yref_paper : bool, default=True
+        Force shapes to use 'paper' y-reference
+    horizontal : bool, default=True
+        If True, arrange figures in a row; if False, arrange in a column
+    hide_interior_xlabels : bool, default=False
+        If True and horizontal=True, hide x-axis labels and titles for all but the last subplot
+    DEBUG : bool, default=False
+        Print debug information
+    **kwargs
+        Additional arguments passed to make_subplots
+    
+    Returns
+    -------
+    fig : plotly.graph_objects.Figure
+        Combined figure
+    """
+    # Setup subplot configuration
+    if custom_subplot_opt is None:
+        if horizontal:
+            opt = dict(rows=1, cols=len(all_figs), shared_yaxes=True, horizontal_spacing=0.01)
+        else:
+            opt = dict(rows=len(all_figs), cols=1, shared_xaxes=True, vertical_spacing=0.01)
+    else:
+        opt = custom_subplot_opt
+    
+    fig = make_subplots(**opt, **kwargs)
+    
+    if DEBUG:
+        print(f"Creating subplots with {len(all_figs)} {'columns' if horizontal else 'rows'}")
+    
+    # Extract global heatmap settings from first heatmap
+    global_zmin, global_zmax, global_colorscale = _extract_global_heatmap_settings(all_figs, DEBUG)
+    
+    # Process each figure
+    for old_fig, i_col in zip(all_figs, range(1, len(all_figs) + 1)):
+        if horizontal:
+            opt = dict(row=1, col=i_col)
+        else:
+            opt = dict(row=i_col, col=1)
+        
+        # Determine axis names for this subplot
+        xaxis_name = f'xaxis{i_col}' if i_col > 1 else 'xaxis'
+        yaxis_name = f'yaxis{i_col}' if i_col > 1 else 'yaxis'
+        
+        # Add traces
+        for trace in old_fig.data:
+            if show_legends is not None:
+                trace.showlegend = show_legends[i_col - 1]
+            
+            if trace.type == 'heatmap':
+                new_trace = _configure_heatmap_trace(
+                    trace, i_col, len(all_figs), 
+                    global_zmin, global_zmax, global_colorscale, 
+                    DEBUG
+                )
+                fig.add_trace(new_trace)
+            else:
+                fig.add_trace(trace, **opt)
+            
+            if DEBUG:
+                print(f"Adding {trace.type} trace to {'row 1, col' if horizontal else 'row'} {i_col}")
+        
+        # Add annotations and shapes
+        for annotation in old_fig.layout.annotations:
+            fig.add_annotation(annotation, **opt)
+        
+        for shape in old_fig.layout.shapes:
+            fig.add_shape(shape, **opt)
+        
+        # Update axis properties while preserving domains
+        _update_axis_properties(fig, old_fig, i_col, len(all_figs), opt, xaxis_name, yaxis_name, horizontal, hide_interior_xlabels, DEBUG)
+        
+    # Force yref for shapes to 'paper'
+    if force_yref_paper:
+        for shape in fig.layout.shapes:
+            shape['yref'] = 'paper'
+    
     return fig
 
 
@@ -451,3 +789,87 @@ def colored_text(text, color, bold=False):
         return f"<span style='color:{str(color)}'> {str(text)} </span>"
     else:
         return f"<span style='color:{str(color)}'> <b>{str(text)}</b> </span>"
+
+
+def extend_trendline(fig, x_min, x_max, n_points=100, line_opt=None):
+    if line_opt is None:
+        line_opt = dict(color="black", dash="dot")
+
+    # Extract regression results
+    results = px.get_trendline_results(fig)
+    model = results.iloc[0]["px_fit_results"]
+
+    # Create extended x range
+    x_extended = np.linspace(x_min, x_max, n_points)
+
+    # Manually build exog matrix (this avoids the shape error)
+    import statsmodels.api as sm
+    X_new = sm.add_constant(x_extended)
+    y_extended = model.predict(X_new)
+
+    # Remove existing trendline
+    fig.data = tuple(
+        trace for trace in fig.data
+        if not (trace.mode == "lines")
+    )
+
+    # Add extended line
+    fig.add_trace(
+        go.Scatter(
+            x=x_extended,
+            y=y_extended,
+            mode="lines",
+            line=line_opt,
+            # name="Extended Trendline"
+        )
+    )
+
+
+def extract_shapes_as_figure(fig, shape_indices=None, include_axes=True, only_include_shapes_with_yref=None):
+    """
+    Extract shapes from a figure and return them as a new figure.
+    
+    Parameters
+    ----------
+    fig : plotly figure
+        Source figure
+    shape_indices : list of int, optional
+        Indices of shapes to extract. If None, extracts all shapes.
+    include_axes : bool, default=True
+        Whether to copy axis properties from the original figure
+    only_include_shapes_with_yref : str, optional
+        If not None, only include shapes that have this yref (e.g., 'paper', 'y')
+    
+    Returns
+    -------
+    new_fig : plotly figure
+        New figure containing only the specified shapes
+    """
+    
+    new_fig = go.Figure()
+    
+    # Extract shapes
+    if shape_indices is None:
+        shapes_to_copy = list(fig.layout.shapes)
+
+    if only_include_shapes_with_yref is not None:
+        shapes_to_copy = [fig.layout.shapes[i] for i in range(len(fig.layout.shapes)) if fig.layout.shapes[i].yref == only_include_shapes_with_yref]
+    else:
+        shapes_to_copy = [fig.layout.shapes[i] for i in range(len(fig.layout.shapes))]
+    
+    # Copy shapes to new figure
+    for shape in shapes_to_copy:
+        new_fig.add_shape(shape)
+    
+    # Copy layout properties if requested
+    if include_axes:
+        new_fig.update_layout(
+            xaxis=fig.layout.xaxis,
+            yaxis=fig.layout.yaxis,
+        )
+    
+    # Copy annotations too (often go with shapes)
+    for annotation in fig.layout.annotations:
+        new_fig.add_annotation(annotation)
+    
+    return new_fig

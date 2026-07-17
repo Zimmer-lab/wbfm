@@ -68,11 +68,11 @@ class DashboardDataset:
 
     def __post_init__(self):
         # Read data
-        if isinstance(project_path, str) and project_path.endswith('.h5'):
+        if isinstance(self.project_path, str) and self.project_path.endswith('.h5'):
             # Maybe the user passed the filename, not the project config name
-            fname = project_path
+            fname = self.project_path
         else:
-            fname = Path(project_path).parent.joinpath('final_dataframes/df_final.h5')
+            fname = Path(self.project_path).parent.joinpath('final_dataframes/df_final.h5')
         self.df_final = pd.read_hdf(fname)
 
         if self.df_final.columns.nlevels == 4:
@@ -149,7 +149,7 @@ class DashboardDataset:
         app = Dash(__name__)
 
         # Initialize hardcoded paths to files (will open in new tab)
-        path_to_grid_plot = Path(project_path).parent.joinpath('traces').\
+        path_to_grid_plot = Path(self.project_path).parent.joinpath('traces').\
             joinpath('ratio_integration_rolling_mean_beh_pc1-grid-.png')
 
         # Define layout

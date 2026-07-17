@@ -60,7 +60,6 @@ all_projects_gfp = load_paper_datasets('gfp')
 # In[5]:
 
 
-
 all_projects_immob = load_paper_datasets('immob')
 
 
@@ -167,10 +166,10 @@ if to_save:
 # In[14]:
 
 
-
 # df = pd.DataFrame({'Freely Moving (GCaMP)': active_neurons_gcamp, 'Immobilized (GCaMP)': active_neurons_immob,
 #                   'GFP': active_neurons_gfp})
 # fig = px.box(df)
+
 
 
 # In[15]:
@@ -432,7 +431,8 @@ fig.write_image(fname)
 # In[42]:
 
 
-interesting_idx = (df_var_exp_gcamp_melt['variance'] > active_threshold) &     (df_var_exp_gcamp_melt['fraction_variance_explained'] > 0.5)
+interesting_idx = (df_var_exp_gcamp_melt['variance'] > active_threshold) & \
+    (df_var_exp_gcamp_melt['fraction_variance_explained'] > 0.5)
  
 fig = px.pie(df_var_exp_gcamp_melt[interesting_idx], names='category', color='category',
           color_discrete_map=plotly_paper_color_discrete_map(),
@@ -486,7 +486,6 @@ fig.write_image(fname)
 
 
 # In[ ]:
-
 
 
 # px.histogram(df_var_exp_gcamp_melt, x='value', color='category', barmode='group')
@@ -574,15 +573,12 @@ df['Residual Activity Category'].unique()
 # In[ ]:
 
 
-
 # fig = px.box(df, x='Type of data', y='acv', color='high_residual_activity',
 #           color_discrete_map=plotly_paper_color_discrete_map())
 # fig.show()
 
 
 # In[ ]:
-
-
 
 
 # interesting_idx = (df['variance'] > active_threshold) & \

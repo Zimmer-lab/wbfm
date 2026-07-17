@@ -34,7 +34,7 @@ do
         s) step_reference=${OPTARG};;
         a) args=${OPTARG};;
         h) show_help;;
-        *) raise error "Unknown flag"
+        *) echo "Error: Unknown flag"; exit 1;;
     esac
 done
 

@@ -19,7 +19,7 @@ def check_exists(abs_path, allow_overwrite):
             raise FileExistsError
 
 
-def resolve_mounted_path_in_current_os(raw_path: str, verbose: int = 0) -> str:
+def resolve_mounted_path_in_current_os(raw_path: str, allow_only_parent_to_exist=True, verbose: int = 0) -> str:
     """
     Removes windows-specific mounted drive names (Y:, D:, etc.) and replaces them with the networked system equivalent
     Assumes that these mounting drives correspond to specific networked locations:
@@ -29,8 +29,18 @@ def resolve_mounted_path_in_current_os(raw_path: str, verbose: int = 0) -> str:
 
     Does nothing if the path is relative
 
+    Parameters
+    ----------
+    raw_path: str
+        The raw path to resolve
+    allow_only_parent_to_exist: bool
+        If True, then only the parent directory needs to exist for the path to be considered valid (otherwise, the file itself must exist)
+    verbose: int
+        Verbosity level
+
     Note: This is specific to the Zimmer lab, as of Nov 2023
     """
+    raw_path = str(raw_path)
     if not is_absolute_in_any_os(raw_path):
         return raw_path
 
@@ -52,7 +62,6 @@ def resolve_mounted_path_in_current_os(raw_path: str, verbose: int = 0) -> str:
                 raise FileNotFoundError("File mounted to local drive; network system can't find it")
 
     # Swap mounted drive locations
-    # UPDATE REGULARLY
     # Last updated: Oct 2025
     mounted_drive_pairs = [
         ('Y:', "/groups/zimmer"),
@@ -63,7 +72,7 @@ def resolve_mounted_path_in_current_os(raw_path: str, verbose: int = 0) -> str:
         ('S:', "/lisc/data/scratch/neurobiology"),
         ('S:', "/lisc/data/scratch/neurobiology/zimmer"),
         (r'//samba.lisc.univie.ac.at/scratch', "/lisc/data/scratch"),  # Mac
-        ('/lisc/data/scratch', "/lisc/data/scratch")
+        ('/lisc/scratch', "/lisc/data/scratch")
     ]
 
     # Loop through drive name matches, and test each one
@@ -77,22 +86,31 @@ def resolve_mounted_path_in_current_os(raw_path: str, verbose: int = 0) -> str:
                 if path_is_windows_style:
                     path = raw_path.replace(win_drive, linux_drive)
                     path = str(Path(path).resolve())
+                    if verbose >= 2:
+                        print(f"Converted windows style path {raw_path} to linux style {path}")
                 elif path_is_linux_style:
                     # Then we're trying to fix the cluster renaming the partitions (currently, same fixing logic as above)
                     path = raw_path.replace(win_drive, linux_drive)
                     path = str(Path(path).resolve())
+                    if verbose >= 2:
+                        print(f"Converted linux style path {raw_path} to linux style {path}")
                     
             elif machine_is_windows and path_is_linux_style:
                 path = raw_path.replace(linux_drive, win_drive)
                 path = str(Path(path).resolve())
+                if verbose >= 2:
+                    print(f"Converted linux style path {raw_path} to windows style {path}")
+            else:
+                if verbose >= 2:
+                    print(f"No conversion needed for path {raw_path} on os {os.name}")
 
-            if path and os.path.exists(path):
+            if path and (os.path.exists(path) or (allow_only_parent_to_exist and Path(path).parent.exists())):
                 if verbose >= 1:
                     print(f"Successfully resolved {raw_path} to {path}")
                 break
             else:
                 if path and verbose >= 2:
-                    print(f"Failed to resolve {raw_path} to {path}, continuing...")
+                    print(f"Failed to resolve {raw_path} to {path} (path didn't exist), continuing...")
         except OSError:
             # Happens when the mounted drive name doesn't exist or has another error
             pass
@@ -101,8 +119,6 @@ def resolve_mounted_path_in_current_os(raw_path: str, verbose: int = 0) -> str:
         path = raw_path
         if verbose >= 1:
             print(f"Did not successfully resolve path; returning raw path: {raw_path}")
-
-
 
     # Final checks
     assert path is not None, f"Resolving path in OS failed; this shouldn't happen (raw_path: {raw_path})"
@@ -115,7 +131,7 @@ def is_absolute_in_any_os(raw_path: str) -> bool:
     return is_abs
 
 
-def correct_mounted_path_prefix(path: str, old_prefix='/scratch', new_prefix='/lisc/data/scratch'):
+def correct_mounted_path_prefix(path: str, old_prefix='/lisc/scratch', new_prefix='/lisc/data/scratch'):
     path = str(path)
     if path.startswith(old_prefix):
         path = path.replace(old_prefix, new_prefix)
@@ -123,6 +139,24 @@ def correct_mounted_path_prefix(path: str, old_prefix='/scratch', new_prefix='/l
     else:
         updated_flag = False
     return path, updated_flag
+
+
+def update_paths_in_project(project_data, to_save=True, verbose=0, **kwargs):
+    for k, v in project_data.project_config.config.items():
+        is_updated = False
+        v_new = None
+        if isinstance(v, str):
+            v_new, is_updated = correct_mounted_path_prefix(v, **kwargs)
+        if is_updated and v_new is not None:
+            project_data.project_config.config[k] = v_new
+            message = f'Updated path for key {k} in project {project_data.project_dir}'
+            if verbose >= 1:
+                project_data.logger.warning(message)
+            else:
+                project_data.logger.info(message)
+
+    if to_save:
+        project_data.project_config.update_self_on_disk()
 
 
 def pandas_read_any_filetype(filename, **kwargs):
@@ -193,7 +227,7 @@ def lexigraphically_sort(strs_with_numbers):
 
 def load_file_according_to_precedence(fname_precedence: list,
                                       possible_fnames: Dict[str, str],
-                                      reader_func: callable = read_if_exists, dryrun=False, **kwargs):
+                                      reader_func: callable = read_if_exists, recover_from_errors=True, dryrun=False, **kwargs):
     """
     Load a file according to a dict of possible filenames, ordered by fname_precedence
 
@@ -225,8 +259,16 @@ def load_file_according_to_precedence(fname_precedence: list,
                 data = None
                 logging.debug(f"Dryrun: would have read data from: {fname}")
             else:
-                data = reader_func(fname, **kwargs)
+                try:
+                    data = reader_func(fname, **kwargs)
+                except Exception as e:
+                    logging.error(f"Error reading file {fname} with reader {reader_func}; continuing. Full error: {e}")
+                    if recover_from_errors:
+                        continue
+                    else:
+                        raise e
                 logging.debug(f"Read data from: {fname}")
+
             if key != most_recent_modified_key:
                 logging.debug(f"Not using most recently modified file (mode {most_recent_modified_key})")
             else:

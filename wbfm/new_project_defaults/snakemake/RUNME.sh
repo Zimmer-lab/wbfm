@@ -48,7 +48,7 @@ if [ "$FORCE_ONLY_ONE_RULE" = "True" ]; then
 fi
 NUM_JOBS_TO_SUBMIT=8
 
-# Slurm doesn't properly deal with TIMEOUT errors in subjobs, so we need to create a script to deal with them
+# Snakemake doesn't properly deal with TIMEOUT errors in subjobs, so we need to create a script to deal with them
 # In principle we will use a python script, but because this needs to be valid for all users, we will create a temporary
 # script that will be deleted after the job is done
 # Details: https://snakemake.readthedocs.io/en/v7.7.0/tutorial/additional_features.html#using-cluster-status

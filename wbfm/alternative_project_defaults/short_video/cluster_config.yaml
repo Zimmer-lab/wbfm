@@ -25,18 +25,18 @@ segmentation:
 match_frame_pairs:
     mem: 128G
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 build_frame_objects:
     cpus_per_task: 20
     mem: 128G
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 postprocess_matches_to_tracklets:
     cpus_per_task: 1
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 combine_tracking_and_tracklets:
     cpus_per_task: 20
@@ -44,12 +44,12 @@ combine_tracking_and_tracklets:
 tracking:
     cpus_per_task: 16
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 barlow_tracking:
     cpus_per_task: 16
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 
 # Behavior
@@ -63,7 +63,7 @@ tiff2avi:
 dlc_analyze_videos:
     cpus_per_task: 24
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 create_centerline:
     mem: 8G
@@ -76,17 +76,17 @@ normalize_img:
 worm_unet:
     cpus_per_task: 24
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 sam2_segment:
     cpus_per_task: 24
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 coil_unet:
     cpus_per_task: 24
     gres: gpu:1
-    constraint: "l40s|a30|t4|v100|l4"
+    constraint: "l40s|a30|t4|l4"
 
 binarize:
     cpus_per_task: 8

@@ -67,7 +67,11 @@ class NeuropalManager:
     @property
     def has_complete_neuropal(self):
         return self.data is not None and self.segmentation is not None
-
+    
+    @property
+    def segmentation_succeeded(self):
+        return self.has_complete_neuropal and self.segmentation_metadata.get_all_neuron_metadata_for_single_time(0, as_dataframe=True, use_mean_intensity=True) is not None
+    
     @property
     def neuron_names(self) -> List[str]:
         """Get the names from the segmentation metadata"""

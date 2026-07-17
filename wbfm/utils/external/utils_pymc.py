@@ -3,20 +3,93 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Tuple, Dict
-
 import numpy as np
 import pandas as pd
 import pymc as pm
+import pytensor.tensor as pt
+import pytensor
 import arviz as az
 import cloudpickle
 from matplotlib import pyplot as plt
-from wbfm.utils.general.hardcoded_paths import get_hierarchical_modeling_dir, get_triggered_average_modeling_dir, \
-    get_triggered_average_dataframe_fname
+from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
 from wbfm.utils.external.utils_pandas import get_dataframe_for_single_neuron
 
 
+def initialize_hierarchical_model_data(Xy, neuron_name, dataset_name='all', residual_mode='pca_global',
+                                       use_additional_eigenworms=True, use_additional_behaviors=False, verbose=0):
+    """
+    Initialize data for hierarchical Bayesian models.
+    
+    Handles:
+    - Loading PCA modes and setting up curvature terms
+    - Factorizing dataset indices if using hierarchical structure
+    - Creating model coordinates and dimension options
+    
+    Parameters
+    ----------
+    Xy : pd.DataFrame
+        Full dataset
+    neuron_name : str
+        Name of the neuron to model
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data
+    use_additional_eigenworms : bool
+        Include eigenworms 2 and 3
+    use_additional_behaviors : bool
+        Include additional behavior terms (speed, self_collision, etc.)
+    
+    Returns
+    -------
+    dict with keys:
+        - 'df_model': DataFrame with all model data
+        - 'pca_modes': array of shape (n_timepoints, 2)
+        - 'curvature_terms_to_use': list of curvature term names
+        - 'coords': dict of PyMC coordinates
+        - 'dims': dimension name ('dataset_name' or None)
+        - 'dataset_name_idx': array of dataset indices or None
+        - 'dim_opt': dict with dims and dataset_name_idx for unpacking into functions
+    """
+    # Build curvature terms list
+    curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
+    if use_additional_eigenworms:
+        curvature_terms_to_use.extend(['eigenworm2', 'eigenworm3'])
+    if use_additional_behaviors:
+        curvature_terms_to_use.extend(['speed', 'self_collision'])
+    
+    # Load data for this neuron
+    df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
+                                               curvature_terms=curvature_terms_to_use, 
+                                               residual_mode=residual_mode, verbose=verbose)
+    
+    # Extract PCA modes
+    pca_modes = df_model[['x_pca0', 'x_pca1']].values
+    
+    # Initialize hierarchical structure based on dataset_name
+    if dataset_name == 'all':
+        dataset_name_idx, dataset_name_values = df_model.dataset_name.factorize()
+        coords = {'dataset_name': dataset_name_values}
+        dims = 'dataset_name'
+    else:
+        coords = {}
+        dims, dataset_name_idx = None, None
+    
+    dim_opt = dict(dims=dims, dataset_name_idx=dataset_name_idx)
+    
+    return {
+        'df_model': df_model,
+        'pca_modes': pca_modes,
+        'curvature_terms_to_use': curvature_terms_to_use,
+        'coords': coords,
+        'dims': dims,
+        'dataset_name_idx': dataset_name_idx,
+        'dim_opt': dim_opt,
+    }
+
+
 def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residual_mode='pca_global',
-                        sample_posterior=True, use_additional_behaviors=False,
+                        sample_posterior=True, sample_large_variables=False, use_additional_behaviors=False,
                         use_additional_eigenworms=True,
                         dryrun=False, DEBUG=False) -> Tuple[pd.DataFrame, Dict, Dict]:
     """
@@ -32,62 +105,55 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
 
     """
     rng = 424242
-    curvature_terms_to_use = ['eigenworm0', 'eigenworm1']
-    if use_additional_eigenworms:
-        curvature_terms_to_use.extend(['eigenworm2', 'eigenworm3'])
-    if use_additional_behaviors:
-        # curvature_terms_to_use = curvature_terms_to_use[:2]
-        curvature_terms_to_use.extend([#'dorsal_only_body_curvature', 'dorsal_only_head_curvature',
-                                       #    'ventral_only_body_curvature', 'ventral_only_head_curvature',
-                                           'speed',
-                                           'self_collision'])
-    # First pack into a single dataframe to drop nan, then unpack
+    
+    # Initialize model data using helper function
     try:
-        df_model = get_dataframe_for_single_neuron(Xy, neuron_name, dataset_name=dataset_name,
-                                                   curvature_terms=curvature_terms_to_use, residual_mode=residual_mode)
+        model_data = initialize_hierarchical_model_data(
+            Xy, neuron_name, 
+            dataset_name=dataset_name,
+            residual_mode=residual_mode,
+            use_additional_eigenworms=use_additional_eigenworms,
+            use_additional_behaviors=use_additional_behaviors
+        )
     except KeyError as e:
         print(f"Skipping {neuron_name} because there is no valid data (KeyError: {e})")
         return None, None, None
-    pca_modes = df_model[['x_pca0', 'x_pca1']].values
-    y = df_model['y'].values
-    curvature = df_model[curvature_terms_to_use].values
-
-    if df_model.shape[0] == 0:
+    
+    if model_data['df_model'].shape[0] == 0:
         print(f"Skipping {neuron_name} because there is no valid data (shape is 0)")
         return None, None, None
+    
+    # Extract relevant data
+    pca_modes = model_data['pca_modes']
+    curvature = model_data['df_model'][model_data['curvature_terms_to_use']].values
+    y = model_data['df_model']['y'].values
+    coords = model_data['coords']
+    dim_opt = model_data['dim_opt']
+    curvature_terms_to_use = model_data['curvature_terms_to_use']
 
-    if dataset_name == 'all':
-        dataset_name_idx, dataset_name_values = df_model.dataset_name.factorize()
-        coords = {'dataset_name': dataset_name_values}
-        dims = 'dataset_name'
-    else:
-        coords = {}
-        dims, dataset_name_idx = None, None
-
-    dim_opt = dict(dims=dims, dataset_name_idx=dataset_name_idx)
+    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=False, vary_sigma_per_dataset=True)
 
     with pm.Model(coords=coords) as null_model:
         # Just do a flat line (intercept)
-        intercept, sigma = build_baseline_priors()#**dim_opt)
-        mu = pm.Deterministic('mu', intercept)
-        likelihood = build_final_likelihood(mu, sigma, y)
+        intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=None, sigmoid_term=None)
 
     with pm.Model(coords=coords) as nonhierarchical_model:
         # Curvature, but no sigmoid
-        intercept, sigma = build_baseline_priors()#**dim_opt)
-        curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
+        intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
+        curvature_term, gamma = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
-        mu = pm.Deterministic('mu', intercept + curvature_term)
-        likelihood = build_final_likelihood(mu, sigma, y)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, curvature_term=curvature_term, sigmoid_term=None,
+                                            gamma=gamma)
 
     with pm.Model(coords=coords) as hierarchical_pca_model:
         # Curvature multiplied by sigmoid
-        intercept, sigma = build_baseline_priors()#**dim_opt)
-        sigmoid_term = build_sigmoid_term_pca(pca_modes, **dim_opt)
-        curvature_term = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
+        intercept, sigma = build_baseline_priors(**dim_opt, **baseline_opt)
+        sigmoid_term, beta = build_sigmoid_term_pca(pca_modes, **dim_opt)
+        curvature_term, gamma = build_curvature_term(curvature, curvature_terms_to_use=curvature_terms_to_use, **dim_opt)
 
-        mu = pm.Deterministic('mu', intercept + sigmoid_term * curvature_term)
-        likelihood = build_final_likelihood(mu, sigma, y)
+        likelihood = build_final_likelihood(sigma, y, intercept=intercept, sigmoid_term=sigmoid_term, curvature_term=curvature_term,
+                                            gamma=gamma, beta=beta)
 
     coords.update({'time': np.arange(len(y))})
 
@@ -100,22 +166,25 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     # base_names_to_sample = {'y', 'sigmoid_term', 'curvature_term', 'phase_shift', 'sigmoid_slope'}
     for name, model in all_models.items():
         with model:
-            opt = dict(draws=1000, tune=1000, random_seed=rng, target_accept=0.96)
+            opt = dict(draws=1500, tune=3000, random_seed=rng, target_accept=0.98)
             if DEBUG:
                 opt['draws'] = 10
                 opt['tune'] = 10
 
             trace = pm.sample(**opt,
-                              chains=4, return_inferencedata=True, idata_kwargs={"log_likelihood": True})
+                              chains=10, return_inferencedata=True, idata_kwargs={"log_likelihood": True},
+                              cores=10)
             if sample_posterior:
-                posterior_keys = list(trace.posterior.keys())
-                # var_names = base_names_to_sample.intersection(posterior_keys)
-                # Keep only those that have 'term' in it, because those are the time series
-                posterior_keys = [key for key in posterior_keys if 'term' in key]
-                posterior_keys.extend(['y', 'mu'])
+                if sample_large_variables:
+                    posterior_keys = list(trace.posterior.keys())
+                    # Keep only those that have 'term' in it, because those are the time series
+                    posterior_keys = [key for key in posterior_keys if 'term' in key]
+                    posterior_keys.extend(['y', 'mu'])
+                else:
+                    posterior_keys = ['y']
                 print(f"Sampling posterior predictive for {name}: {posterior_keys}")
-                trace.extend(pm.sample_posterior_predictive(trace, random_seed=rng, progressbar=False,
-                                                            var_names=posterior_keys))
+                pm.sample_posterior_predictive(trace, random_seed=rng, progressbar=False,
+                                                            var_names=posterior_keys, extend_inferencedata=True)
 
             all_traces[name] = trace
 
@@ -129,50 +198,96 @@ def fit_multiple_models(Xy, neuron_name, dataset_name='2022-11-23_worm8', residu
     return df_compare, all_traces, all_models
 
 
-def build_baseline_priors(dims=None, dataset_name_idx=None):
+def build_baseline_priors(dims=None, dataset_name_idx=None, 
+                          vary_sigma_per_dataset=True,
+                          vary_intercept_per_trial=False, vary_intercept=False):
+    # Note that with dr/r50 input data, the median is subtracted out so this is nearly centered already
+    if not vary_intercept:
+        # Mean is subtracted per dataset, so it should be fine
+        intercept = None
+
     if dims is None:
-        intercept = pm.Normal('intercept', mu=0, sigma=1)
-        sigma = pm.HalfCauchy("sigma", beta=0.02)
+        if vary_intercept:
+            intercept = pm.Normal('intercept', mu=0, sigma=1)
+        sigma = pm.HalfNormal("sigma", sigma=1.0)
 
     else:
-        # Include hyperprior
-        hyper_intercept = pm.Normal('hyper_intercept', mu=0, sigma=1)
-        hyper_intercept_sigma = pm.Exponential('hyper_intercept_sigma', lam=1)
-        zscore_intercept = pm.Normal('zscore_intercept', mu=0, sigma=1, dims=dims)
-        intercept = pm.Deterministic('intercept', hyper_intercept + zscore_intercept*hyper_intercept_sigma)[dataset_name_idx]
+        if vary_intercept_per_trial:
+            # Include hyperprior
+            hyper_intercept = pm.Normal('hyper_intercept', mu=0, sigma=1)
+            hyper_intercept_sigma = pm.Exponential('hyper_intercept_sigma', lam=1)
+            zscore_intercept = pm.Normal('zscore_intercept', mu=0, sigma=1, dims=dims)
+            intercept = pm.Deterministic('intercept', hyper_intercept + zscore_intercept*hyper_intercept_sigma)[dataset_name_idx]
+        elif vary_intercept:
+            # i.e. same as if no dims were passed
+            intercept = pm.Normal('intercept', mu=0, sigma=1)
 
-        # Also vary sigma per dataset; simpler because we don't have to zscore it
-        sigma = pm.HalfCauchy("sigma", beta=0.02, dims=dims)[dataset_name_idx]
+        # Also or alternatively vary sigma per dataset; simpler because we don't have to zscore it
+        if vary_sigma_per_dataset:
+            sigma = pm.HalfNormal("sigma", sigma=1.0, dims=dims)[dataset_name_idx]
+        else:
+            sigma = pm.HalfNormal("sigma", sigma=1.0)
 
     return intercept, sigma
 
 
-def build_final_likelihood(mu, sigma, y, nu=100):
+def build_final_likelihood(sigma, y, nu=5, intercept=None, sigmoid_term=None, curvature_term=None, gamma=None, beta=None):
+    """
+    Build the final likelihood for the model.
+    
+    Parameters
+    ----------
+    mu : array-like
+        Mean of the Student-t distribution
+    sigma : array-like
+        Scale of the Student-t distribution
+    y : array-like
+        Observed data
+    nu : float
+        Degrees of freedom for Student-t (default: 5)
+    prob_flip_sigma : float or None
+        If None, use standard StudentT likelihood with mu.
+        If a float between 0 and 1, marginalize over sign by using a mixture
+        of mu and -mu, where prob_flip_sigma is the probability of the negative
+        component (default: None)
+    
+    Returns
+    -------
+    pm.Distribution
+        The likelihood distribution
+    """
+    # Build mu by combining non-None components
+    # Initialize as pytensor tensors to ensure compatibility with pm.Deterministic
+    mu_val = pt.as_tensor(0.0)
+    if intercept is not None:
+        mu_val = intercept
+    else:
+        # Initialize intercept to zero if not provided
+        intercept = pt.as_tensor(0.0)
+    
+    # First, behavior only
+    if curvature_term is not None:
+        mu_val = mu_val + gamma * curvature_term
+
+    # Full model (add nonlinearity)
+    if sigmoid_term is not None and curvature_term is not None:
+        mu_val = mu_val + beta * sigmoid_term * curvature_term
+
+    # For backwards compatibility
+    mu = pm.Deterministic('mu', mu_val)
+
     return pm.StudentT('y', mu=mu, sigma=sigma, nu=nu, observed=y)
 
 
-def build_sigmoid_term(x, force_positive_slope=True):
-    # NOT USED
-    # Sigmoid (hierarchy) term
-    if force_positive_slope:
-        log_sigmoid_slope = pm.Normal('log_sigmoid_slope', mu=0, sigma=1)  # Using log-amplitude for positivity
-        sigmoid_slope = pm.Deterministic('sigmoid_slope', pm.math.exp(log_sigmoid_slope))
-    else:
-        sigmoid_slope = pm.Normal('sigmoid_slope', mu=0, sigma=1)
-    inflection_point = pm.Normal('inflection_point', mu=0, sigma=2)
-    # Sigmoid term
-    sigmoid_term = pm.Deterministic('sigmoid_term', pm.math.sigmoid(sigmoid_slope * (x - inflection_point)))
-    return sigmoid_term
-
-
-def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, dataset_name_idx=None):
-    # Sigmoid (hierarchy) term
-    # if force_positive_slope:
-    #     log_sigmoid_slope = pm.Normal('log_sigmoid_slope', mu=0, sigma=1)  # Using log-amplitude for positivity
-    #     sigmoid_slope = pm.Deterministic('sigmoid_slope', pm.math.exp(log_sigmoid_slope))
-    # else:
-    #     sigmoid_slope = pm.Normal('sigmoid_slope', mu=0, sigma=1)
-    inflection_point = pm.Normal('inflection_point', mu=0, sigma=2)
+def build_sigmoid_term_pca(x_pca_modes, dims=None, dataset_name_idx=None):
+    """
+    Build sigmoid term from PCA modes with positive amplitude constraints.
+    
+    Returns
+    -------
+    sigmoid_term : pm.Deterministic
+        Sigmoid transformation of PCA term
+    """
 
     # PCA modes and coefficients
     if dims is None:
@@ -181,30 +296,73 @@ def build_sigmoid_term_pca(x_pca_modes, force_positive_slope=True, dims=None, da
         pca_amplitude = pm.Deterministic('pca_amplitude',
                                          hyper_pca_amplitude + zscore_pca_amplitude*hyper_pca_sigma)
         pca_term = pm.Deterministic('pca_term', pm.math.dot(x_pca_modes, pca_amplitude))
+        beta = pm.Normal('beta', mu=0, sigma=1)
+        inflection = pm.Normal('inflection', 0.0, 1.0)
     else:
-        # Hyperprior
-        hyper_pca0_amplitude = pm.Normal('hyper_pca0_amplitude', mu=0, sigma=1)
-        hyper_pca0_sigma = pm.Exponential('hyper_pca0_sigma', lam=1)
-        hyper_pca1_amplitude = pm.Normal('hyper_pca1_amplitude', mu=0, sigma=1)
-        hyper_pca1_sigma = pm.Exponential('hyper_pca1_sigma', lam=1)
-        zscore_pca0_amplitude = pm.Normal('zscore_pca0_amplitude', mu=0, sigma=1, dims=dims)
-        zscore_pca1_amplitude = pm.Normal('zscore_pca1_amplitude', mu=0, sigma=1, dims=dims)
+        # Tight prior on inflection (to prevent flat solutions) in normalized units, and make hierarchical
+        # Note that the pca modes are z-scored, so the inflection point should be around 0 in those units
+        inf_mu = pm.Normal('inflection_mu', 0.0, 0.1)
+        inf_sigma = pm.HalfNormal('inflection_sigma', 0.01)
+        z_inf = pm.Normal('z_inflection', 0.0, 1.0, dims=dims)
+        inflection = pm.Deterministic('inflection', inf_mu + inf_sigma * z_inf)[dataset_name_idx]
+        
+        try:
+            n_modes = int(x_pca_modes.shape[1])
+        except TypeError:
+            # Fallback: convert to symbolic int tensor
+            n_modes = x_pca_modes.shape[1].eval()
 
-        pca0_amplitude = pm.Deterministic('pca0_amplitude',
-                                          hyper_pca0_amplitude + zscore_pca0_amplitude*hyper_pca0_sigma)
-        pca1_amplitude = pm.Deterministic('pca1_amplitude',
-                                          hyper_pca1_amplitude + zscore_pca1_amplitude*hyper_pca1_sigma)
-        # Multiply them separately
-        pca_term = pm.Deterministic('pca_term',
-                                    pca0_amplitude[dataset_name_idx] * x_pca_modes[:, 0] +
-                                    pca1_amplitude[dataset_name_idx] * x_pca_modes[:, 1])
+        pca_amplitudes = []
+        
+        # Sign is unconstrained for all modes
+        for k in range(n_modes):
+            hyper_pca = pm.Normal(f"hyper_pca{k}", mu=0.0, sigma=0.3)
+            sigma_pca = pm.HalfNormal(f"sigma_pca{k}", sigma=0.2)
+            z = pm.Normal(f"z_pca{k}", 0.0, 1.0, dims=dims)
 
-    # Put it together Sigmoid term
-    sigmoid_term = pm.Deterministic('sigmoid_term', pm.math.sigmoid(pca_term - inflection_point))
-    return sigmoid_term
+            amp = pm.Deterministic(
+                f"pca{k}_amplitude",
+                hyper_pca + z * sigma_pca
+            )
+
+            pca_amplitudes.append(amp)
+
+        # Project coefficients to a hypersphere to avoid scaling issues (and avoid z-scoring that leaks mean/std info across CV folds)
+        # Stack modes: shape (n_modes, ...dims...)
+        A = pm.math.stack(pca_amplitudes, axis=0)
+
+        # L2 norm across modes, per dataset entry
+        eps = 1e-6
+        norm = pm.math.sqrt(pm.math.sum(pt.square(A), axis=0) + eps)
+
+        # Unit-sphere projection (per dataset)
+        pca_amplitudes_normalized = pm.Deterministic("pca_amplitudes_normalized", A / norm)
+
+        # pca_term = pm.Deterministic('pca_term', pt.dot(x_pca_modes, pca_amplitudes_normalized[:, dataset_name_idx]))
+
+        pca_term = pm.Deterministic('pca_term', sum(
+            pca_amplitudes_normalized[k][dataset_name_idx] * x_pca_modes[:, k]
+            for k in range(n_modes)
+        ))
+        
+        # Hierarchical beta; constrain to be positive to avoid fighting with gamma
+        log_hyper_beta = pm.Normal('log_hyper_beta', mu=0, sigma=0.5)
+        log_hyper_beta_sigma = pm.HalfNormal('log_hyper_beta_sigma', sigma=0.2)
+        log_z_beta = pm.Normal('log_z_beta', mu=0, sigma=1, dims=dims)
+        beta = pm.Deterministic('beta', pm.math.exp(log_hyper_beta + log_z_beta*log_hyper_beta_sigma))[dataset_name_idx]
+
+    # Put it together to create the per-time-point Sigmoid term
+    # Do not allow the slope to vary, because it is barely identifiable and can lead to flat solutions
+    sigmoid_term = pm.Deterministic('sigmoid_term', pt.sigmoid(pca_term - inflection))
+
+    # Rescale the sigmoid to be 0-1 (per dataset), to disallow flat solutions
+    # sigmoid_term = normalize_by_group(sigmoid_term, group_indices=dataset_name_idx)
+    
+    return sigmoid_term, beta
 
 
 def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, dataset_name_idx=None,
+
                          DEBUG=False):
     if curvature_terms_to_use is None:
         assert curvature.shape[1] == 4, f"Default curvature terms are for 4 eigenworms, found {curvature.shape[1]}"
@@ -213,19 +371,20 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
         print(f"Using curvature terms {curvature_terms_to_use}")
     # Alternative: sample directly from the phase shift and amplitude, then convert into coefficients
     # This assumes that eigenworms 1 and 2 are approximately a sine and cosine wave, and puts it into polar coordinates
-    phase_shift = pm.Uniform('phase_shift', lower=-np.pi, upper=np.pi, transform=pm.distributions.transforms.circular)
+    phase_shift = pm.VonMises('phase_shift', mu=0.0, kappa=1e-3)  # Essentially uniform prior over phase shifts (0 gives error)
     if dims is None:
         hyper_log_amplitude, hyper_log_sigma = 0, 1
     else:
-        # Hyperprior
-        hyper_log_amplitude = pm.Normal('log_amplitude_mu', mu=0, sigma=1)
-        hyper_log_sigma = pm.Exponential('log_amplitude_sigma', lam=1)
+        # Hyperprior for overall amplitude
+        hyper_log_amplitude = pm.Normal('log_amplitude_mu', mu=0, sigma=0.5)
+        hyper_log_sigma = pm.HalfNormal('log_amplitude_sigma', sigma=0.5)
     zscore_log_amplitude = pm.Normal('zscore_log_amplitude', mu=0, sigma=1, dims=dims)
     log_amplitude = pm.Deterministic('log_amplitude', hyper_log_amplitude + zscore_log_amplitude*hyper_log_sigma)
-    amplitude = pm.Deterministic('amplitude', pm.math.exp(log_amplitude))
+    gamma = pm.Deterministic('gamma', pm.math.exp(log_amplitude))[dataset_name_idx] if dims is not None else pm.Deterministic('gamma', pm.math.exp(log_amplitude))
+
     # There is a positive and negative solution, so choose the positive one for the first term
-    eigenworm1_coefficient = pm.Deterministic('eigenworm1_coefficient', amplitude * pm.math.cos(phase_shift))
-    eigenworm2_coefficient = pm.Deterministic('eigenworm2_coefficient', -amplitude * pm.math.sin(phase_shift))
+    eigenworm1_coefficient = pm.Deterministic('eigenworm1_coefficient', pm.math.cos(phase_shift))
+    eigenworm2_coefficient = pm.Deterministic('eigenworm2_coefficient', - pm.math.sin(phase_shift))
     # The rest are not part of the sine/cosine pair, but we aren't sure how many there are
     additional_column_dict = {}
     if len(curvature_terms_to_use) > 2:
@@ -239,60 +398,31 @@ def build_curvature_term(curvature, curvature_terms_to_use=None, dims=None, data
                 coef_name = f'{col_name}_coefficient'
             if DEBUG:
                 print(f"Adding {coef_name} to the model")
-            additional_column_dict[coef_name] = pm.Normal(coef_name, mu=0, sigma=0.5, dims=None)
-    # eigenworm3_coefficient = pm.Normal('eigenworm3_coefficient', mu=0, sigma=0.5, dims=None)
-    # eigenworm4_coefficient = pm.Normal('eigenworm4_coefficient', mu=0, sigma=0.5, dims=None)
+            additional_column_dict[coef_name] = pm.Normal(coef_name, mu=0, sigma=1, dims=None)
 
-    if dims is None:
-        all_cols = [eigenworm1_coefficient, eigenworm2_coefficient]#, eigenworm3_coefficient, eigenworm4_coefficient]
-        all_cols.extend(list(additional_column_dict.values()))  # Don't need to worry about the order
-        coefficients_vec = pm.Deterministic('coefficients_vec', pm.math.stack(all_cols))
-        curvature_term = pm.Deterministic('curvature_term', pm.math.dot(curvature, coefficients_vec))
-    else:
-        # Multiply them separately, but do not subindex by dataset for other terms
-        curvature_term = pm.Deterministic('curvature_term',
-                                          eigenworm1_coefficient[dataset_name_idx] * curvature[:, 0] +
-                                          eigenworm2_coefficient[dataset_name_idx] * curvature[:, 1] +
-                                          np.sum([coef * curvature[:, i+2] for i, coef
-                                                  in enumerate(additional_column_dict.values())])
-                                          )
-    return curvature_term
+    # Final list of all coefficients
+    all_cols = [eigenworm1_coefficient, eigenworm2_coefficient]
+    all_cols.extend(list(additional_column_dict.values()))  # Don't need to worry about the order
+    coefficients_vec = pm.Deterministic("eigenworm_amplitudes", pm.math.stack(all_cols))
+    # # L2 norm across modes (nothing varies by dataset here)
+    # eps = 1e-6
+    # norm = pm.math.sqrt(pm.math.sum(pt.square(coefficients_vec), axis=0) + eps)
+
+    # # Unit-sphere projection
+    # coefficients_vec = coefficients_vec / norm
+    
+    curvature_term = pm.Deterministic('curvature_term', pm.math.dot(curvature, coefficients_vec))
+
+    return curvature_term, gamma
 
 
-def build_drift_term_gp(n, lengthscale=None, dims=None, dataset_name_idx=None):
-    # Drift term (gaussian process)
-    if lengthscale is None:
-        lengthscale = n / 3.0
-    eta = 2.0
-    cov = eta ** 2 * pm.gp.cov.ExpQuad(1, lengthscale)
-    # Add white noise to stabilise
-    cov += pm.gp.cov.WhiteNoise(1e-6)
-    # Actual gp, then make it a function
-    gp = pm.gp.Latent(cov_func=cov)  # VERY slow
-    X = np.linspace(0, n, n)[:, None]  # The inputs to the GP must be arranged as a column vector
-    drift_term = gp.prior("f", X=X)
-
-    return drift_term
-
-
-def build_drift_term(dims=None, dataset_name_idx=None):
-    # Drift term (random walk); needs 'time' in the dims
-    # std of random walk
-    sigma_alpha = pm.Exponential("sigma_alpha", 1.0)
-
-    drift_term = pm.GaussianRandomWalk(
-        "alpha", sigma=sigma_alpha, init_dist=pm.Normal.dist(0, 1), dims="time"
-    )
-
-    return drift_term
-
-
-def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
-         use_additional_eigenworms=True):
+def main_full_models(neuron_name=None, dataset_name='all', skip_if_exists=True, residual_mode='pca_global',
+                     use_additional_eigenworms=True, keep_large_vars=False, DEBUG=False, **dataset_kwargs):
     """
-    Runs for hardcoded data location for a single neuron
-
-    Saves all the information in the same directory as the data, in the 'output' subdirectory
+    Fit full posterior models for multiple model structures and compute LOO.
+    
+    This is the original main() function. Runs for hardcoded data location for a single neuron.
+    Saves all the information in the same directory as the data, in the 'output' subdirectory.
 
     Commonly used with:
         dataset_name = 'all' to run the neuron for all datasets at once
@@ -302,11 +432,15 @@ def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True
     -------
 
     """
+    if DEBUG:
+        skip_if_exists = False
+        neuron_name = 'VB02'  # I know this exists even in GFP
     if neuron_name is None:
         neuron_name = 'VB02'
-    print(f"Running all 3 bayesian models for {neuron_name} with do_gfp={do_gfp} and residual_mode={residual_mode}")
 
-    data_dir = get_hierarchical_modeling_dir(do_gfp)
+    print(f"Running all 3 bayesian models for {neuron_name} with dataset_kwargs={dataset_kwargs} and residual_mode={residual_mode} and DEBUG={DEBUG}")
+
+    data_dir = get_hierarchical_modeling_dir(**dataset_kwargs)
     fname = os.path.join(data_dir, 'data.h5')
     if not os.path.exists(fname):
         # Try to read from backup
@@ -324,14 +458,17 @@ def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True
             if dataset_name == 'loop':
                 # Recursion error
                 continue
-            main(neuron_name, do_gfp=do_gfp, dataset_name=dataset_name, skip_if_exists=skip_if_exists,
-                 residual_mode=residual_mode)
+            main_full_models(neuron_name, dataset_name=dataset_name, skip_if_exists=skip_if_exists,
+                           residual_mode=residual_mode, use_additional_eigenworms=use_additional_eigenworms, 
+                           keep_large_vars=keep_large_vars, DEBUG=DEBUG, **dataset_kwargs)
         return
 
     if dataset_name == 'all':
-        output_dir = os.path.join(data_dir, 'output')
+        output_dir = os.path.join(data_dir, f'output_{residual_mode}')
     else:
         output_dir = os.path.join(data_dir, 'output_single_dataset')
+    if DEBUG:
+        output_dir = f"{output_dir}_debug"
     Path(output_dir).mkdir(exist_ok=True)
     # Check if it already exists
     if skip_if_exists and os.path.exists(os.path.join(output_dir, f'{neuron_name}_loo.h5')):
@@ -340,24 +477,111 @@ def main(neuron_name=None, do_gfp=False, dataset_name='all', skip_if_exists=True
 
     # Fit models
     df_compare, all_traces, all_models = fit_multiple_models(Xy, neuron_name, dataset_name=dataset_name,
-                                                             residual_mode=residual_mode,
-                                                             use_additional_eigenworms=use_additional_eigenworms)
+                                                             residual_mode=residual_mode, sample_large_variables=keep_large_vars,
+                                                             use_additional_eigenworms=use_additional_eigenworms,
+                                                             DEBUG=DEBUG)
 
     if df_compare is None:
         print(f"Skipping {neuron_name} because there is no valid data")
         return
 
-    save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir)
+    save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=keep_large_vars)
 
 
-def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir):
-    # Save objects
+def drop_large_variables_from_idata(idata, large_vars_to_drop=None, verbose=0):
+    """
+    Drop large deterministic variables from an ArviZ InferenceData object.
+    
+    Removes variables from posterior, posterior_predictive, and log_likelihood groups
+    to reduce file size. Useful for traces with large deterministic outputs like
+    ~20k observation arrays (curvature_term, mu, sigmoid_term, etc.).
+    
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+        The inference data object to modify
+    large_vars_to_drop : list of str, optional
+        Variable names to drop. Default: ['curvature_term', 'mu', 'sigmoid_term', 'pca_term', 'y']
+    
+    Returns
+    -------
+    idata_cleaned : arviz.InferenceData
+        Modified copy with large variables removed
+    """
+    if large_vars_to_drop is None:
+        large_vars_to_drop = ['curvature_term', 'mu', 'sigmoid_term', 'pca_term', 'y']
+    if verbose >= 1:
+        print(f"Dropping large variables: {large_vars_to_drop}")
+    
+    idata_cleaned = idata.copy()
+    vars_to_drop = []
+    pp_vars_to_drop = []
+    ll_vars_to_drop = []
+    
+    # Drop from posterior
+    if hasattr(idata_cleaned, 'posterior') and idata_cleaned.posterior is not None:
+        # Debugging: rename intercept
+        # print("DEBUGGING DROP LARGE VARS")
+        # print(idata_cleaned.posterior)
+        # idata_cleaned.posterior = idata_cleaned.posterior.rename(
+        #     {"intercept": "_intercept"}
+        # )
+        # print(idata_cleaned.posterior)
+        vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior.data_vars]
+        if vars_to_drop:
+            idata_cleaned.posterior = idata_cleaned.posterior.drop_vars(vars_to_drop)
+
+            # idata_cleaned.posterior = idata_cleaned.posterior.reset_encoding()
+            if verbose >= 1:
+                print(f"Dropped from posterior: {vars_to_drop}")
+    
+    # Drop from posterior_predictive if it exists
+    if hasattr(idata_cleaned, 'posterior_predictive') and idata_cleaned.posterior_predictive is not None:
+        pp_vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.posterior_predictive.data_vars]
+        if pp_vars_to_drop:
+            idata_cleaned.posterior_predictive = idata_cleaned.posterior_predictive.drop_vars(pp_vars_to_drop)
+            # idata_cleaned.posterior_predictive = idata_cleaned.posterior_predictive.reset_encoding()
+            if verbose >= 1:
+                print(f"Dropped from posterior_predictive: {pp_vars_to_drop}")
+    
+    # Drop from log_likelihood if it exists
+    if hasattr(idata_cleaned, 'log_likelihood') and idata_cleaned.log_likelihood is not None:
+        ll_vars_to_drop = [v for v in large_vars_to_drop if v in idata_cleaned.log_likelihood.data_vars]
+        if ll_vars_to_drop:
+            idata_cleaned.log_likelihood = idata_cleaned.log_likelihood.drop_vars(ll_vars_to_drop)
+            # idata_cleaned.log_likelihood = idata_cleaned.log_likelihood.reset_encoding()
+            if verbose >= 1:
+                print(f"Dropped from log_likelihood: {ll_vars_to_drop}")
+    
+    # Try to clear potentially stale metadata
+    # Reconstruct InferenceData with only non-None groups
+    # idata_groups = {}
+    # for group_name in ['posterior', 'posterior_predictive', 'log_likelihood', 'observed_data', 'constant_data', 'sample_stats']:
+    #     if hasattr(idata_cleaned, group_name) and getattr(idata_cleaned, group_name) is not None:
+    #         idata_groups[group_name] = getattr(idata_cleaned, group_name)
+    
+    # idata_cleaned = az.InferenceData(**idata_groups)
+    modified_flag = len(vars_to_drop) + len(pp_vars_to_drop) + len(ll_vars_to_drop) > 0
+    return idata_cleaned, modified_flag
+
+
+def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, all_models, output_dir, keep_large_vars=False,
+                           verbose=0):
+    # Save objects, possibly dropping large variables from traces
     if dataset_name == 'all':
         output_fname_base = f'{neuron_name}'
 
         # arviz has a specific function for traces
         for model_name, traces in all_traces.items():
-            az.to_netcdf(traces, os.path.join(output_dir, f'{output_fname_base}_{model_name}_trace.nc'))
+            # Optionally drop large variables (deterministic outputs with ~20k observations) to reduce file size
+            if not keep_large_vars:
+                if verbose >= 1:
+                    print(f"Processing {model_name}...")
+                traces_to_save, _ = drop_large_variables_from_idata(traces)
+            else:
+                traces_to_save = traces
+            
+            az.to_netcdf(traces_to_save, os.path.join(output_dir, f'{output_fname_base}_{model_name}_trace.nc'))
     else:
         output_fname_base = f'{neuron_name}_{dataset_name}'
     # Also save the model
@@ -376,129 +600,260 @@ def save_all_model_outputs(dataset_name, neuron_name, df_compare, all_traces, al
     print(f"Saved all objects for {neuron_name} in {output_dir}")
 
 
+
+def reconstruct_model_term_from_trace(idata, neuron_name, Xy=None, dataset_name='all', residual_mode='pca_global',
+                                      use_additional_eigenworms=True, var_names=None, DEBUG=False):
+    """
+    Reconstruct model variables from saved posterior samples using PyMC.
+    
+    Builds a PyMC model and uses pm.compute_deterministics to evaluate specified
+    variables for all posterior samples. Can reconstruct deterministics (sigmoid_term,
+    curvature_term, mu, etc.) or posterior predictive samples (y).
+    Uses the same coords as the original model.
+    
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+        Saved posterior with model parameters in the posterior group. 
+        Should have coords matching the original model.
+    neuron_name : str
+        Name of the neuron to reconstruct
+    Xy : pd.DataFrame, optional
+        Full dataset. If None, will be loaded from hardcoded location using get_hierarchical_modeling_dir
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data (default: 'pca_global')
+    use_additional_eigenworms : bool
+        Whether the model used eigenworms 2 and 3 (default: True)
+    var_names : list of str, optional
+        Variables to reconstruct. Default: ['sigmoid_term']
+        Can include deterministics like 'sigmoid_term', 'curvature_term', 'mu', 'y', etc.
+    
+    Returns
+    -------
+    idata : arviz.InferenceData
+        InferenceData with computed variables added to appropriate groups
+    
+    Examples
+    --------
+    >>> # Reconstruct sigmoid term
+    >>> idata_recon = reconstruct_model_term_from_trace(idata, neuron_name='VB02', Xy=Xy)
+    >>> quantiles = idata_recon.posterior['sigmoid_term'].quantile([0.05, 0.5, 0.95], dim=['chain', 'draw'])
+    
+    >>> # Reconstruct multiple variables
+    >>> idata_recon = reconstruct_model_term_from_trace(idata, neuron_name='VB02', Xy=Xy,
+    ...                                                    var_names=['sigmoid_term', 'curvature_term', 'mu'])
+    
+    >>> # Reconstruct final model output
+    >>> idata_recon = reconstruct_model_term_from_trace(idata, neuron_name='VB02', Xy=Xy,
+    ...                                                    var_names=['y'])
+    """
+    if var_names is None:
+        var_names = ['sigmoid_term']
+    
+    # Load data if not provided
+    if Xy is None:
+        data_dir = get_hierarchical_modeling_dir(do_gfp=False)
+        fname = os.path.join(data_dir, 'data.h5')
+        if not os.path.exists(fname):
+            logging.warning(f"Could not find data file {fname}, trying backup")
+            fname = os.path.join(data_dir, 'data_backup.h5')
+        if not os.path.exists(fname):
+            raise FileNotFoundError(f"Could not find data file {fname}")
+        Xy = pd.read_hdf(fname)
+    
+    # Initialize model data using helper function
+    model_data = initialize_hierarchical_model_data(
+        Xy, neuron_name, 
+        dataset_name=dataset_name,
+        residual_mode=residual_mode,
+        use_additional_eigenworms=use_additional_eigenworms,
+        verbose=0 if not DEBUG else 1
+    )
+    
+    # Build a fresh model with the same coords as the original
+    with pm.Model(coords=model_data['coords']) as recon_model:
+        x_pca_data = pm.Data('x_pca_data', model_data['pca_modes'])
+        curvature_data = pm.Data('curvature_data', model_data['df_model'][model_data['curvature_terms_to_use']].values)
+        y_data = pm.Data('y_data', model_data['df_model']['y'].values)
+        
+        if DEBUG:
+            print(f"Reconstructing variables {var_names}")
+            print("PCA modes shape:", model_data['pca_modes'].shape)
+        
+        # Build model components based on which variables are requested
+        sigmoid_term_deterministic, beta = None, None
+        if any(var in var_names for var in ['sigmoid_term', 'pca_term']):
+            sigmoid_term_deterministic, beta = build_sigmoid_term_pca(
+                x_pca_data, 
+                **model_data['dim_opt']
+            )
+        
+        curvature_term, gamma = None, None
+        if any(var in var_names for var in ['curvature_term', 'mu', 'y']):
+            curvature_term, gamma = build_curvature_term(
+                curvature_data, 
+                curvature_terms_to_use=model_data['curvature_terms_to_use'],
+                **model_data['dim_opt']
+            )
+        
+        likelihood = None
+        if 'mu' in var_names or 'y' in var_names:
+            intercept, sigma = build_baseline_priors(**model_data['dim_opt'])
+            
+            # Build the sigmoid term value to use
+            sigmoid_term_val = sigmoid_term_deterministic if sigmoid_term_deterministic is not None else None
+            
+            # Build likelihood for y and/or mu (likelihood creates mu as a deterministic)
+            likelihood = build_final_likelihood(sigma, y_data, intercept=intercept, 
+                                               sigmoid_term=sigmoid_term_val, 
+                                               curvature_term=curvature_term,
+                                               gamma=gamma, beta=beta)
+    
+    # Use PyMC's compute_deterministics to evaluate deterministics for all posterior samples
+    deterministic_vars = [v for v in var_names if v not in ['y']]
+    
+    if deterministic_vars:
+        with recon_model:
+            idata = pm.compute_deterministics(
+                idata, 
+                var_names=deterministic_vars,
+                progressbar=False,
+                merge_dataset=True
+            )
+    
+    # For posterior predictive samples (like 'y'), use sample_posterior_predictive
+    if 'y' in var_names:
+        with recon_model:
+            pm.sample_posterior_predictive(
+                idata,
+                var_names=['y'],
+                random_seed=42,
+                progressbar=False,
+                extend_inferencedata=True
+            )
+    
+    return idata, model_data
+
+
+def sample_prior_predictive_for_neuron(neuron_name, Xy=None, dataset_name='all', residual_mode='pca_global',
+                                       use_additional_eigenworms=True, var_names=None, 
+                                       num_samples=1000, random_seed=42, DEBUG=False):
+    """
+    Sample from prior predictive distribution for model variables.
+    
+    Builds a PyMC model and samples from the joint prior (priors only, no data conditioning).
+    Useful for prior predictive checks to assess if priors are reasonable.
+    
+    Parameters
+    ----------
+    neuron_name : str
+        Name of the neuron to sample for
+    Xy : pd.DataFrame, optional
+        Full dataset. If None, will be loaded from hardcoded location using get_hierarchical_modeling_dir
+    dataset_name : str
+        Which dataset(s) to use ('all', specific dataset name, etc.)
+    residual_mode : str
+        Residual/preprocessing mode for data (default: 'pca_global')
+    use_additional_eigenworms : bool
+        Whether the model used eigenworms 2 and 3 (default: True)
+    var_names : list of str, optional
+        Variables to sample. Default: ['y']
+        Can include 'sigmoid_term', 'curvature_term', 'mu', 'y', etc.
+    num_samples : int
+        Number of prior samples to draw (default: 1000)
+    random_seed : int
+        Random seed for reproducibility
+    
+    Returns
+    -------
+    idata : arviz.InferenceData
+        InferenceData with prior samples in 'prior' and 'prior_predictive' groups
+    
+    Examples
+    --------
+    >>> # Sample prior predictive for final output
+    >>> idata_prior = sample_prior_predictive_for_neuron(neuron_name='VB02', Xy=Xy)
+    
+    >>> # Sample deterministics from prior
+    >>> idata_prior = sample_prior_predictive_for_neuron(neuron_name='VB02', Xy=Xy,
+    ...                                                   var_names=['sigmoid_term', 'curvature_term', 'y'])
+    
+    >>> # More samples for thorough prior predictive checks
+    >>> idata_prior = sample_prior_predictive_for_neuron(neuron_name='VB02', Xy=Xy, num_samples=5000)
+    """
+    # if var_names is None:
+    #     var_names = ['y']
+    
+    # Load data if not provided
+    if Xy is None:
+        data_dir = get_hierarchical_modeling_dir(do_gfp=False)
+        fname = os.path.join(data_dir, 'data.h5')
+        if not os.path.exists(fname):
+            logging.warning(f"Could not find data file {fname}, trying backup")
+            fname = os.path.join(data_dir, 'data_backup.h5')
+        if not os.path.exists(fname):
+            raise FileNotFoundError(f"Could not find data file {fname}")
+        Xy = pd.read_hdf(fname)
+    
+    # Initialize model data using helper function
+    model_data = initialize_hierarchical_model_data(
+        Xy, neuron_name, 
+        dataset_name=dataset_name,
+        residual_mode=residual_mode,
+        use_additional_eigenworms=use_additional_eigenworms,
+        verbose=0 if not DEBUG else 1
+    )
+
+    baseline_opt = dict(vary_intercept_per_trial=False, vary_intercept=False)
+    
+    # Build a fresh model with the same coords as the original
+    with pm.Model(coords=model_data['coords']) as prior_model:
+        x_pca_data = pm.Data('x_pca_data', model_data['pca_modes'])
+        curvature_data = pm.Data('curvature_data', model_data['df_model'][model_data['curvature_terms_to_use']].values)
+        y_data = pm.Data('y_data', model_data['df_model']['y'].values)
+        
+        if DEBUG:
+            print(f"Sampling prior predictive for variables {var_names}")
+            print("PCA modes shape:", model_data['pca_modes'].shape)
+        
+        # Always build the full hierarchical model, regardless of var_names
+        # var_names is only used for filtering what to sample
+        sigmoid_term, beta = build_sigmoid_term_pca(
+            x_pca_data, 
+            **model_data['dim_opt']
+        )
+        
+        curvature_term, gamma = build_curvature_term(
+            curvature_data, 
+            curvature_terms_to_use=model_data['curvature_terms_to_use'],
+            **model_data['dim_opt']
+        )
+        
+        intercept, sigma = build_baseline_priors(**model_data['dim_opt'], **baseline_opt)
+        
+        # Build the full likelihood with all terms
+        likelihood = build_final_likelihood(sigma, y_data, intercept=intercept, 
+                                           sigmoid_term=sigmoid_term, 
+                                           curvature_term=curvature_term,
+                                           gamma=gamma, beta=beta)
+    
+    # Sample from prior predictive
+    with prior_model:
+        idata = pm.sample_prior_predictive(
+            random_seed=random_seed,
+            var_names=var_names,
+            draws=num_samples,
+        )
+    
+    return idata, model_data, prior_model
+
+
+
 ##
 ## Model type 2: hierarchical ttests for triggered averages
 ##
-
-def do_hierarchical_ttest(neuron_name, do_immob=False, do_mutant=False, do_downshift=False, do_hiscl=False,
-                          trigger_type='raw_rev', skip_if_exists=True):
-    """
-    Designed to be used with a dataframe generated via get_df_triggered_from_trigger_type_all_traces_as_df
-
-    Returns
-    -------
-
-    """
-
-    # Load the data
-    fname, _ = get_triggered_average_dataframe_fname(trigger_type, do_downshift, do_hiscl, do_immob, do_mutant)
-
-    Xy = pd.read_hdf(fname)
-
-    # Get information for this neuron
-    df = Xy[neuron_name].melt(ignore_index=False).reset_index().dropna()
-
-    # Add columns needed for the hierarchical model
-    df['before'] = df['index'] < 0  # Add a column for before/after the event
-    y = df['value'].values
-
-    # First index: condition (before and after)
-    # Need a cross product column of everything we will index: dataset, trial, and condition
-    join_str = '--'
-    df['dataset_trial_condition'] = df.dataset_name + join_str + df.trial_idx.astype(str) + join_str + df.before.astype(str)
-    df['dataset_condition'] = df.dataset_name + join_str + df.before.astype(str)
-    df['dataset_trial'] = df.dataset_name + join_str + df.trial_idx.astype(str)
-
-    # First: just the values
-    dataset_values = df["dataset_name"].unique()
-    condition_values = df["before"].unique()
-    trial_values = df["trial_idx"].unique()
-
-    full_cross_product_strings = df['dataset_trial_condition'].unique()
-    dataset_trial_cross_product_strings = df['dataset_trial'].unique()
-    dataset_condition_cross_product_strings = df['dataset_condition'].unique()
-
-    # Top index: from condition to the next level (dataset)
-    # dataset2condition_names = [v.split(join_str)[2] for v in full_cross_product_strings]
-    dataset2condition_names = [v.split(join_str)[1] for v in dataset_condition_cross_product_strings]
-    dataset2condition_idx = [list(condition_values.astype(str)).index(name) for name in dataset2condition_names]
-
-    # Middle index: from dataset to next level (trial)
-    # We need to get the keys that will get here, i.e. that correspond to one condition
-
-    # Middle index: from trial to the parent dataset AND condition
-    trial2dataset_names = [join_str.join(np.array(v.split(join_str))[[0, 2]]) for v in full_cross_product_strings]
-    # trial2dataset_idx = [list(dataset_values).index(name) for name in trial2dataset_names]
-    trial2dataset_idx = [list(dataset_condition_cross_product_strings).index(name) for name in trial2dataset_names]
-
-    # Bottom index: from the entire dataset to the parent combination idx, which is not the raw trial idx
-    time2trial_idx = [list(full_cross_product_strings).index(name) for name in df['dataset_trial_condition']]
-
-    coords = {
-        "dataset_name": dataset_values,
-        "condition_values": condition_values,
-        "trial_values": trial_values,
-        "dataset2condition_names": dataset2condition_names,
-        "trial2dataset_names": trial2dataset_names,
-        "dataset_condition_cross_product_strings": dataset_condition_cross_product_strings,
-        "full_cross_product_strings": full_cross_product_strings
-    }
-
-    # Define the model
-    with pm.Model(coords=coords) as hierarchical_model:
-
-        alpha_condition = pm.Normal('alpha_condition', mu=0, sigma=1, dims='condition_values')
-        sigma_condition = pm.HalfCauchy('sigma_condition', beta=0.5, dims='condition_values')
-
-        # This is the thing that will be compared
-        diff_of_means = pm.Deterministic("Difference of means", alpha_condition[1] - alpha_condition[0])
-
-        # Hyperpriors for dataset-level random effects
-
-        # Dataset-level random effects
-        alpha_dataset = pm.Normal('alpha_dataset', mu=alpha_condition[dataset2condition_idx],
-                                  sigma=sigma_condition[dataset2condition_idx],
-                                  dims='dataset_condition_cross_product_strings')
-
-        # Hyperpriors for trial-level random effects
-        sigma_alpha_trial = pm.HalfNormal('sigma_alpha_trial', sigma=1)
-        alpha_trial = pm.Normal('alpha_trial', mu=alpha_dataset[trial2dataset_idx], sigma=sigma_alpha_trial,
-                                dims='full_cross_product_strings')
-
-        # Model error term
-        sigma = pm.HalfNormal('sigma', sigma=1)
-
-        # Expected value of the outcome
-        # Indexing maps from datapoint (len of vector) to the dimensions of beta_trial
-        mu = alpha_trial[time2trial_idx]
-
-        # Likelihood (observed data)
-        # y_obs = pm.StudentT('y_obs', mu=mu, sigma=sigma, nu=100, observed=y)
-        y_obs = pm.Normal('y_obs', mu=mu, sigma=sigma, observed=y)
-
-    # Sample from the model
-    with hierarchical_model:
-        # Sample from the posterior
-        trace = pm.sample(1000, return_inferencedata=True, target_accept=0.999, cores=10)
-
-    # Plot some diagnostics
-    az.plot_posterior(
-        trace,
-        var_names=["Difference of means"],
-        ref_val=0,
-    )
-
-    # Save
-    output_dir = get_triggered_average_modeling_dir()  # Same as the input
-    print(f"Saving all objects for {neuron_name} in {output_dir}")
-    base_fname = f'hierarchical_ttest-{neuron_name}-immob{do_immob}-mutant{do_mutant}.png'
-    plt.savefig(os.path.join(output_dir, base_fname))
-    plt.close()
-
-    # Save the trace
-    base_fname = base_fname.replace('.png', '.zarr')
-    trace.to_zarr(os.path.join(output_dir, base_fname))
-
 
 @dataclass
 class ExamplePymcPlotter:
@@ -557,6 +912,55 @@ class ExamplePymcPlotter:
         return df
 
 
+def pt_corr(x, y):
+    x_centered = x - pt.mean(x)
+    y_centered = y - pt.mean(y)
+
+    cov = pt.mean(x_centered * y_centered)
+    std_x = pt.sqrt(pt.mean(x_centered**2))
+    std_y = pt.sqrt(pt.mean(y_centered**2))
+
+    return cov / (std_x * std_y)
+
+
+def normalize_by_group(values, group_indices, n_groups=None):
+    """
+    Vectorized group normalization for PyMC.
+    
+    Parameters:
+    -----------
+    values : tensor
+        Values to normalize
+    group_indices : tensor
+        Group assignments (integers starting from 0)
+    n_groups : int, optional
+        Number of groups (if known, helps with static shapes)
+    """
+    if n_groups is None:
+        n_groups = pt.max(group_indices) + 1
+    
+    # Create one-hot encoding of groups
+    group_range = pt.arange(n_groups)
+    masks = pt.eq(group_indices[:, None], group_range[None, :])  # shape: (n_values, n_groups)
+    
+    # Compute min/max per group using masked operations
+    # Use a large value for min, small for max where mask is False
+    masked_vals_for_min = pt.where(masks, values[:, None], 1e10)
+    masked_vals_for_max = pt.where(masks, values[:, None], -1e10)
+    
+    group_mins = pt.min(masked_vals_for_min, axis=0)  # shape: (n_groups,)
+    group_maxs = pt.max(masked_vals_for_max, axis=0)  # shape: (n_groups,)
+    
+    # Broadcast back to original shape
+    mins_expanded = group_mins[group_indices]
+    maxs_expanded = group_maxs[group_indices]
+    
+    # Normalize
+    normalized = (values - mins_expanded) / (maxs_expanded - mins_expanded + 1e-3)
+    
+    return normalized
+
+
 if __name__ == '__main__':
     # Get neuron name from argparse
     import argparse
@@ -565,8 +969,12 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_name', type=str)
     parser.add_argument('--residual_mode', type=str, default='pca_global')
     # Boolean
-    parser.add_argument('--do_gfp', action='store_true')
+    parser.add_argument('--parent_folder_suffix', type=str, help='Alternate parent folder for the traces, specifically the suffix; see export_data_for_hierarchical_model(). Examples are "avb_hiscl", and "avb_hiscl_control"')
+    parser.add_argument('--gfp', action='store_true')
     parser.add_argument('--simple_eigenworms', action='store_true')
+    parser.add_argument('--keep_large_vars', action='store_true', help='Keep large deterministic variables (curvature_term, mu, etc.) in saved traces')
+    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--cv_comparison', action='store_true', help='Run grouped CV comparison instead of full model fitting')
 
     args = parser.parse_args()
 
@@ -574,5 +982,13 @@ if __name__ == '__main__':
     if residual_mode == 'None':
         residual_mode = None
 
-    main(neuron_name=args.neuron_name, do_gfp=args.do_gfp, residual_mode=residual_mode,
-         use_additional_eigenworms=not args.simple_eigenworms)
+    if args.cv_comparison:
+        from wbfm.utils.external.utils_pymc_cv import main_cv_comparison
+        main_cv_comparison(neuron_name=args.neuron_name, gfp=args.gfp, 
+                           residual_mode=residual_mode,
+                           use_additional_eigenworms=not args.simple_eigenworms, DEBUG=args.debug)
+    else:
+        main_full_models(neuron_name=args.neuron_name, 
+                         residual_mode=residual_mode,
+                         use_additional_eigenworms=not args.simple_eigenworms, keep_large_vars=args.keep_large_vars, DEBUG=args.debug,
+                         gfp=args.gfp, suffix=args.parent_folder_suffix)

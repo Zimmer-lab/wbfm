@@ -25,7 +25,7 @@ do
         t) project_path=${OPTARG};;
         n) is_dry_run=${OPTARG};;
         s) step_reference=${OPTARG};;
-        *) raise error "Unknown flag"
+        *) echo "Error: Unknown flag"; exit 1;;
     esac
 done
 
