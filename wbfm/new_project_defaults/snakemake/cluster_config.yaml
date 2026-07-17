@@ -10,7 +10,7 @@ __default__:
     mem: 128G
     output: log_snakemake_step-%j.out
     mail_type: FAIL,TIME_LIMIT
-    gres: null # Should be null
+    gres: localtmp:100 # 100GB -> arbitrarily chosen
     constraint: "hdd|ssd" # Dummy values, because it can't be empty
     no-requeue: "" # Should be empty
 
