@@ -140,6 +140,7 @@ class ProjectData:
     # Classes for more functionality
     _trace_plotter: TracePlotter = None
     physical_unit_conversion: PhysicalUnitConversion = None
+    _worm_posture_class: Optional[WormFullVideoPosture] = None
 
     # Values for ground truth annotation (reading from excel or .csv)
     finished_neurons_column_name: str = "Finished?"
@@ -447,14 +448,50 @@ class ProjectData:
         """Class that connects tracklets with raw neuron segmentation"""
         return self._build_tracklets_and_neurons_class()
 
-    @cached_property
+    @property
     def worm_posture_class(self) -> WormFullVideoPosture:
         """
         Class with all functionality related to behavior
 
         For example, allows coloring the traces using behavioral annotation, and correlations to behavioral time series
         """
-        return WormFullVideoPosture.load_from_project(self)
+        if self._worm_posture_class is None:
+            self._worm_posture_class = WormFullVideoPosture.load_from_project(self)
+        return self._worm_posture_class
+
+    @worm_posture_class.setter
+    def worm_posture_class(self, value: WormFullVideoPosture):
+        self._worm_posture_class = value
+
+    def _infer_num_frames(self, posture_class: Optional[WormFullVideoPosture] = None) -> Optional[int]:
+        """Infer the fluorescence volume count without re-entering the posture loader."""
+        num_frames = None
+        if self.project_config is not None:
+            try:
+                num_frames = self.project_config.num_frames
+            except (AttributeError, FileNotFoundError):
+                num_frames = None
+        if num_frames is None and self.red_data is not None:
+            num_frames = self.red_data.shape[0]
+
+        if num_frames is None and self.project_config is not None:
+            try:
+                num_frames = self.project_config.get_num_frames_robust()
+            except (AttributeError, FileNotFoundError):
+                num_frames = None
+
+        if num_frames is None and posture_class is not None:
+            try:
+                if posture_class is self._worm_posture_class:
+                    beh_video = posture_class.raw_behavior_video
+                    if beh_video is not None:
+                        num_high_res_frames = beh_video.shape[0]
+                        frames_per_volume = self.physical_unit_conversion.frames_per_volume
+                        num_frames = int(num_high_res_frames / frames_per_volume)
+            except (AttributeError, FileNotFoundError, RecursionError):
+                num_frames = None
+
+        return num_frames
 
     @cached_property
     def tracked_worm_class(self):
@@ -499,37 +536,7 @@ class ProjectData:
 
         Note also that this is actually the number of fluorescence volumes... but it would be too big of a breaking change to rename it
         """
-        num_frames = None
-        if self.project_config is not None:
-            try:
-                num_frames = self.project_config.num_frames
-            except (AttributeError, FileNotFoundError):
-                num_frames = None
-        if num_frames is None:
-            # Then try calculate from the processed data, not the raw
-            if self.red_data is not None:
-                num_frames = self.red_data.shape[0]
-
-        if num_frames is None:
-            # Loads the raw fluorescence data, which may be slow
-            try:
-                num_frames = self.project_config.get_num_frames_robust()
-            except FileNotFoundError:
-                num_frames = None
-
-        if num_frames is None:
-            # Then try calculate from the behavior video, not the fluorescence
-            try:
-                # TODO: loading this class requires num_frames, i.e. recursion!
-                beh_video = self.worm_posture_class.raw_behavior_video
-                if beh_video is not None:
-                    num_high_res_frames = beh_video.shape[0]
-                    frames_per_volume = self.physical_unit_conversion.frames_per_volume
-                    num_frames = int(num_high_res_frames / frames_per_volume)
-            except FileNotFoundError:
-                num_frames = None
-        
-        return num_frames
+        return self._infer_num_frames(posture_class=self._worm_posture_class)
     
 
     def num_frames_minus_tracking_failures(self, **kwargs):
@@ -2192,7 +2199,8 @@ class ProjectData:
 
     def estimate_tracking_failures_from_project(self, pad_nan_points=3, contamination=0.1,#'auto',
                                                 min_decrease_threshold=40,
-                                                DEBUG=False):
+                                                DEBUG=False,
+                                                worm_posture_class=None):
         """
         Uses sudden dips in the number of detected objects to guess where the tracking might fail
 
@@ -2209,6 +2217,9 @@ class ProjectData:
         -------
 
         """
+        if worm_posture_class is None:
+            worm_posture_class = self._worm_posture_class
+
         try:
             all_vol = [self.segmentation_metadata.get_all_volumes(i) for i in range(self.num_frames)]
         except (AttributeError, FileNotFoundError) as e:

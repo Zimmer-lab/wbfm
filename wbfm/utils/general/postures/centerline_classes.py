@@ -2029,13 +2029,14 @@ class WormFullVideoPosture:
         # Even if no files found, at least save the fps
         worm_posture_class = WormFullVideoPosture(**all_files, **opt)
 
-        # Finally, use the project data class to do some additional validation, and estimate tracking failures if needed
-        # In certain cases these functions need to load the behavior video, meaning they need this class already attached to the project_data class
+        inferred_num_frames = project_data._infer_num_frames(posture_class=worm_posture_class)
+        if inferred_num_frames is not None:
+            worm_posture_class.num_volumes = inferred_num_frames
+
+        # Keep the posture object attached after initialization is complete.
         project_data.worm_posture_class = worm_posture_class
 
-        worm_posture_class.num_volumes = project_data.num_frames
-
-        invalid_idx = project_data.estimate_tracking_failures_from_project()
+        invalid_idx = project_data.estimate_tracking_failures_from_project(worm_posture_class=worm_posture_class)
         worm_posture_class.tracking_failure_idx = invalid_idx
 
         return worm_posture_class
