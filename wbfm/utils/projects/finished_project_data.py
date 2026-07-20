@@ -520,6 +520,7 @@ class ProjectData:
         if num_frames is None:
             # Then try calculate from the behavior video, not the fluorescence
             try:
+                # TODO: loading this class requires num_frames, i.e. recursion!
                 beh_video = self.worm_posture_class.raw_behavior_video
                 if beh_video is not None:
                     num_high_res_frames = beh_video.shape[0]

@@ -1928,15 +1928,10 @@ class WormFullVideoPosture:
             project_data.logger.warning("No project config found; returning empty posture class")
             return WormFullVideoPosture()
 
-        # Use the project data class to check for tracking failures
-        invalid_idx = project_data.estimate_tracking_failures_from_project()
-
         old_params = project_config.config.get('deprecated_dataset_params', {})
         bigtiff_start_volume = old_params.get('bigtiff_start_volume', 0)
         opt = dict(bigtiff_start_volume=bigtiff_start_volume,
-                   num_volumes=project_data.num_frames,
-                   project_config=project_config,
-                   tracking_failure_idx=invalid_idx)
+                   project_config=project_config)
 
         # Get the folder that contains all behavior information
         # Try 1: read from config file
@@ -2032,7 +2027,18 @@ class WormFullVideoPosture:
         opt['_use_physical_time'] = project_data.use_physical_time
 
         # Even if no files found, at least save the fps
-        return WormFullVideoPosture(**all_files, **opt)
+        worm_posture_class = WormFullVideoPosture(**all_files, **opt)
+
+        # Finally, use the project data class to do some additional validation, and estimate tracking failures if needed
+        # In certain cases these functions need to load the behavior video, meaning they need this class already attached to the project_data class
+        project_data.worm_posture_class = worm_posture_class
+
+        worm_posture_class.num_volumes = project_data.num_frames
+
+        invalid_idx = project_data.estimate_tracking_failures_from_project()
+        worm_posture_class.tracking_failure_idx = invalid_idx
+
+        return worm_posture_class
 
     @staticmethod
     def find_stage_position_in_folder(_folder):
