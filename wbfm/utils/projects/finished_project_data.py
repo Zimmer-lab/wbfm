@@ -480,14 +480,17 @@ class ProjectData:
             except (AttributeError, FileNotFoundError):
                 num_frames = None
 
-        if num_frames is None and posture_class is not None:
+        if num_frames is None:
+            if posture_class is None:
+                posture_class = self._worm_posture_class
+            if posture_class is None:
+                raise ValueError("Final behavior-only fallback for inferring frames failed; must init self._worm_posture_class or pass posture_class")
             try:
-                if posture_class is self._worm_posture_class:
-                    beh_video = posture_class.raw_behavior_video
-                    if beh_video is not None:
-                        num_high_res_frames = beh_video.shape[0]
-                        frames_per_volume = self.physical_unit_conversion.frames_per_volume
-                        num_frames = int(num_high_res_frames / frames_per_volume)
+                beh_video = posture_class.raw_behavior_video
+                if beh_video is not None:
+                    num_high_res_frames = beh_video.shape[0]
+                    frames_per_volume = self.physical_unit_conversion.frames_per_volume
+                    num_frames = int(num_high_res_frames / frames_per_volume)
             except (AttributeError, FileNotFoundError, RecursionError):
                 num_frames = None
 
