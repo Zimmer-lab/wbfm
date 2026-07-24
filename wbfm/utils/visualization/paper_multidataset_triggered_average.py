@@ -1371,9 +1371,14 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
     df_boxplot = pd.concat(all_boxplot_data_dfs)
     df_boxplot = _add_color_columns_to_df(df_boxplot, trigger_type=trigger_type)
     if df_p_values is None:
-        df_p_values = _calc_p_value(df_boxplot, groupby_columns=['neuron', 'is_mutant_str'])
+        groupby_columns = ['neuron', 'is_mutant_str']
+        df_p_values = _calc_p_value(df_boxplot, groupby_columns=groupby_columns)
         raw_p_values = df_p_values['p_value'].dropna()
         df_p_values.loc[raw_p_values.index, 'p_value_corrected'] = multipletests(raw_p_values.values.squeeze(), method='fdr_bh', alpha=0.05)[1]
+
+        # Also count the number of trials that this p value came from
+        df_num_trials = _count_triggered_average_trials(df_boxplot, groupby_columns=groupby_columns)
+        df_p_values = df_p_values.merge(df_num_trials, on=groupby_columns, how='left')
 
     # Modify colors to use green for immobilized
     # This is not the only case where is it immobilized, but it is the only one we are plotting
@@ -1504,4 +1509,17 @@ def _calc_p_value(df, groupby_columns=None):
     df_groupby = df.dropna().groupby(groupby_columns)
     df_pvalue = df_groupby.apply(func).to_frame()
     df_pvalue.columns = ['p_value']
+
     return df_pvalue
+
+
+def _count_triggered_average_trials(df, groupby_columns=None):
+    if groupby_columns is None:
+        groupby_columns = ['neuron', 'trigger_type']
+
+    count_func = lambda x: len(x[x['before']]['mean'])
+    df_groupby = df.dropna().groupby(groupby_columns)
+    df_count = df_groupby.apply(count_func).to_frame()
+    df_count.columns = ['count']
+
+    return df_count
