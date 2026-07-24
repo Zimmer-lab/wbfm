@@ -734,8 +734,7 @@ def convert_segmentation_video_to_nwb(CalcImagingVolume, device, segmentation_vi
         resolution=1.,
         # smallest meaningful difference (in specified unit) between values in data: i.e. level of precision
         rate=rate,  # sampling rate in hz
-        imaging_volume=CalcImagingVolume,
-        dimension=segmentation_video.shape
+        imaging_volume=CalcImagingVolume
     )
     return CalciumSegSeries
 
