@@ -66,6 +66,8 @@ Examples:
                 nwb_using_project_data(project, include_image_data=include_image_data, output_folder=this_folder)
             except Exception as e:
                 print(f'Error exporting {name}: {e}')
+                if DEBUG:
+                    raise e
                 continue
 
             if DEBUG:
