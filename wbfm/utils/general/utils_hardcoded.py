@@ -443,7 +443,7 @@ def default_raw_data_config():
             }
 
 
-def neurons_with_confident_ids(combine_left_right=False, add_parentheses_for_less_confident=False):
+def neurons_with_confident_ids(combine_left_right=False, add_parentheses_for_less_confident=False) -> list:
     neuron_names = ['AVAL', 'AVAR', 'BAGL', 'BAGR', 'RIMR', 'RIML', 'AVEL', 'AVER',
                     'URYVL', 'URYVR', 'URADL', 'URADR', 'URYDL', 'URYDR',
                     'RIVR', 'RIVL', 'SMDVL', 'SMDVR', 'SMDDR', 'SMDDL',
@@ -464,7 +464,8 @@ def neurons_with_confident_ids(combine_left_right=False, add_parentheses_for_les
         neuron_names = [f"({n})" if n in less_confident else n for n in neuron_names]
     else:
         neuron_names.extend(less_confident)
-    return neuron_names
+    
+    return list(set(neuron_names))
 
 
 def neurons_with_less_confident_ids(combine_left_right=False, return_mapping=False):
