@@ -953,6 +953,8 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
         """
         if summary_function is None:
             summary_function = np.nanmedian
+        if not dynamic_window_center:
+            logging.warning("Dynamic window center is False (the paper uses True); using fixed window size for after values")
         df_subset = self.get_traces_single_neuron(neuron_name, trigger_type,
                                                   return_individual_traces=return_individual_traces)
         with warnings.catch_warnings():
