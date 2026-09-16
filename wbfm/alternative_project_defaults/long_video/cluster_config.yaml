@@ -4,7 +4,6 @@
 # https://lisc.univie.ac.at/wiki/content/working_environment/services/computational_resources
 
 __default__:
-    partition: basic,gpu
     time: 1-0:00:00
     nodes: 1
     cpus_per_task: 16
@@ -25,7 +24,7 @@ segmentation:
     cpus_per_task: 40
 
 match_frame_pairs:
-    partition: basic,gpu
+    constraint: "l40s|a30|t4|l4"
     gpus_per_node: 1
     time: 1-00:00:00
     mem: 128G
@@ -36,7 +35,7 @@ build_frame_objects:
     cpus_per_task: 20
 
 postprocess_matches_to_tracklets:
-    partition: basic,gpu
+    constraint: "l40s|a30|t4|l4"
     cpus_per_task: 1
     time: 0-6:00:00
     gres: gpu:1
@@ -46,14 +45,14 @@ combine_tracking_and_tracklets:
     cpus_per_task: 20
 
 tracking:
-    partition: basic,gpu
+    constraint: "l40s|a30|t4|l4"
     time: 1-00:00:00
     gpus_per_node: 1
     cpus_per_task: 16
     gres: gpu:1
 
 barlow_tracking:
-    partition: basic,gpu
+    constraint: "l40s|a30|t4|l4"
     gpus_per_node: 1
     cpus_per_task: 16
     gres: gpu:1
@@ -63,7 +62,7 @@ barlow_tracking:
 subtract_background:
     time: 1-08:00:00
     mem: 4G
-    cpus_per_task: 8
+    cpus_per_task: 2
 
 tiff2avi:
     time: 1-18:00:00
@@ -71,38 +70,38 @@ tiff2avi:
 
 dlc_analyze_videos:
     time: 1-00:00:00
-    partition: basic,gpu
+    constraint: "l40s|a30|t4|l4"
     cpus_per_task: 24
     gres: gpu:1
 
 create_centerline:
     time: 1-12:00:00
     mem: 8G
-    cpus_per_task: 4
+    cpus_per_task: 2
 
 normalize_img:
     time: 1-06:00:00
     mem: 4G
-    cpus_per_task: 8
+    cpus_per_task: 2
 
 worm_unet:
     time: 1-00:00:00
-    partition: basic,gpu
+    constraint: "l40s|a30|t4|l4"
     cpus_per_task: 24
     gres: gpu:1
 
 sam2_segment:
     time: 1-0:00:00
-    partition: basic,gpu
-    cpus_per_task: 24
+    constraint: "l40s|a30|t4|l4"
+    cpus_per_task: 2
     gres: gpu:1
 
 coil_unet:
     time: 1-00:00:00
-    partition: basic,gpu
-    cpus_per_task: 24
+    constraint: "l40s|a30|t4|l4"
+    cpus_per_task: 2
     gres: gpu:1
 
 binarize:
     time: 1-06:00:00
-    cpus_per_task: 8
+    cpus_per_task: 2
