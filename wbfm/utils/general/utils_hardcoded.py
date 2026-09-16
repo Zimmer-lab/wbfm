@@ -435,7 +435,7 @@ def default_raw_data_config():
             'z_step_size': 1.5,
             'laser_561': 260,
             'laser_488': 985,
-            'exposure_time': 12,
+            'exposure_time': None,
             'agar': 2,
             'recording_length_minutes': 8,
             'ventral': 'left',
