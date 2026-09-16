@@ -462,7 +462,8 @@ rule coil_unet:
         coil_unet_prediction = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented_mask_coil_segmented.btf")
     shell:
         """
-        module load CUDA/12.9.1
+        module load CUDA/11.7.0  # Note that this wants an older CUDA than the SAM or DLC environments, because wbfm has an older tensorflow
+        module load cuDNN/8.4.1.50-CUDA-11.7.0
 
         python -c "from imutils.src import imutils_parser_main; imutils_parser_main.main(['unet_segmentation_contours_with_children', '-bi', '{input.binary_input_img}', '-ri', '{input.raw_input_img}', '-o', '{output.coil_unet_prediction}', '-w', '{params.weights_path}'])"
         """
