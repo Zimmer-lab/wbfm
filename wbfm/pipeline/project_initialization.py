@@ -22,6 +22,20 @@ from wbfm.utils.general.utils_filenames import get_sequential_filename, add_name
     get_ndtiff_fnames_from_parent_folder, generate_output_data_names
 from wbfm.utils.projects.utils_project import get_relative_project_name, safe_cd, update_project_config_path, \
     update_snakemake_config_path, update_nwb_config_path
+from wbfm.utils.external.custom_errors import IncompleteConfigFileError
+
+
+def _validate_new_project_config(config, project_config=None):
+    exposure_time = config.get('physical_units', {}).get('exposure_time')
+    if exposure_time is None or exposure_time == '':
+        raise IncompleteConfigFileError("exposure_time not found in physical_units; this must be specified when creating a project")
+    if project_config is None:
+        return None
+    try:
+        return project_config.get_remote_raw_data_config_filename()
+    except FileNotFoundError as error:
+        raise IncompleteConfigFileError("No raw data config found in the source data folder; "
+                                        "cannot create a complete project.") from error
 
 
 def build_project_structure_from_config(config: dict, logger: logging.Logger = None) -> None:
@@ -87,6 +101,8 @@ def build_project_structure_from_config(config: dict, logger: logging.Logger = N
     for key in ['red_fname', 'green_fname', 'red_bigtiff_fname', 'green_bigtiff_fname']:
         error_if_dot_in_name(config.get(key, ''))
 
+    _validate_new_project_config(config)
+
     # Build the full project name using the date the data was taken
     basename = Path(red_fname).name.split('_')[0]
     project_config_updates = config
@@ -96,6 +112,7 @@ def build_project_structure_from_config(config: dict, logger: logging.Logger = N
     # Copy simple raw data files to the project: stage position and raw data config
     project_config = ModularProjectConfig(project_fname)
     beh_folder = project_config.get_behavior_config().absolute_subfolder
+    raw_data_config_fname = _validate_new_project_config(config, project_config)
 
     from wbfm.utils.general.postures.centerline_classes import WormFullVideoPosture
     stage_position_filename = WormFullVideoPosture.find_stage_position_in_folder(parent_data_folder)
@@ -106,13 +123,9 @@ def build_project_structure_from_config(config: dict, logger: logging.Logger = N
 
     # Don't treat it as a config class, because it loads a default dict by if it doesn't find the file, which is the case here since we haven't copied it yet. 
     # Just copy the file directly
-    try:
-        raw_data_config_fname = project_config.get_remote_raw_data_config_filename()
-        # Rename, because the original name is just "config.yaml"
-        new_fname = osp.join(beh_folder, 'raw_data_config.yaml')
-        shutil.copy(raw_data_config_fname, new_fname)
-    except FileNotFoundError:
-        project_config.logger.warning("No raw data config found; kymograph signing will not work properly and some behavior steps may crash.")
+    # Rename, because the original name is just "config.yaml"
+    new_fname = osp.join(beh_folder, 'raw_data_config.yaml')
+    shutil.copy(raw_data_config_fname, new_fname)
 
     # If there is a neuropal dataset to add, do so
     if 'neuropal_path' in config:
