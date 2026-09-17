@@ -365,6 +365,7 @@ class PaperDataCache:
 
         from wbfm.utils.projects.finished_project_data import ProjectData
         self.project_data: ProjectData = project_data
+        self._stale_cache_warned = set()
 
     @cache_to_disk_class('invalid_indices_cache_fname',
                          func_save_to_disk=np.save,
@@ -406,6 +407,7 @@ class PaperDataCache:
 
         """
         if interpolate_nan:
+            self.warn_if_cache_stale_for_dispatch(channel_mode, residual_mode, interpolate_nan)
             if residual_mode is None:
                 if channel_mode == 'dr_over_r_50':
                     return self.calc_paper_traces()
@@ -433,6 +435,75 @@ class PaperDataCache:
                 raise ValueError(f"Only dr_over_r_50 is supported without nan interpolation; "
                                  f"got incompatible channel_mode: {channel_mode}")
             return self.calc_paper_traces_no_interpolation()
+
+    def paper_trace_cache_fname_for_dispatch(self, channel_mode='dr_over_r_50', residual_mode=None,
+                                             interpolate_nan=True):
+        """Cache filename that paper_trace_dispatcher will load for these arguments (None if unknown)."""
+        try:
+            if not interpolate_nan:
+                return self.paper_traces_no_interpolation_cache_fname()
+            if residual_mode == 'pca':
+                return self.paper_traces_residual_cache_fname()
+            elif residual_mode == 'pca_global':
+                return self.paper_traces_global_cache_fname()
+            elif residual_mode == 'pca_global_1':
+                return self.paper_traces_global_1_cache_fname()
+            elif residual_mode is not None:
+                return None
+            if channel_mode == 'dr_over_r_50':
+                return self.paper_traces_cache_fname()
+            elif channel_mode == 'dr_over_r_20':
+                return self.paper_traces_cache_fname_r20()
+            elif channel_mode == 'red':
+                return self.paper_traces_cache_fname_red()
+            elif channel_mode == 'green':
+                return self.paper_traces_cache_fname_green()
+        except (AttributeError, TypeError):
+            pass
+        return None
+
+    def warn_if_cache_stale_for_dispatch(self, channel_mode='dr_over_r_50', residual_mode=None,
+                                         interpolate_nan=True):
+        """Warn (never raise) if the cache file about to be loaded predates the manual annotation."""
+        try:
+            cache_fname = self.paper_trace_cache_fname_for_dispatch(channel_mode, residual_mode, interpolate_nan)
+            if cache_fname is None or not os.path.exists(cache_fname):
+                return False
+            annotation_fname = getattr(self.project_data, 'df_manual_tracking_fname', None)
+            if not annotation_fname or not os.path.exists(annotation_fname):
+                return False
+            if cache_fname in self._stale_cache_warned:
+                return False
+            self._stale_cache_warned.add(cache_fname)
+            if os.path.getmtime(cache_fname) < os.path.getmtime(annotation_fname):
+                logging.warning(f"Paper-trace cache {cache_fname} is older than the manual annotation "
+                                f"{annotation_fname}; cached neuron names may be out of date. "
+                                f"Consider refreshing with 4+refresh_paper_trace_cache.py.")
+                return True
+        except (OSError, AttributeError, TypeError) as e:
+            logging.debug(f"Could not check paper-trace cache staleness: {e}")
+        return False
+
+    def warn_if_caches_stale(self):
+        """Warn (never raise) for every stale paper-trace cache; returns the list of stale files."""
+        stale = []
+        try:
+            for cache_fname in self.list_of_paper_trace_methods(return_filenames=True):
+                if cache_fname is None or not os.path.exists(cache_fname):
+                    continue
+                # Reset per-file warning flag so this explicit check always reports
+                self._stale_cache_warned.discard(cache_fname)
+                annotation_fname = getattr(self.project_data, 'df_manual_tracking_fname', None)
+                if not annotation_fname or not os.path.exists(annotation_fname):
+                    continue
+                if os.path.getmtime(cache_fname) < os.path.getmtime(annotation_fname):
+                    logging.warning(f"Paper-trace cache {cache_fname} is older than the manual annotation "
+                                    f"{annotation_fname}; cached neuron names may be out of date.")
+                    stale.append(cache_fname)
+                self._stale_cache_warned.add(cache_fname)
+        except (OSError, AttributeError, TypeError) as e:
+            logging.debug(f"Could not check paper-trace cache staleness: {e}")
+        return stale
 
     def list_of_paper_trace_methods(self, return_filenames=False, return_simple_names=False):
         """

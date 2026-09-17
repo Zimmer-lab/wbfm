@@ -14,7 +14,6 @@ caches, and recalculates them (same recalculation as 4+export_paper_traces.py).
 """
 
 # Experiment tracking
-import os
 import sacred
 from sacred import Experiment
 from sacred import SETTINGS
@@ -51,6 +50,7 @@ def cfg(project_path, DEBUG):
 
 def _report_staleness(project_data):
     """Print mtimes of the manual annotation vs. the paper-trace caches."""
+    import os
     annotation_fname = getattr(project_data, 'df_manual_tracking_fname', None)
     cache_fnames = project_data.data_cacher.list_of_paper_trace_methods(return_filenames=True)
     if annotation_fname is not None and os.path.exists(annotation_fname):
@@ -58,10 +58,10 @@ def _report_staleness(project_data):
     else:
         print(f"Manual annotation not found (got {annotation_fname}); cannot check staleness")
         return
-    annotation_mtime = os.path.getmtime(annotation_fname)
+    stale = set(project_data.data_cacher.warn_if_caches_stale())
     for fname in cache_fnames:
         if fname is not None and os.path.exists(fname):
-            marker = "STALE" if os.path.getmtime(fname) < annotation_mtime else "ok"
+            marker = "STALE" if fname in stale else "ok"
             print(f"  [{marker}] {fname} (mtime {os.path.getmtime(fname)})")
         else:
             print(f"  [missing] {fname}")
