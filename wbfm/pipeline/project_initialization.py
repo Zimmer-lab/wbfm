@@ -28,7 +28,7 @@ from wbfm.utils.external.custom_errors import IncompleteConfigFileError
 def _validate_new_project_config(config, project_config=None):
     exposure_time = config.get('physical_units', {}).get('exposure_time')
     if exposure_time is None or exposure_time == '':
-        raise IncompleteConfigFileError("exposure_time not found in physical_units; this must be specified when creating a project")
+        raise IncompleteConfigFileError(f"exposure_time not found in physical_units; this must be specified when creating a project ({config.get('project_dir', '')})")
     if project_config is None:
         return None
     try:

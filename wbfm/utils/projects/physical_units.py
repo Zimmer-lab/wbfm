@@ -158,7 +158,7 @@ class PhysicalUnitConversion:
                 camera_fps = opt.get('camera_fps', 1000)
                 exposure_time = opt.get('exposure_time')
                 if exposure_time is None:
-                    raise IncompleteConfigFileError("exposure_time not found in physical_units; this must be specified if volumes_per_second is not specified")
+                    raise IncompleteConfigFileError(f"exposure_time not found in physical_units; this must be specified if volumes_per_second is not specified ({project_cfg.config.get('project_dir', '')})")
                 frames_per_volume = get_behavior_fluorescence_fps_conversion(project_cfg)
                 opt['volumes_per_second'] = camera_fps / exposure_time / frames_per_volume
                 if DEBUG:
