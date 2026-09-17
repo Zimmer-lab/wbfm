@@ -4,14 +4,15 @@ from pathlib import Path
 DEFAULT_NWB_ROOT = Path('/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/nwb')
 
 
-def check_expected_fields(tester, expect_calcium_imaging):
+def check_expected_fields(tester, has_video_or_images):
     required_fields = {
         'has_calcium_traces': True,
         'has_centroids': True,
-        'has_segmentation_ids': True,
         'has_neuropal': False,
+        'has_behavior_video': False,
+        'has_behavior_time_series': False,
     }
-    if expect_calcium_imaging:
+    if has_video_or_images:
         required_fields['has_calcium_imaging'] = True
 
     missing_fields = [
@@ -62,7 +63,7 @@ def main():
         print(f'\nTesting {nwb_file}')
         try:
             tester = TestNWB(str(nwb_file), fast=args.fast)
-            check_expected_fields(tester, expect_calcium_imaging=args.include_image_data)
+            check_expected_fields(tester, has_video_or_images=args.include_image_data)
         except Exception as error:
             print(f'Failed to load {nwb_file}: {error}')
             failures.append(nwb_file)
