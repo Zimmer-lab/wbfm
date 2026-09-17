@@ -5,6 +5,28 @@ import argparse
 import os
 
 
+def _check_nwb_existence(read_nwbfile):
+    calcium_activity = read_nwbfile.processing.get('CalciumActivity')
+    behavior = read_nwbfile.processing.get('Behavior')
+    bf_nir = read_nwbfile.processing.get('BF_NIR')
+    calcium_activity_names = set(calcium_activity.data_interfaces) if calcium_activity else set()
+
+    return {
+        'has_neuropal': 'NeuroPALImageRaw' in read_nwbfile.acquisition,
+        'has_calcium_imaging': 'CalciumImageSeries' in read_nwbfile.acquisition,
+        'has_calcium_traces': bool(
+            {'SignalDFoF', 'SignalFluorescence', 'SignalRawFluor'}
+            & calcium_activity_names
+        ),
+        'has_segmentation': 'CalciumSeriesSegmentation' in calcium_activity_names,
+        'has_segmentation_untracked': 'CalciumSeriesSegmentationUntracked' in calcium_activity_names,
+        'has_centroids': 'NeuronCentroids' in calcium_activity_names,
+        'has_segmentation_ids': 'NeuronSegmentationID' in calcium_activity_names,
+        'has_behavior_video': bf_nir is not None and 'BrightFieldNIR' in bf_nir.data_interfaces,
+        'has_behavior_time_series': behavior is not None and bool(behavior.data_interfaces),
+    }
+
+
 class TestNWB:
     """
     Updates from Andrew Kirjner
@@ -13,13 +35,17 @@ class TestNWB:
 
     """
 
-    def __init__(self, nwbfile):
+    def __init__(self, nwbfile, fast=False):
         with NWBHDF5IO(nwbfile, mode='r', load_namespaces=True) as io:
             if isinstance(io, NWBFile):
                 print('NWB file loaded successfully')
                 read_nwbfile = io
             else:
                 read_nwbfile = io.read()
+
+            if fast:
+                self.__dict__.update(_check_nwb_existence(read_nwbfile))
+                return
 
             print("\n=== File Structure ===")
             print("\nGeneral Metadata:")
@@ -56,6 +82,23 @@ class TestNWB:
             has_segmentation_untracked = False
             has_centroids = False
             has_segmentation_ids = False
+            has_behavior_video = False
+            has_behavior_time_series = False
+
+            try:
+                has_behavior_video = (
+                    'BrightFieldNIR' in read_nwbfile.processing['BF_NIR'].data_interfaces
+                )
+            except KeyError:
+                pass
+
+            try:
+                has_behavior_time_series = bool(
+                    read_nwbfile.processing['Behavior'].data_interfaces
+                )
+            except KeyError:
+                pass
+
             try:
                 image = read_nwbfile.acquisition['NeuroPALImageRaw'].data[:]  # get the neuroPAL image as a np array
                 channels = read_nwbfile.acquisition['NeuroPALImageRaw'].RGBW_channels[
@@ -176,8 +219,8 @@ class TestNWB:
               f"===============  Neuropal  ===============\n"
               f"NeuroPAL image:         {has_neuropal}\n"
               f"===============  Behavior  ===============\n"
-              f"Behavior video:         (Not yet implemented)\n"
-              f"Behavior time series:   (Not yet implemented)\n")
+              f"Behavior video:         {has_behavior_video}\n"
+              f"Behavior time series:   {has_behavior_time_series}\n")
 
         # Save all values to the class
         self.has_neuropal = has_neuropal
@@ -187,6 +230,8 @@ class TestNWB:
         self.has_segmentation_untracked = has_segmentation_untracked
         self.has_centroids = has_centroids
         self.has_segmentation_ids = has_segmentation_ids
+        self.has_behavior_video = has_behavior_video
+        self.has_behavior_time_series = has_behavior_time_series
 
 def main():
     parser = argparse.ArgumentParser(description='Test an NWB file and check its contents')

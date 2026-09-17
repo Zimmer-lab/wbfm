@@ -37,6 +37,11 @@ def main():
         action='store_true',
         help='Test files in the with_images export directory instead of no_images.',
     )
+    parser.add_argument(
+        '--fast',
+        action='store_true',
+        help='Check NWB structure without reading data payloads.',
+    )
     args = parser.parse_args()
 
     if args.nwb_dir is None:
@@ -56,7 +61,7 @@ def main():
     for nwb_file in nwb_files:
         print(f'\nTesting {nwb_file}')
         try:
-            tester = TestNWB(str(nwb_file))
+            tester = TestNWB(str(nwb_file), fast=args.fast)
             check_expected_fields(tester, expect_calcium_imaging=args.include_image_data)
         except Exception as error:
             print(f'Failed to load {nwb_file}: {error}')
