@@ -10,18 +10,18 @@ def check_expected_fields(tester, has_video_or_images):
         'has_centroids': True,
         'has_neuropal': False,
         'has_behavior_video': False,
-        'has_behavior_time_series': False,
+        'has_behavior_time_series': True,
     }
     if has_video_or_images:
         required_fields['has_calcium_imaging'] = True
 
-    missing_fields = [
-        field_name
+    mismatched_fields = [
+        f'{field_name} (expected {expected_value}, found {getattr(tester, field_name)})'
         for field_name, expected_value in required_fields.items()
         if getattr(tester, field_name) != expected_value
     ]
-    if missing_fields:
-        raise ValueError(f'Unexpected NWB fields: {", ".join(missing_fields)}')
+    if mismatched_fields:
+        raise ValueError(f'Unexpected NWB fields: {", ".join(mismatched_fields)}')
 
 
 def main():
@@ -63,9 +63,15 @@ def main():
         print(f'\nTesting {nwb_file}')
         try:
             tester = TestNWB(str(nwb_file), fast=args.fast)
-            check_expected_fields(tester, has_video_or_images=args.include_image_data)
         except Exception as error:
             print(f'Failed to load {nwb_file}: {error}')
+            failures.append(nwb_file)
+            continue
+
+        try:
+            check_expected_fields(tester, has_video_or_images=args.include_image_data)
+        except ValueError as error:
+            print(f'Validation failed for {nwb_file}: {error}')
             failures.append(nwb_file)
 
     print(f'\nTested {len(nwb_files)} NWB file(s); {len(failures)} failed.')
