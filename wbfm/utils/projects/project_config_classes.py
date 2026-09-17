@@ -137,13 +137,15 @@ class ConfigFileWithProjectContext:
         # if Path(val).is_relative_to(self.project_dir):
         project_dir = self.project_dir
         try:
-            return str(Path(val).relative_to(project_dir))
+            # Always store with posix separators so configs written on Windows
+            # can still be read on Linux (and vice versa)
+            return str(Path(val).relative_to(project_dir)).replace('\\', '/')
         except ValueError:
             try:
                 # As of October 2023, the cluster has /lisc/data/scratch and/lisc/data/scratch mapping to the same point
                 # Both should be removed if possible from the path; this will always check the /lisc/data/scratch version
                 project_dir = Path(project_dir).resolve()
-                return str(Path(val).relative_to(project_dir))
+                return str(Path(val).relative_to(project_dir)).replace('\\', '/')
             except ValueError:
                 if raise_if_not_relative:
                     raise ValueError(f"Could not make path {val} relative to {project_dir}")
@@ -488,6 +490,10 @@ class ModularProjectConfig(ConfigFileWithProjectContext):
 
     def _check_path_and_load_config(self, subconfig_path: Path,
                                     allow_config_to_not_exist: bool = False) -> Dict:
+        # Normalize Windows-style separators (e.g. 'nwb\nwb_config.yaml' written on
+        # Windows) so they also resolve on Linux, where backslash is a valid
+        # filename character instead of a separator
+        subconfig_path = Path(str(subconfig_path).replace('\\', '/'))
         if is_absolute_in_any_os(str(subconfig_path)):
             project_dir = Path(resolve_mounted_path_in_current_os(str(subconfig_path.parent.parent)))
         else:

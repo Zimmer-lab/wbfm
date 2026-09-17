@@ -98,6 +98,15 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
     except PermissionError:
         logging.warning(f"You do not have permissions for project {project_data.shortened_name} to save NWB files.")
         cfg_nwb = None
+    except FileNotFoundError as e:
+        # Missing nwb subfolder config (e.g. old project without an nwb folder).
+        # Only fatal if no explicit output_folder was given; otherwise continue
+        # with the explicit folder (mirrors hybrid-loading behavior elsewhere).
+        if output_folder is None and not DEBUG:
+            raise e
+        logging.warning(f"No nwb config for project {project_data.shortened_name} ({e}); "
+                        f"continuing with explicit output_folder.")
+        cfg_nwb = None
 
     if DEBUG:
         logging.warning("DEBUG mode; will not save final output (this is a dry run)")

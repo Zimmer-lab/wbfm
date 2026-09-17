@@ -82,3 +82,5 @@ docs/computational_methods_section.drawio
 .ripgreprc
 .zprofile
 .zshrc
+.claude/agents
+.claude/commands
