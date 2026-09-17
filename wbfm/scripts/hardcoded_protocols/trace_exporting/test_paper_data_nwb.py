@@ -4,6 +4,25 @@ from pathlib import Path
 DEFAULT_NWB_ROOT = Path('/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/nwb')
 
 
+def check_expected_fields(tester, expect_calcium_imaging):
+    required_fields = {
+        'has_calcium_traces': True,
+        'has_centroids': True,
+        'has_segmentation_ids': True,
+        'has_neuropal': False,
+    }
+    if expect_calcium_imaging:
+        required_fields['has_calcium_imaging'] = True
+
+    missing_fields = [
+        field_name
+        for field_name, expected_value in required_fields.items()
+        if getattr(tester, field_name) != expected_value
+    ]
+    if missing_fields:
+        raise ValueError(f'Unexpected NWB fields: {", ".join(missing_fields)}')
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Load and inspect each NWB file exported from the paper datasets.'
@@ -37,7 +56,8 @@ def main():
     for nwb_file in nwb_files:
         print(f'\nTesting {nwb_file}')
         try:
-            TestNWB(str(nwb_file))
+            tester = TestNWB(str(nwb_file))
+            check_expected_fields(tester, expect_calcium_imaging=args.include_image_data)
         except Exception as error:
             print(f'Failed to load {nwb_file}: {error}')
             failures.append(nwb_file)

@@ -179,6 +179,14 @@ class TestNWB:
               f"Behavior video:         (Not yet implemented)\n"
               f"Behavior time series:   (Not yet implemented)\n")
 
+        # Save all values to the class
+        self.has_neuropal = has_neuropal
+        self.has_calcium_imaging = has_calcium_imaging
+        self.has_calcium_traces = has_calcium_traces
+        self.has_segmentation = has_segmentation
+        self.has_segmentation_untracked = has_segmentation_untracked
+        self.has_centroids = has_centroids
+        self.has_segmentation_ids = has_segmentation_ids
 
 def main():
     parser = argparse.ArgumentParser(description='Test an NWB file and check its contents')
