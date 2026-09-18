@@ -1583,6 +1583,126 @@ def manual_annotation_of_dataset_splits(immob):
     return manual_split_annotation
 
 
+def manual_annotation_split_statistics(verbose=True, **kwargs):
+    """Convert manual split annotations (volumes) to physical time per data type.
+
+    Groups:
+      - 'immob': manual_annotation_of_dataset_splits(immob=True)
+      - 'fm_light': immob=False entries WITHOUT 'no_light_control' in the name
+      - 'fm_no_light': immob=False entries WITH 'no_light_control' in the name
+
+    Segment duration is (stop - start) volumes (python-slice semantics, matching
+    split_project_data_in_time where num_frames = stop - start), converted with
+    each dataset's own volumes_per_second read off the loaded ProjectData
+    (loaded via load_paper_datasets).
+    Gaps are the discarded volumes between consecutive valid segments:
+    gap_volumes = start[i+1] - stop[i], converted with the same vps.
+
+    Raises
+    ------
+    ValueError
+        If a loaded project has no volumes_per_second. Annotated datasets that
+        the loader does not return (e.g. explicitly excluded bad projects) are
+        skipped with a printed warning instead.
+
+    Returns
+    -------
+    dict mapping group name -> {'segments': pandas DataFrame, 'gaps': pandas DataFrame}.
+    Segments columns: dataset, segment_index, num_volumes, vps, duration_sec,
+    duration_min. Gaps columns: dataset, gap_index (0 = between seg 0 and 1),
+    num_volumes, vps, duration_sec, duration_min.
+    """
+    from wbfm.utils.general.utils_hardcoded import load_paper_datasets
+
+    _GROUP_DATASET_KEYS = {
+        'immob': ['505_488_505_immob', '488_505_488_immob',
+                  '505_488_505_immob_inactive', '488_505_488_immob_inactive'],
+        'fm_light': ['505_488_505_fm', '488_505_488_fm'],
+        'fm_no_light': ['no_light_control_fm'],
+    }
+
+    def _build_vps_lookup(data_types):
+        """Map shortened_name -> volumes_per_second from loaded projects.
+
+        Loads one data_type at a time and discards the projects afterwards
+        to keep memory usage down; only the frame rates are kept.
+        """
+        lookup = {}
+        for data_type in data_types:
+            projects = load_paper_datasets(data_type, **kwargs)
+            for name, p in projects.items():
+                vps = p.physical_unit_conversion.volumes_per_second
+                if vps is None:
+                    raise ValueError(f"Dataset {name} ({data_type}) has no volumes_per_second")
+                lookup[name] = float(vps)
+            del projects
+        return lookup
+
+    immob_splits = manual_annotation_of_dataset_splits(immob=True)
+    fm_splits = manual_annotation_of_dataset_splits(immob=False)
+    groups = {
+        'immob': immob_splits,
+        'fm_light': {k: v for k, v in fm_splits.items() if 'no_light_control' not in k},
+        'fm_no_light': {k: v for k, v in fm_splits.items() if 'no_light_control' in k},
+    }
+
+    results = {}
+    for group_name, splits in groups.items():
+        vps_lookup = _build_vps_lookup(_GROUP_DATASET_KEYS[group_name])
+        not_loaded = [name for name in splits if name not in vps_lookup]
+        if not_loaded:
+            print(f"[{group_name}] WARNING: skipping {len(not_loaded)} annotated dataset(s) "
+                  f"not returned by {_GROUP_DATASET_KEYS[group_name]}: {not_loaded}")
+            splits = {k: v for k, v in splits.items() if k in vps_lookup}
+        rows = []
+        gap_rows = []
+        for dataset_name, segments in splits.items():
+            vps = vps_lookup[dataset_name]
+            for i_seg, (start, stop) in enumerate(segments):
+                n_vol = int(stop) - int(start)
+                dur_sec = n_vol / vps
+                rows.append({'dataset': dataset_name, 'segment_index': i_seg,
+                             'num_volumes': n_vol, 'vps': vps,
+                             'duration_sec': dur_sec, 'duration_min': dur_sec / 60})
+            for i_gap in range(len(segments) - 1):
+                n_vol_gap = int(segments[i_gap + 1][0]) - int(segments[i_gap][1])
+                dur_sec_gap = n_vol_gap / vps
+                gap_rows.append({'dataset': dataset_name, 'gap_index': i_gap,
+                                 'num_volumes': n_vol_gap, 'vps': vps,
+                                 'duration_sec': dur_sec_gap,
+                                 'duration_min': dur_sec_gap / 60})
+        df = pd.DataFrame(rows)
+        df_gaps = pd.DataFrame(gap_rows)
+        results[group_name] = {'segments': df, 'gaps': df_gaps}
+
+        if verbose:
+            print(f"===== {group_name} (n_datasets={df['dataset'].nunique()}, "
+                  f"n_segments={len(df)}, n_gaps={len(df_gaps)}) =====")
+            print(f"  volumes_per_second used: {sorted(df['vps'].unique())}")
+            print("  Valid segments:")
+            for col, unit in [('duration_sec', 's'), ('duration_min', 'min')]:
+                print(f"    {col}: mean={df[col].mean():.2f}{unit}, "
+                      f"min={df[col].min():.2f}{unit}, max={df[col].max():.2f}{unit}")
+            print("  Per segment position:")
+            for i_seg, sub in df.groupby('segment_index'):
+                print(f"    seg {i_seg} (n={len(sub)}): mean={sub['duration_sec'].mean():.2f}s "
+                      f"({sub['duration_min'].mean():.2f}min), "
+                      f"min={sub['duration_sec'].min():.2f}s, max={sub['duration_sec'].max():.2f}s")
+            print("  Gaps (discarded volumes between valid segments):")
+            print(f"    gap duration_sec: mean={df_gaps['duration_sec'].mean():.2f}s, "
+                  f"min={df_gaps['duration_sec'].min():.2f}s, max={df_gaps['duration_sec'].max():.2f}s")
+            print(f"    gap duration_min: mean={df_gaps['duration_min'].mean():.3f}min, "
+                  f"min={df_gaps['duration_min'].min():.3f}min, max={df_gaps['duration_min'].max():.3f}min")
+            print(f"    gap num_volumes: mean={df_gaps['num_volumes'].mean():.1f}, "
+                  f"min={int(df_gaps['num_volumes'].min())}, max={int(df_gaps['num_volumes'].max())}")
+            print("  Per gap position:")
+            for i_gap, sub in df_gaps.groupby('gap_index'):
+                print(f"    gap {i_gap} (n={len(sub)}): mean={sub['duration_sec'].mean():.2f}s, "
+                      f"min={sub['duration_sec'].min():.2f}s, max={sub['duration_sec'].max():.2f}s")
+
+    return results
+
+
 def make_heatmap_stack(these_heatmaps: dict, these_ethograms: dict, output_folder=None, prefix='', DEBUG=False):
         
     n = len(these_heatmaps)
