@@ -52,7 +52,7 @@ done
 
 # Initialize projects, again for each subfolder
 COMMAND=$CODE_DIR/"scripts/cluster/create_multiple_projects_from_data_parent_folder.sh"
-NWB_COMMAND=$CODE_DIR/"scripts/pipeline_alternate/0a-create_new_project_from_nwb.py"
+NWB_COMMAND=$CODE_DIR/"scripts/0-create_new_project_from_nwb.py"
 for f in "${SUBFOLDERS[@]}"; do
     
     PROJECT_PATH=$PARENT_PROJECT_DIR/$f

@@ -23,19 +23,59 @@ from wbfm.utils.general.utils_filenames import get_sequential_filename, add_name
 from wbfm.utils.projects.utils_project import get_relative_project_name, safe_cd, update_project_config_path, \
     update_snakemake_config_path, update_nwb_config_path
 from wbfm.utils.external.custom_errors import IncompleteConfigFileError
+from wbfm.utils.external.utils_yaml import load_config
 
 
-def _validate_new_project_config(config, project_config=None):
+def _validate_new_project_config(config, project_config=None, logger=None):
+    """
+    Check that everything needed to create a new project is present, and return the raw data config filename
+    (only possible once the project exists, i.e. if project_config is passed).
+
+    If exposure_time is not given in the config, it is read from the raw data config file, which is the
+    source of truth for microscope settings; see _fill_exposure_time_from_raw_data_config
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    raw_data_config_fname = None
+    if project_config is not None:
+        try:
+            raw_data_config_fname = project_config.get_remote_raw_data_config_filename()
+        except FileNotFoundError as error:
+            raise IncompleteConfigFileError("No raw data config found in the source data folder; "
+                                            "cannot create a complete project.") from error
+        _fill_exposure_time_from_raw_data_config(config, raw_data_config_fname, project_config, logger)
+
     exposure_time = config.get('physical_units', {}).get('exposure_time')
     if exposure_time is None or exposure_time == '':
-        raise IncompleteConfigFileError(f"exposure_time not found in physical_units; this must be specified when creating a project ({config.get('project_dir', '')})")
-    if project_config is None:
-        return None
-    try:
-        return project_config.get_remote_raw_data_config_filename()
-    except FileNotFoundError as error:
-        raise IncompleteConfigFileError("No raw data config found in the source data folder; "
-                                        "cannot create a complete project.") from error
+        raise IncompleteConfigFileError(f"exposure_time not found in physical_units or the raw data config file; "
+                                        f"this must be specified when creating a project ({config.get('project_dir', '')})")
+
+    return raw_data_config_fname
+
+
+def _fill_exposure_time_from_raw_data_config(config, raw_data_config_fname, project_config, logger):
+    """Copy exposure_time from the raw data config file into the config, if it isn't already specified"""
+    exposure_time = config.get('physical_units', {}).get('exposure_time')
+    if exposure_time is not None and exposure_time != '':
+        return
+    raw_config = load_config(raw_data_config_fname)
+    if not isinstance(raw_config, dict):
+        return
+    exposure_time = raw_config.get('exposure_time', None)
+    if exposure_time is None or exposure_time == '':
+        return
+    logger.info(f"Using exposure_time={exposure_time} from raw data config file {raw_data_config_fname}")
+
+    physical_units = dict(config.get('physical_units', {}))
+    physical_units['exposure_time'] = exposure_time
+    config['physical_units'] = physical_units
+
+    # The new project config file was just written with a null value, so update it as well
+    project_physical_units = dict(project_config.config.get('physical_units', {}))
+    project_physical_units['exposure_time'] = exposure_time
+    project_config.config['physical_units'] = project_physical_units
+    project_config.update_self_on_disk()
 
 
 def build_project_structure_from_config(config: dict, logger: logging.Logger = None) -> None:
@@ -101,8 +141,6 @@ def build_project_structure_from_config(config: dict, logger: logging.Logger = N
     for key in ['red_fname', 'green_fname', 'red_bigtiff_fname', 'green_bigtiff_fname']:
         error_if_dot_in_name(config.get(key, ''))
 
-    _validate_new_project_config(config)
-
     # Build the full project name using the date the data was taken
     basename = Path(red_fname).name.split('_')[0]
     project_config_updates = config
@@ -112,7 +150,8 @@ def build_project_structure_from_config(config: dict, logger: logging.Logger = N
     # Copy simple raw data files to the project: stage position and raw data config
     project_config = ModularProjectConfig(project_fname)
     beh_folder = project_config.get_behavior_config().absolute_subfolder
-    raw_data_config_fname = _validate_new_project_config(config, project_config)
+    # Note: this needs the project config (to find the raw data config file), so it can't run before creation
+    raw_data_config_fname = _validate_new_project_config(config, project_config, logger)
 
     from wbfm.utils.general.postures.centerline_classes import WormFullVideoPosture
     stage_position_filename = WormFullVideoPosture.find_stage_position_in_folder(parent_data_folder)
