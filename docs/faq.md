@@ -1,5 +1,15 @@
 # FAQ
 
+## My NWB file: wrong channel order / neurons disappear when calcium drops
+
+External NWB files must use shape (T, X, Y, Z, C) with **channel 0 = red, channel 1 = green**.
+The code does not read `order_optical_channels` or wavelength names when loading calcium data —
+identity is positional only. If your file has green first, the GUI will show "Red data" as the
+green channel and tracking may run on GCaMP, causing neurons to vanish when the signal is dim.
+
+See [NWB file format](nwb_format.md) for details, diagnosis, and how to reorder channels
+(or set `segment_and_track_on_green_channel` as a workaround).
+
 ## Changing defaults for new projects
 
 There are two places with default parameters: wbfm_config.yaml and the project structure within new_project_defaults.

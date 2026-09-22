@@ -86,4 +86,6 @@ Please also check (via search) the open and closed issues on github.
 
 [Folder organization](docs/data_folder_organization.md)
 
+[NWB file format (axis order, channel naming)](docs/nwb_format.md)
+
 If you would like to contribute, see [how to contribute](docs/how_to_contribute.md)
