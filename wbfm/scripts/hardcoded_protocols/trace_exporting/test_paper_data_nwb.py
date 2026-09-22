@@ -4,14 +4,17 @@ from pathlib import Path
 DEFAULT_NWB_ROOT = Path('/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/nwb')
 
 
-def check_expected_fields(tester, has_video_or_images):
+def check_expected_fields(tester, has_video_or_images, nwb_path=None):
     required_fields = {
         'has_calcium_traces': True,
-        'has_centroids': True,
         'has_neuropal': False,
         'has_behavior_video': False,
         'has_behavior_time_series': True,
     }
+    # Legacy pre-revision exports may omit centroids entirely
+    is_pre_revision = nwb_path is not None and 'pre_revision' in str(nwb_path)
+    if not is_pre_revision:
+        required_fields['has_centroids'] = True
     if has_video_or_images:
         required_fields['has_calcium_imaging'] = True
 
@@ -69,7 +72,11 @@ def main():
             continue
 
         try:
-            check_expected_fields(tester, has_video_or_images=args.include_image_data)
+            check_expected_fields(
+                tester,
+                has_video_or_images=args.include_image_data,
+                nwb_path=nwb_file,
+            )
         except ValueError as error:
             print(f'Validation failed for {nwb_file}: {error}')
             failures.append(nwb_file)

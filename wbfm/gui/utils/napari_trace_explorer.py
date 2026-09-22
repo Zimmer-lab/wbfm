@@ -26,7 +26,9 @@ from wbfm.utils.external.utils_neuron_names import int2name_neuron
 from wbfm.gui.utils.utils_gui import zoom_using_layer_in_viewer, change_viewer_time_point, \
     zoom_using_viewer, add_fps_printer, on_close, NeuronNameEditor
 from wbfm.utils.external.utils_pandas import build_tracks_from_dataframe
+from wbfm.utils.external.custom_errors import NoNeuronsError
 from wbfm.utils.projects.finished_project_data import ProjectData
+from wbfm.utils.projects.utils_project_status import check_traces_and_segmentation_sanity
 import time
 from pathlib import Path
 from wbfm.utils.general.utils_custom_timeseries import (
@@ -150,6 +152,14 @@ class NapariTraceExplorer(QtWidgets.QWidget):
 
         # Note that this is ALL neurons, including those marked invalid or anything else
         neuron_names = self.dat.neuron_names
+        if len(neuron_names) == 0:
+            msg = ("No traces found: the neuron list is empty, so the trace explorer cannot display anything. "
+                   "This usually means segmentation or tracking failed, or the wrong project was loaded. "
+                   "Check that earlier pipeline steps completed and that segmentation parameters "
+                   "match this dataset.")
+            self.logger.error(msg)
+            show_project_sanity_problems([msg], parent=self, fatal=True)
+            raise NoNeuronsError("cannot open trace explorer: no neurons/traces found")
         self.current_neuron_name = neuron_names[0]
 
         # BOX 1: Change neurons (dropdown)
@@ -2178,6 +2188,49 @@ class NapariTraceExplorer(QtWidgets.QWidget):
         self._add_correlation_heatmap_layer(y, layer_name)
 
 
+def show_project_sanity_problems(problems: List[str], parent=None, fatal: bool = False,
+                                 title: str = "Project data problem detected"):
+    """Show user-facing project sanity problems in a modal dialog (and log them)."""
+    if not problems:
+        return
+    text = "\n\n".join(problems)
+    logging.error("Project sanity check found problems:\n%s", text)
+    try:
+        msg_box = QtWidgets.QMessageBox(parent)
+        msg_box.setWindowTitle(title)
+        msg_box.setIcon(QtWidgets.QMessageBox.Critical if fatal else QtWidgets.QMessageBox.Warning)
+        msg_box.setText("The project data looks invalid; traces may be missing or unreliable.")
+        msg_box.setDetailedText(text)
+        msg_box.setInformativeText(problems[0])
+        msg_box.setStandardButtons(QtWidgets.QMessageBox.Ok)
+        msg_box.exec_()
+    except Exception as e:
+        # Never let dialog display failure mask the underlying data problem
+        logging.error("Failed to show problem dialog: %s", e)
+
+
+def fit_viewer_window_to_screen(viewer: napari.Viewer):
+    """
+    Resize/reposition the napari window so it fits on the current screen.
+
+    On smaller displays (e.g. standard 14" laptops) the default window geometry can
+    place the bottom trace plot dock off-screen, so traces appear "missing" until the
+    window is dragged up.
+    """
+    try:
+        screen = QApplication.primaryScreen().availableGeometry()
+        qt_window = viewer.window._qt_window
+        new_width = min(qt_window.width(), screen.width())
+        new_height = min(qt_window.height(), screen.height())
+        qt_window.resize(new_width, new_height)
+        # Clamp position so the whole window is on-screen
+        x = min(max(qt_window.x(), screen.x()), screen.x() + screen.width() - new_width)
+        y = min(max(qt_window.y(), screen.y()), screen.y() + screen.height() - new_height)
+        qt_window.move(x, y)
+    except Exception as e:
+        logging.warning("Could not fit napari window to screen: %s", e)
+
+
 def napari_trace_explorer_from_config(project_path: str, app=None,
                                       load_tracklets=True, force_tracklets_to_be_sparse=True,
                                       DEBUG=False, **kwargs):
@@ -2228,6 +2281,17 @@ def napari_trace_explorer(project_data: ProjectData,
 
     # Build Napari and add data layers
     ui = NapariTraceExplorer(project_data, app, **kwargs)
+
+    # Surface clear errors for common failure modes (empty traces, failed segmentation).
+    # Missing traces is fatal (nothing to show); suspicious segmentation still lets the
+    # GUI open so the user can inspect it, but they get an explicit warning first.
+    problems = check_traces_and_segmentation_sanity(project_data)
+    if problems:
+        traces_missing = any(p.startswith("No traces found") for p in problems)
+        show_project_sanity_problems(problems, fatal=traces_missing)
+        if traces_missing:
+            raise NoNeuronsError("cannot open trace explorer: no traces found")
+
     if viewer is None:
         ui.logger.info("Creating a new Napari window")
         viewer = napari.Viewer(ndisplay=3)
@@ -2242,10 +2306,16 @@ def napari_trace_explorer(project_data: ProjectData,
     ui.show()
     change_viewer_time_point(viewer, t_target=10)
 
+    # On small displays (e.g. 14" laptops) the default geometry can push the bottom
+    # trace-plot dock off-screen; clamp the window so traces are visible on open
+    fit_viewer_window_to_screen(viewer)
+
     if to_print_fps:
         add_fps_printer(viewer)
 
     ui.logger.info("Finished GUI setup. If nothing is showing, trying quitting and running again")
+    ui.logger.info("If the window or docks look cut off, drag the napari window up/resize it; "
+                   "the trace plot is in a dock at the bottom of the window")
     if start_time is not None:
         ui.logger.info(f"Time to initialize: {time.time() - start_time:.2f} s")
     return ui, viewer
