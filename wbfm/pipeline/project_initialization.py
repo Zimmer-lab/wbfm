@@ -78,6 +78,46 @@ def _fill_exposure_time_from_raw_data_config(config, raw_data_config_fname, proj
     project_config.update_self_on_disk()
 
 
+def _nwb_physical_units_from_file(nwb_fname):
+    """Read the physical units stored in an nwb file (the source of truth for nwb-based projects)"""
+    from pynwb import NWBHDF5IO
+
+    with NWBHDF5IO(nwb_fname, mode='r', load_namespaces=True) as io:
+        nwb_obj = io.read()
+        if 'CalciumImageSeries' not in nwb_obj.acquisition:
+            raise IncompleteConfigFileError(f"NWB file has no acquisition['CalciumImageSeries'], so "
+                                            f"volumes_per_second cannot be determined ({nwb_fname})")
+        series = nwb_obj.acquisition['CalciumImageSeries']
+        rate = series.rate
+        units = dict(volumes_per_second=float(rate) if rate is not None else None)
+
+        # Same values as used when loading the nwb file directly, see ProjectData.load_final_project_data_from_nwb
+        imaging_volume = getattr(series, 'imaging_volume', None)
+        grid_spacing = getattr(imaging_volume, 'grid_spacing', None)
+        if grid_spacing is not None and len(grid_spacing) == 3:
+            units['zimmer_fluroscence_um_per_pixel_xy'] = float(grid_spacing[0])
+            units['zimmer_um_per_pixel_z'] = float(grid_spacing[-1])
+
+    if units['volumes_per_second'] is None:
+        raise IncompleteConfigFileError(f"exposure/rate not found for acquisition['CalciumImageSeries'], so "
+                                        f"volumes_per_second cannot be determined ({nwb_fname})")
+    return units
+
+
+def _fill_physical_units_from_nwb_file(project_config, nwb_fname, logger=None):
+    """Copy physical units from the nwb file into the project config; there is no raw data config file to use"""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    new_units = _nwb_physical_units_from_file(nwb_fname)
+    logger.info(f"Using physical units {new_units} from nwb file {nwb_fname}")
+
+    physical_units = dict(project_config.config.get('physical_units', {}))
+    physical_units.update(new_units)
+    project_config.config['physical_units'] = physical_units
+    project_config.update_self_on_disk()
+
+
 def build_project_structure_from_config(config: dict, logger: logging.Logger = None) -> None:
     """
     Builds a project from passed user data, which determines:
@@ -217,6 +257,10 @@ def build_project_structure_from_nwb_file(config, nwb_file, copy_nwb_file=False)
     # Update the config file
     target_nwb_filename_in_config = target_nwb_filename_rel if copy_nwb_file else target_nwb_filename_abs
     update_nwb_config_path(project_folder_abs, target_nwb_filename_in_config)
+
+    # Physical units must come from the nwb file itself, since there is no raw data config file
+    project_config = ModularProjectConfig(project_fname)
+    _fill_physical_units_from_nwb_file(project_config, target_nwb_filename_abs)
 
     return project_fname
 

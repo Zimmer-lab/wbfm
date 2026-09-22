@@ -1,8 +1,13 @@
+import os
+from datetime import datetime
+
+import numpy as np
 import pytest
 
 from wbfm.utils.external.custom_errors import IncompleteConfigFileError
 from wbfm.utils.external.utils_yaml import load_config
-from wbfm.pipeline.project_initialization import _validate_new_project_config
+from wbfm.pipeline.project_initialization import _validate_new_project_config, \
+    _nwb_physical_units_from_file, _fill_physical_units_from_nwb_file
 from wbfm.utils.projects.physical_units import PhysicalUnitConversion
 from wbfm.utils.projects.project_config_classes import ModularProjectConfig
 
@@ -94,3 +99,77 @@ def test_new_project_raises_if_raw_data_config_has_no_exposure_time(tmp_path):
 
     with pytest.raises(IncompleteConfigFileError, match='exposure_time'):
         _validate_new_project_config(config, project_config)
+
+
+def _write_minimal_nwb(path, include_calcium_series=True, rate=2.5, timestamps=None):
+    from pynwb import NWBFile, NWBHDF5IO
+    from pynwb.image import ImageSeries
+
+    nwb = NWBFile(session_description='test', identifier='test',
+                  session_start_time=datetime(2024, 1, 1))
+    if include_calcium_series:
+        kwargs = dict(name='CalciumImageSeries',
+                      data=np.zeros((2, 4, 4), dtype=np.uint8), unit='a')
+        if timestamps is None:
+            kwargs.update(rate=rate, starting_time=0.0)
+        else:
+            kwargs.update(timestamps=timestamps)
+        nwb.add_acquisition(ImageSeries(**kwargs))
+    with NWBHDF5IO(str(path), 'w') as io:
+        io.write(nwb)
+    return path
+
+
+def test_nwb_physical_units_from_file(tmp_path):
+    nwb_fname = _write_minimal_nwb(tmp_path / 'test.nwb', rate=2.5)
+
+    units = _nwb_physical_units_from_file(nwb_fname)
+
+    assert units['volumes_per_second'] == 2.5
+    # No imaging volume in this minimal nwb, so pixel sizes are left alone
+    assert 'zimmer_fluroscence_um_per_pixel_xy' not in units
+
+
+def test_nwb_physical_units_missing_calcium_series_raises(tmp_path):
+    nwb_fname = _write_minimal_nwb(tmp_path / 'test.nwb', include_calcium_series=False)
+
+    with pytest.raises(IncompleteConfigFileError, match='CalciumImageSeries'):
+        _nwb_physical_units_from_file(nwb_fname)
+
+
+def test_nwb_physical_units_missing_rate_raises(tmp_path):
+    nwb_fname = _write_minimal_nwb(tmp_path / 'test.nwb', timestamps=[0.0, 1.0])
+
+    with pytest.raises(IncompleteConfigFileError, match='volumes_per_second'):
+        _nwb_physical_units_from_file(nwb_fname)
+
+
+def test_fill_physical_units_from_nwb_file(tmp_path):
+    nwb_fname = _write_minimal_nwb(tmp_path / 'test.nwb', rate=2.5)
+    project_dir = tmp_path / 'project'
+    project_dir.mkdir()
+    project_cfg_fname = project_dir / 'project_config.yaml'
+    project_cfg_fname.write_text("physical_units:\n"
+                                 "  exposure_time: null\n"
+                                 "  zimmer_um_per_pixel_z: 1.5\n")
+    project_config = ModularProjectConfig(str(project_dir))
+
+    _fill_physical_units_from_nwb_file(project_config, nwb_fname)
+
+    on_disk = load_config(project_cfg_fname)['physical_units']
+    assert on_disk['volumes_per_second'] == 2.5
+    # Untouched keys stay as they were
+    assert on_disk['exposure_time'] is None
+    assert on_disk['zimmer_um_per_pixel_z'] == 1.5
+
+
+REAL_TEST_NWB = '/lisc/data/scratch/neurobiology/zimmer/wbfm/test_data/nwb/test_data.nwb'
+
+
+@pytest.mark.skipif(not os.path.exists(REAL_TEST_NWB), reason='integration-test nwb not available')
+def test_nwb_physical_units_from_real_test_data():
+    units = _nwb_physical_units_from_file(REAL_TEST_NWB)
+
+    assert units['volumes_per_second'] == 1.0
+    assert units['zimmer_fluroscence_um_per_pixel_xy'] == 0.3
+    assert units['zimmer_um_per_pixel_z'] == 0.3
