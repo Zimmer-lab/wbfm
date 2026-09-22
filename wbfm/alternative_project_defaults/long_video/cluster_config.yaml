@@ -11,6 +11,7 @@ __default__:
     output: log_snakemake_step-%j.out
     mail_type: FAIL,TIME_LIMIT
     gres: localtmp:100 # 100GB -> arbitrarily chosen; must be a valid localtmp:<GB> request
+    constraint: "hdd|ssd" # Dummy values, because it can't be empty
 
 # Note: may need to push over to himem if the cluster is busy
 preprocessing:

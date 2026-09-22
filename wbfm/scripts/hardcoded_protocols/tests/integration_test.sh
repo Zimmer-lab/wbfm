@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Stop at the first failed command, instead of continuing to later steps (e.g. snakemake) with a broken project
+set -euo pipefail
 
 # Function to display a help message
 function show_help {
@@ -13,7 +15,7 @@ USE_CLUSTER="True"
 while getopts ch flag
 do
     case "${flag}" in
-        c) USE_CLUSTER=${OPTARG};;
+        c) USE_CLUSTER="";;
         h) show_help
            exit 0;;
         *) echo "Error: Unknown flag"; exit 1;;
