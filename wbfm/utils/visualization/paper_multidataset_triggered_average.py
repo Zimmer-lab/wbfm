@@ -1373,7 +1373,8 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
     df_boxplot = pd.concat(all_boxplot_data_dfs)
     df_boxplot = _add_color_columns_to_df(df_boxplot, trigger_type=trigger_type)
     if df_p_values is None:
-        groupby_columns = ['neuron', 'is_mutant_str']
+        # Include trigger_type so FWD/REV (etc.) p-values do not collide when concatenated
+        groupby_columns = ['neuron', 'is_mutant_str', 'trigger_type']
         df_p_values = _calc_p_value(df_boxplot, groupby_columns=groupby_columns)
         raw_p_values = df_p_values['p_value'].dropna()
         df_p_values.loc[raw_p_values.index, 'p_value_corrected'] = multipletests(raw_p_values.values.squeeze(), method='fdr_bh', alpha=0.05)[1]
@@ -1381,6 +1382,16 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
         # Also count the number of trials that this p value came from
         df_num_trials = _count_triggered_average_trials(df_boxplot, groupby_columns=groupby_columns)
         df_p_values = df_p_values.merge(df_num_trials, on=groupby_columns, how='left')
+    else:
+        # Ensure externally supplied p-values are unique per trigger type
+        if isinstance(df_p_values.index, pd.MultiIndex):
+            index_names = list(df_p_values.index.names)
+            if 'trigger_type' not in index_names and 'neuron' in index_names:
+                # Legacy 2-level (neuron, is_mutant_str) table: cannot disambiguate triggers
+                logging.warning(
+                    "Supplied df_p_values has no trigger_type in the index; "
+                    "FWD/REV p-values may be mixed if multiple triggers were concatenated."
+                )
 
     # Modify colors to use green for immobilized
     # This is not the only case where is it immobilized, but it is the only one we are plotting
@@ -1406,7 +1417,8 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
         fig = plot_box_multi_axis(_df, x_columns_list=['is_mutant_str', 'before_str'], y_column='mean',
                                   color_names=['Wild Type', 'gcy-31;-35;-9'], cmap=cmap, DEBUG=False)
 
-        precalculated_p_values = df_p_values.loc[neuron_name, 'p_value_corrected'].to_dict()
+        precalculated_p_values = _lookup_p_values_for_neuron(
+            df_p_values, neuron_name, trigger_type)
         add_p_value_annotation(fig, x_label='all', show_ns=True, show_only_stars=True, separate_boxplot_fig=False,
                                precalculated_p_values=precalculated_p_values,
                                height_mode='top_of_data', has_multicategory_index=True, DEBUG=False, **kwargs)
@@ -1513,6 +1525,49 @@ def _calc_p_value(df, groupby_columns=None):
     df_pvalue.columns = ['p_value']
 
     return df_pvalue
+
+
+def _lookup_p_values_for_neuron(df_p_values: pd.DataFrame, neuron_name: str,
+                                trigger_type: str) -> dict:
+    """
+    Return {is_mutant_str: p_value_corrected} for one neuron and one trigger type.
+
+    Handles MultiIndex layouts:
+    - (neuron, is_mutant_str, trigger_type): filter to trigger_type
+    - (neuron, is_mutant_str): legacy single-trigger table, no filter
+    """
+    try:
+        neuron_pvals = df_p_values.loc[neuron_name]
+    except KeyError:
+        logging.warning(f"No p-values for neuron {neuron_name}; stars will be omitted")
+        return {}
+
+    if isinstance(neuron_pvals, pd.DataFrame):
+        # Duplicate neuron rows without a usable trigger level
+        if 'p_value_corrected' not in neuron_pvals.columns:
+            return {}
+        if isinstance(neuron_pvals.index, pd.MultiIndex) and 'trigger_type' in neuron_pvals.index.names:
+            try:
+                neuron_pvals = neuron_pvals.xs(trigger_type, level='trigger_type')
+            except KeyError:
+                logging.warning(
+                    f"No p-values for neuron {neuron_name} / trigger {trigger_type}")
+                return {}
+        series = neuron_pvals['p_value_corrected']
+    else:
+        series = neuron_pvals
+        if isinstance(series.index, pd.MultiIndex) and 'trigger_type' in series.index.names:
+            try:
+                series = series.xs(trigger_type, level='trigger_type')
+            except KeyError:
+                logging.warning(
+                    f"No p-values for neuron {neuron_name} / trigger {trigger_type}")
+                return {}
+
+    if not isinstance(series, pd.Series):
+        series = pd.Series([series])
+
+    return series.to_dict()
 
 
 def _count_triggered_average_trials(df, groupby_columns=None):
