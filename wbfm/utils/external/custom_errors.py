@@ -16,6 +16,15 @@ class MissingAnalysisError(Exception):
         super().__init__(self.message)
 
 
+class StaleCacheError(Exception):
+    """A disk cache (e.g. paper traces) is older than its upstream inputs and must be refreshed."""
+
+    def __init__(self, message: str):
+        self.message = message
+
+        super().__init__(self.message)
+
+
 class ParameterTooStringentError(Exception):
 
     def __init__(self, parameter_val, parameter_name: str):

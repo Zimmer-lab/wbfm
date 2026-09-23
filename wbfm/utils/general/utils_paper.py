@@ -19,6 +19,7 @@ from wbfm.utils.external.utils_matplotlib import export_legend
 from wbfm.utils.general.utils_hardcoded import get_neuron_base, load_paper_datasets, neuron_groups, intrinsic_definition, intrinsic_categories_short_description, neurons_with_confident_ids, neurons_with_less_confident_ids
 
 from wbfm.utils.utils_cache import cache_to_disk_class
+from wbfm.utils.external.custom_errors import StaleCacheError
 from wbfm.utils.external.utils_plotly import pastelize_color, mute_color
 
 
@@ -462,6 +463,59 @@ class PaperDataCache:
             pass
         return None
 
+    @staticmethod
+    def refresh_script_path() -> str:
+        """Absolute path to the script that recalculates stale paper-trace caches."""
+        return str(Path(__file__).resolve().parents[2] /
+                   'scripts' / 'postprocessing' / '4+refresh_paper_trace_cache.py')
+
+    def _stale_cache_message(self, cache_fname: str, annotation_fname: str) -> str:
+        """User-facing warning/error text with absolute paths so the cache can be found/refreshed."""
+        cache_abs = os.path.abspath(cache_fname)
+        annotation_abs = os.path.abspath(annotation_fname)
+        refresh = self.refresh_script_path()
+        project_dir = os.path.abspath(str(self.project_data.project_dir))
+        return (f"Paper-trace cache {cache_abs} is older than the manual annotation "
+                f"{annotation_abs}; cached neuron names may be out of date. "
+                f"Refresh with: python {refresh} with project_path={project_dir}")
+
+    def list_stale_paper_trace_caches(self):
+        """
+        Return [(cache_fname, annotation_fname), ...] for paper-trace caches older than
+        the manual annotation. Paths are absolute. Empty if none are stale (or if there
+        is no annotation to compare against).
+        """
+        stale = []
+        annotation_fname = getattr(self.project_data, 'df_manual_tracking_fname', None)
+        if not annotation_fname or not os.path.exists(annotation_fname):
+            return stale
+        annotation_abs = os.path.abspath(annotation_fname)
+        for cache_fname in self.list_of_paper_trace_methods(return_filenames=True):
+            if cache_fname is None or not os.path.exists(cache_fname):
+                continue
+            cache_abs = os.path.abspath(cache_fname)
+            try:
+                if os.path.getmtime(cache_abs) < os.path.getmtime(annotation_abs):
+                    stale.append((cache_abs, annotation_abs))
+            except OSError as e:
+                logging.debug(f"Could not compare mtimes for {cache_abs}: {e}")
+        return stale
+
+    def raise_if_caches_stale(self):
+        """
+        Raise StaleCacheError if any paper-trace cache predates the manual annotation.
+
+        Used by steps that must not consume out-of-date caches (e.g. NWB export).
+        """
+        stale = self.list_stale_paper_trace_caches()
+        if not stale:
+            return
+        details = "\n".join(self._stale_cache_message(c, a) for c, a in stale)
+        raise StaleCacheError(
+            f"{len(stale)} paper-trace cache file(s) are older than the manual annotation "
+            f"and must be refreshed before continuing:\n{details}"
+        )
+
     def warn_if_cache_stale_for_dispatch(self, channel_mode='dr_over_r_50', residual_mode=None,
                                          interpolate_nan=True):
         """Warn (never raise) if the cache file about to be loaded predates the manual annotation."""
@@ -476,9 +530,7 @@ class PaperDataCache:
                 return False
             self._stale_cache_warned.add(cache_fname)
             if os.path.getmtime(cache_fname) < os.path.getmtime(annotation_fname):
-                logging.warning(f"Paper-trace cache {cache_fname} is older than the manual annotation "
-                                f"{annotation_fname}; cached neuron names may be out of date. "
-                                f"Consider refreshing with 4+refresh_paper_trace_cache.py.")
+                logging.warning(self._stale_cache_message(cache_fname, annotation_fname))
                 return True
         except (OSError, AttributeError, TypeError) as e:
             logging.debug(f"Could not check paper-trace cache staleness: {e}")
@@ -488,18 +540,11 @@ class PaperDataCache:
         """Warn (never raise) for every stale paper-trace cache; returns the list of stale files."""
         stale = []
         try:
-            for cache_fname in self.list_of_paper_trace_methods(return_filenames=True):
-                if cache_fname is None or not os.path.exists(cache_fname):
-                    continue
+            for cache_fname, annotation_fname in self.list_stale_paper_trace_caches():
                 # Reset per-file warning flag so this explicit check always reports
                 self._stale_cache_warned.discard(cache_fname)
-                annotation_fname = getattr(self.project_data, 'df_manual_tracking_fname', None)
-                if not annotation_fname or not os.path.exists(annotation_fname):
-                    continue
-                if os.path.getmtime(cache_fname) < os.path.getmtime(annotation_fname):
-                    logging.warning(f"Paper-trace cache {cache_fname} is older than the manual annotation "
-                                    f"{annotation_fname}; cached neuron names may be out of date.")
-                    stale.append(cache_fname)
+                logging.warning(self._stale_cache_message(cache_fname, annotation_fname))
+                stale.append(cache_fname)
                 self._stale_cache_warned.add(cache_fname)
         except (OSError, AttributeError, TypeError) as e:
             logging.debug(f"Could not check paper-trace cache staleness: {e}")

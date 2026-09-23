@@ -154,6 +154,10 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
                                            physical_units_class, output_folder)
         return nwbfile, fname
 
+    # Full export recalculates paper traces from disk caches; out-of-date caches would
+    # silently write wrong neuron names into the NWB, so fail hard here.
+    project_data.data_cacher.raise_if_caches_stale()
+
     # Unpack traces and locations
     print("Calculating traces...")
     gce_quant_red = project_data.red_traces.swaplevel(i=0, j=1, axis=1).copy()

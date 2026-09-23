@@ -54,15 +54,17 @@ def _report_staleness(project_data):
     annotation_fname = getattr(project_data, 'df_manual_tracking_fname', None)
     cache_fnames = project_data.data_cacher.list_of_paper_trace_methods(return_filenames=True)
     if annotation_fname is not None and os.path.exists(annotation_fname):
-        print(f"Manual annotation: {annotation_fname} (mtime {os.path.getmtime(annotation_fname)})")
+        print(f"Manual annotation: {os.path.abspath(annotation_fname)} "
+              f"(mtime {os.path.getmtime(annotation_fname)})")
     else:
         print(f"Manual annotation not found (got {annotation_fname}); cannot check staleness")
         return
-    stale = set(project_data.data_cacher.warn_if_caches_stale())
+    # Paths from the checker are absolute; normalize for comparison
+    stale = {os.path.abspath(f) for f in project_data.data_cacher.warn_if_caches_stale()}
     for fname in cache_fnames:
         if fname is not None and os.path.exists(fname):
-            marker = "STALE" if fname in stale else "ok"
-            print(f"  [{marker}] {fname} (mtime {os.path.getmtime(fname)})")
+            marker = "STALE" if os.path.abspath(fname) in stale else "ok"
+            print(f"  [{marker}] {os.path.abspath(fname)} (mtime {os.path.getmtime(fname)})")
         else:
             print(f"  [missing] {fname}")
 
