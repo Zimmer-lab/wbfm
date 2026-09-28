@@ -163,7 +163,7 @@ class PhysicalUnitConversion:
                     try:
                         raw_cfg_for_exposure = project_cfg.get_raw_data_config()
                         exposure_time = raw_cfg_for_exposure.config.get('exposure_time', None)
-                    except (AttributeError, FileNotFoundError):
+                    except (AttributeError, FileNotFoundError, IncompleteConfigFileError):
                         exposure_time = None
                     if exposure_time is None or exposure_time == '':
                         raise IncompleteConfigFileError(f"exposure_time not found in physical_units; this must be specified if volumes_per_second is not specified ({project_cfg.config.get('project_dir', '')})")
