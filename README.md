@@ -8,6 +8,7 @@ Behavior analysis is also included as optional analysis, and is in a separate [r
 
 In order to reproduce the paper figures, please see the exported jupyter notebooks [here](wbfm/notebooks/paper).
 Note that the raw data is needed, and thus any code related to loading the data would need to be updated to properly run these scripts.
+For a guide to the paper datasets (GCaMP, GFP, mutant, immobilized; naming, pooling, and per-neuron Excel summaries), see [Paper datasets](docs/paper_datasets.md).
 
 # Installation
 
@@ -87,5 +88,7 @@ Please also check (via search) the open and closed issues on github.
 [Folder organization](docs/data_folder_organization.md)
 
 [NWB file format (axis order, channel naming)](docs/nwb_format.md)
+
+[Paper datasets (GCaMP, GFP, mutant, immobilized; FAQ and Excel summaries)](docs/paper_datasets.md)
 
 If you would like to contribute, see [how to contribute](docs/how_to_contribute.md)
