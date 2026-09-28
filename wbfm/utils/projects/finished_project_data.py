@@ -2082,6 +2082,18 @@ class ProjectData:
         # Strip white space from column names
         df.columns = df.columns.str.strip()
 
+        # Tracking-only ground truth datasets have a manual annotation file
+        # without neuron IDs (e.g. columns Neuron ID, Finished?, Notes?).
+        # In that case there is no ID mapping, so return empty.
+        required_columns = {'Neuron ID', 'ID1', 'Certainty'}
+        if not required_columns.issubset(set(df.columns)):
+            self.logger.warning(
+                f"Manual annotation file {getattr(self, 'df_manual_tracking_fname', '')} "
+                f"is missing ID columns {sorted(required_columns - set(df.columns))}; "
+                "returning empty neuron ID mapping"
+            )
+            return {}
+
         # Get the automatically assigned (meaningless) neuron names
         neuron_names = df['Neuron ID'].values
         neuron_names = [str(i) for i in neuron_names]
