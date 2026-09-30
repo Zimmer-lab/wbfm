@@ -38,6 +38,19 @@ except (NoBehaviorDataError, RawDataFormatError, FileNotFoundError) as e:
     background_video = "NOTFOUND_background_video"
     behavior_btf = "NOTFOUND_behavior_btf"
     raw_data_subfolder = "NOTFOUND_raw_data_subfolder"
+except ValueError as e:
+    # Most likely a version mismatch: old installed wbfm returning fewer
+    # values than this pipeline.smk expects, or vice versa
+    raise ValueError(
+        f"Version mismatch between pipeline.smk and installed wbfm when unpacking "
+        f"get_folders_for_behavior_pipeline(): {e}. "
+        f"If your project folder contains an old copy of pipeline.smk, refresh it from the "
+        f"installed package, e.g.: "
+        f"python -c \"from wbfm.utils.projects.utils_project import refresh_snakemake_folder; "
+        f"refresh_snakemake_folder('{project_dir}')\" "
+        f"or manually copy pipeline.smk/RUNME.sh from the new_project_defaults template. "
+        f"If instead your installed wbfm is too old, update the package."
+    ) from e
 
 # Also get the raw data config file (if it exists)
 try:
