@@ -144,6 +144,60 @@ def update_snakemake_config_path(abs_dir_name):
     edit_config(snakemake_fname, snakemake_updates)
 
 
+def refresh_snakemake_folder(project_dir_or_config, backup=True, verbose=1):
+    """Refresh an old project's snakemake/ folder from the installed template.
+
+    Old projects copy pipeline.smk/RUNME.sh at creation time, so they go stale
+    when the template changes (e.g. get_folders_for_behavior_pipeline() started
+    returning 6 values instead of 2, causing
+    "ValueError: too many values to unpack (expected 2)").
+
+    Parameters
+    ----------
+    project_dir_or_config : str or Path
+        Either the project directory, or the path to project_config.yaml
+    backup : bool
+        If True, save existing pipeline.smk/RUNME.sh as *.bak before overwriting
+    """
+    from wbfm.utils.general.utils_filenames import get_location_of_new_project_defaults
+
+    p = Path(str(project_dir_or_config))
+    if p.suffix == '.yaml' or p.name == 'project_config.yaml':
+        project_dir = p.parent
+    else:
+        project_dir = p
+    project_dir = project_dir.resolve()
+    target = project_dir / 'snakemake'
+    src = Path(get_location_of_new_project_defaults()) / 'snakemake'
+    fnames = ['pipeline.smk', 'RUNME.sh', 'cluster_config.yaml']
+    for fname in fnames:
+        src_file = src / fname
+        dst_file = target / fname
+        if not src_file.exists():
+            if verbose >= 1:
+                print(f"Skipping {fname}: not in template {src}")
+            continue
+        if dst_file.exists() and backup:
+            bak = dst_file.with_suffix(dst_file.suffix + '.bak')
+            shutil.copy2(dst_file, bak)
+            if verbose >= 1:
+                print(f"Backed up {dst_file} -> {bak}")
+        shutil.copy2(src_file, dst_file)
+        if verbose >= 1:
+            print(f"Refreshed {dst_file} from {src_file}")
+    # Keep executable bit on RUNME.sh
+    runme = target / 'RUNME.sh'
+    if runme.exists():
+        runme.chmod(runme.stat().st_mode | 0o111)
+    # Re-point the snakemake config at this project dir (preserves other keys)
+    try:
+        update_snakemake_config_path(str(project_dir))
+    except Exception as e:
+        if verbose >= 1:
+            print(f"Warning: could not update snakemake_config.yaml project_dir: {e}")
+    return str(target)
+
+
 def update_nwb_config_path(abs_dir_name, nwb_filename):
     nwb_fname = osp.join(abs_dir_name, 'nwb', 'nwb_config.yaml')
     nwb_updates = {'nwb_filename': str(nwb_filename)}
