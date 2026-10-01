@@ -1942,3 +1942,137 @@ def plot_bayesian_model_comparison(x, y, df_to_plot=None, y_max_gfp=None, df_to_
         fig.show()
     
     return fig, df_to_plot
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.ndimage import gaussian_filter1d
+
+
+def plot_model_comparison(save_path="residual_encoding_schematic.png"):
+    # Set figure formatting style for publication
+    plt.rcParams["font.sans-serif"] = "Arial"
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["axes.edgecolor"] = "black"
+    plt.rcParams["axes.linewidth"] = 1.0
+
+    # 1. Generate Synthetic Data
+    t = np.linspace(0, 10, 1000)
+
+    # Shared sinusoidal behavior signal
+    freq = 1.5
+    behavior = np.sin(2 * np.pi * freq * t)
+
+    # Model 1: Direct, unmodulated encoding (identical to behavior)
+    neuron_m1 = behavior.copy()
+
+    # Model 2: State-modulated encoding
+    # Suppressed / gated specifically during Reversal in the middle (t in [3.5, 6.5])
+    reversal_mask = (t >= 3.5) & (t <= 6.5)
+    modulation_gate = np.where(reversal_mask, 0.05, 1.0)
+    modulation_smooth = gaussian_filter1d(modulation_gate, sigma=15)
+
+    neuron_m2 = behavior * modulation_smooth
+
+    # 2. Figure Layout Setup (2 Columns x 2 Rows)
+    fig = plt.figure(figsize=(11, 3.2), dpi=300)
+    gs = fig.add_gridspec(
+        2,
+        2,
+        height_ratios=[1, 1],
+        hspace=0.2,
+        wspace=0.35,
+        left=0.1,
+        right=0.95,
+        top=0.82,
+        bottom=0.18,
+    )
+
+    ax_m1_beh = fig.add_subplot(gs[0, 0])
+    ax_m1_neu = fig.add_subplot(gs[1, 0], sharex=ax_m1_beh)
+
+    ax_m2_beh = fig.add_subplot(gs[0, 1])
+    ax_m2_neu = fig.add_subplot(gs[1, 1], sharex=ax_m2_beh)
+
+    axes_list = [ax_m1_beh, ax_m1_neu, ax_m2_beh, ax_m2_neu]
+
+    # Panel Title & Headers
+    fig.text(0.01, 0.94, "a", fontsize=16, fontweight="bold", va="top")
+    fig.text(
+        0.5,
+        0.95,
+        "COMPARISON OF RESIDUAL ENCODING MODELS",
+        fontsize=12,
+        fontweight="bold",
+        ha="center",
+    )
+
+    ax_m1_beh.set_title(
+        "MODEL 1: Direct, unmodulated encoding",
+        fontsize=10,
+        fontweight="bold",
+        pad=8,
+    )
+    ax_m2_beh.set_title(
+        "MODEL 2: State-modulated (Intrinsic Manifold) encoding",
+        fontsize=10,
+        fontweight="bold",
+        pad=8,
+    )
+
+    # 3. Add Reversal Shading & Colors
+    reversal_color = "#d62728"  # Distinct red for Reversal state modulation
+
+    # Shade the middle Reversal state epoch across all panels
+    for ax in axes_list:
+        ax.axvspan(3.5, 6.5, color=reversal_color, alpha=0.18, lw=0)
+
+    # 4. Plot Traces
+    # Behavior (Shared black traces)
+    ax_m1_beh.plot(t, behavior, color="black", lw=1.5)
+    ax_m2_beh.plot(t, behavior, color="black", lw=1.5)
+
+    # Model 1 Neuron (Unmodulated black trace)
+    ax_m1_neu.plot(t, neuron_m1, color="black", lw=1.5)
+
+    # Model 2 Neuron (Color-highlighted modulated trace)
+    # Outside reversal = black, inside reversal = colored to emphasize state modulation
+    ax_m2_neu.plot(t, neuron_m2, color="black", lw=1.5)
+    ax_m2_neu.plot(
+        t[reversal_mask],
+        neuron_m2[reversal_mask],
+        color=reversal_color,
+        lw=2.0,
+        label="Modulated State",
+    )
+
+    # 5. Axes Formatting & Labels
+    ax_m1_beh.set_ylabel("Behavior Metric\nAmplitude", fontsize=8.5)
+    ax_m1_neu.set_ylabel("Neuron Activity", fontsize=8.5)
+    ax_m2_beh.set_ylabel("Behavior Metric\nAmplitude", fontsize=8.5)
+    ax_m2_neu.set_ylabel("Neuron Activity", fontsize=8.5)
+
+    for ax in axes_list:
+        ax.set_yticks([])
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    for ax in [ax_m1_beh, ax_m2_beh]:
+        ax.set_xticks([])
+        ax.spines["bottom"].set_visible(False)
+
+    # Configure X-axis with Reversal state in the center
+    for ax in [ax_m1_neu, ax_m2_neu]:
+        ax.set_xticks([5.0])
+        ax.set_xticklabels(
+            ["Reversal"], fontsize=9, fontweight="bold", color=reversal_color
+        )
+        ax.set_xlabel("Time (s)", fontsize=8.5)
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.show()
+
+
+# Example invocation
+# plot_model_comparison("residual_encoding_schematic_reversal.png")
