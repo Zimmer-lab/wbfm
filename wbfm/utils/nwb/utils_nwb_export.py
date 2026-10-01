@@ -174,14 +174,70 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
     # Use the exact options in the paper
     trace_opt = dict(interpolate_nan=True)
     df_traces_red = project_data.calc_paper_traces(channel_mode='red', **trace_opt)
-    # Here we have a subset of columns, so we need to keep only the proper set
-    kept_columns = df_traces_red.columns
-    gce_quant_red.loc[:, ('intensity_image', kept_columns)] = df_traces_red.values
     df_traces_green = project_data.calc_paper_traces(channel_mode='green', **trace_opt)
-    gce_quant_green.loc[:, ('intensity_image', kept_columns)] = df_traces_green.values
-
     df_traces_ratio = project_data.calc_paper_traces(channel_mode='dr_over_r_50', **trace_opt)
-    gce_quant_ratio.loc[:, ('intensity_image', kept_columns)] = df_traces_ratio.values
+
+    # Paper traces are cached and truncated to num_frames, while the tracking
+    # dataframes can be longer (or vice versa). Align to a common time axis
+    # and neuron set instead of failing with
+    # "Length of values (...) does not match length of index (...)".
+    n_common = min(len(gce_quant_red), len(gce_quant_green), len(gce_quant_ratio),
+                   len(df_traces_red), len(df_traces_green), len(df_traces_ratio))
+    for _name, _df in [('tracking(red)', gce_quant_red),
+                       ('tracking(green)', gce_quant_green),
+                       ('tracking(ratio)', gce_quant_ratio),
+                       ('paper(red)', df_traces_red),
+                       ('paper(green)', df_traces_green),
+                       ('paper(ratio)', df_traces_ratio)]:
+        if len(_df) != n_common:
+            logging.warning(
+                f"NWB export for {project_data.shortened_name}: truncating {_name} "
+                f"from {len(_df)} to {n_common} frames to align traces with tracking data. "
+                f"Consider refreshing the paper-trace cache if this mismatch is unexpected."
+            )
+    gce_quant_red = gce_quant_red.iloc[:n_common].copy()
+    gce_quant_green = gce_quant_green.iloc[:n_common].copy()
+    gce_quant_ratio = gce_quant_ratio.iloc[:n_common].copy()
+    df_traces_red = df_traces_red.iloc[:n_common]
+    df_traces_green = df_traces_green.iloc[:n_common]
+    df_traces_ratio = df_traces_ratio.iloc[:n_common]
+
+    # Here we have a subset of columns, so we need to keep only the proper set.
+    # Neuron sets must be identical across channels; any difference is a hard
+    # error, not something to silently intersect away.
+    _red_set = set(df_traces_red.columns)
+    _green_set = set(df_traces_green.columns)
+    _ratio_set = set(df_traces_ratio.columns)
+    if not (_red_set == _green_set == _ratio_set):
+        raise ValueError(
+            f"Neuron sets differ between paper-trace channels for "
+            f"{project_data.shortened_name}; cannot export NWB. "
+            f"red-only={sorted(_red_set - _green_set - _ratio_set)[:10]}, "
+            f"green-only={sorted(_green_set - _red_set - _ratio_set)[:10]}, "
+            f"ratio-only={sorted(_ratio_set - _red_set - _green_set)[:10]}, "
+            f"counts=(red={len(_red_set)}, green={len(_green_set)}, ratio={len(_ratio_set)})."
+        )
+    # Tracking frames are not guaranteed to store neurons in the same order as
+    # the paper traces, so every check and assignment below is by column name.
+    _red_tracked = set(gce_quant_red.columns.get_level_values(1))
+    _green_tracked = set(gce_quant_green.columns.get_level_values(1))
+    for _frame_name, _tracked in [('red', _red_tracked), ('green', _green_tracked)]:
+        _missing = sorted(_red_set - _tracked)
+        if _missing:
+            raise ValueError(
+                f"Paper-trace neurons missing from {_frame_name} tracking data for "
+                f"{project_data.shortened_name}; cannot export NWB. "
+                f"Missing (up to 10): {_missing[:10]} "
+                f"({len(_red_set - _tracked)}/{len(_red_set)} missing)."
+            )
+    kept_columns = list(df_traces_red.columns)
+    # Assign one neuron at a time by name. A positional `.values` block
+    # assignment would mix up neurons whenever the tracking frame orders them
+    # differently than the paper traces.
+    for col in kept_columns:
+        gce_quant_red[('intensity_image', col)] = df_traces_red[col].to_numpy()
+        gce_quant_green[('intensity_image', col)] = df_traces_green[col].to_numpy()
+        gce_quant_ratio[('intensity_image', col)] = df_traces_ratio[col].to_numpy()
 
     # Then drop any other columns that are not in the kept columns
     gce_quant_red = gce_quant_red.loc[:, (slice(None), kept_columns)]
@@ -242,10 +298,15 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
                                                       session_start_time, subject_id, strain, physical_units_class,
                                                       behavior_video, behavior_time_series_dict, df_tracking,
                                                       output_fname, include_image_data)
-    # Update in the project config
+    # Update in the project config. The export itself is already saved at this
+    # point, so a failure here (e.g. read-only filesystem) is only a warning.
     if cfg_nwb is not None:
-        cfg_nwb.config['nwb_filename'] = fname
-        cfg_nwb.update_self_on_disk()
+        try:
+            cfg_nwb.config['nwb_filename'] = fname
+            cfg_nwb.update_self_on_disk()
+        except OSError as e:
+            logging.warning(f"Exported NWB file to {fname}, but could not update "
+                            f"the project nwb config ({e}). Continuing.")
 
     return nwb_file, fname
 
