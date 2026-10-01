@@ -309,14 +309,21 @@ def get_sequential_filename(fname: str, verbose=1) -> str:
         if verbose >= 1:
             print(f"Original fname {fpath} exists, so will be suffixed")
         base_fname, suffix_filetype = fpath.stem, fpath.suffix
-        # Check for previous application of this function
+        # Check for previous application of this function, e.g. test-1.h5 -> test
+        # Only strip the trailing -<int> if the stripped basename also exists as
+        # a file; otherwise the suffix is part of the original name (e.g. dates
+        # like ZIM2319_GFP_worm5-2022-12-10.nwb, where -10 must be kept).
         regex = r"-\d+$"
         matches = list(re.finditer(regex, base_fname))
         if len(matches) > 0:
-            base_fname = base_fname[:matches[0].start()]
-            base_fname = base_fname.strip('-')
-            if verbose >= 1:
-                print(f"Removed suffix {matches[0].group()}, so the basename is taken as: {base_fname}")
+            stripped_base = base_fname[:matches[0].start()]
+            if (fpath.parent / (stripped_base + suffix_filetype)).exists():
+                base_fname = stripped_base.strip('-')
+                if verbose >= 1:
+                    print(f"Removed suffix {matches[0].group()}, so the basename is taken as: {base_fname}")
+            elif verbose >= 1:
+                print(f"Keeping suffix {matches[0].group()} as part of basename (no {stripped_base}{suffix_filetype} found), "
+                      f"so the basename is taken as: {base_fname}")
 
         new_base_fname = f"{str(base_fname)}-{i}"
         candidate_fname = fpath.with_name(new_base_fname + str(suffix_filetype))
