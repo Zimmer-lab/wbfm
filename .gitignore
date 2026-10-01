@@ -29,7 +29,8 @@ notebooks/Scratch/
 *.npz
 wbfm/utils/neuron_matching/opencv_samples/
 old/*
-.idea/
+.idea
+.vscode
 /wbfm/experiments/
 wbfm/new_project_defaults/snakemake/.snakemake/
 *.out.*
