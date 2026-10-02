@@ -827,8 +827,22 @@ def convert_segmentation_video_to_nwb(CalcImagingVolume, device, segmentation_vi
 
 def convert_behavior_video_to_nwb(nwbfile, behavior_video, fps):
     print("Converting behavior to nwb format...")
-    # Behavior is already TXY
-    chunk_shape = list(behavior_video.shape)
+    # Behavior is expected to be TXY (time, y, x). Chunk one frame at a time:
+    # using the whole video as a single chunk exceeds the HDF5 4GB chunk limit
+    # (e.g. 40008x700x688 uint8 ~19GB) and fails with
+    # "Could not create dataset data in /processing/BF_NIR/BrightFieldNIR".
+    # It would also require loading the full video into memory at once.
+    if behavior_video.ndim != 3:
+        logging.warning(
+            f"Expected 3D behavior video (TXY), got shape {behavior_video.shape}; "
+            f"attempting to squeeze singleton dimensions."
+        )
+        behavior_video = da.squeeze(behavior_video) if hasattr(behavior_video, 'compute') else np.squeeze(behavior_video)
+    if behavior_video.ndim != 3:
+        raise ValueError(
+            f"Behavior video must be 3D (TXY) for NWB export, got shape {behavior_video.shape}."
+        )
+    chunk_shape = (1,) + tuple(behavior_video.shape[1:])
 
     # Build a generator (like the raw data) but for the behavior data
     data = CustomDataChunkIterator(
