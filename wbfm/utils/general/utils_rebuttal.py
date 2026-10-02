@@ -115,16 +115,22 @@ ALPHA_BH = 0.05           # Benjamini–Hochberg FDR level [^2]
 
 def determine_common_fft_length(
     all_dfs: Dict[Tuple[str, str], List[pd.DataFrame]],
-    strategy: str = 'max'
+    strategy: str = 'max',
+    zero_pad_factor: float = 1
 ) -> int:
     """
     Determine a common FFT length to ensure all datasets use the same frequency grid.
-    
+
     This function finds the optimal time-series length for zero-padding so that:
     - All recordings are padded to the same length before FFT
     - Frequency resolution is uniform across all conditions
     - Fine frequency details are preserved
-    
+
+    Note: zero-padding interpolates the spectrum onto a finer grid (sinc
+    interpolation) but does NOT improve the true Rayleigh resolution, which
+    remains 1/T of the unpadded recording. Report the native df alongside
+    any padded df in methods.
+
     Parameters
     ----------
     all_dfs : dict[(condition, wavelength)] -> list[pd.DataFrame]
@@ -132,7 +138,11 @@ def determine_common_fft_length(
     strategy : {'max', 'median'}, default='max'
         'max': Use longest recording length (preserves fine resolution)
         'median': Use median length (balances resolution with padding overhead)
-    
+    zero_pad_factor : float, default=1
+        Multiply the strategy-derived base length by this factor (e.g. 4).
+        Must be >= 1. Use >1 to get a finer (interpolated) frequency grid,
+        which stabilizes the interpolated spectral-edge estimate.
+
     Returns
     -------
     target_fft_length : int
@@ -145,13 +155,18 @@ def determine_common_fft_length(
     
     if len(all_lengths) == 0:
         raise ValueError("No recordings found in all_dfs")
-    
+
+    if zero_pad_factor < 1:
+        raise ValueError(f"zero_pad_factor must be >= 1, got {zero_pad_factor}")
+
     if strategy == 'max':
-        return int(np.max(all_lengths))
+        base_length = int(np.max(all_lengths))
     elif strategy == 'median':
-        return int(np.median(all_lengths))
+        base_length = int(np.median(all_lengths))
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
+
+    return int(base_length * zero_pad_factor)
 
 
 def pad_signal_for_fft(x: np.ndarray, target_length: int) -> np.ndarray:
@@ -276,7 +291,7 @@ def recording_metrics(df: pd.DataFrame, d: float,
 
 
 def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False,
-                    target_fft_length: int = None
+                    target_fft_length: int = None, interpolate: bool = True
                     ) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     """
     50% spectral edge using CDF of averaged power spectra across neurons [^1]:
@@ -285,7 +300,12 @@ def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False,
       - normalize,
       - CDF over frequency bins,
       - frequency at which CDF crosses 0.5.
-    
+
+    With interpolate=True (default), the 0.5 crossing is linearly interpolated
+    between the two bracketing frequency bins, giving a continuous f50 estimate.
+    With interpolate=False, the legacy behavior is used (round up to the next
+    bin edge), which quantizes f50 to the discrete FFT grid (spacing 1/T).
+
     Parameters
     ----------
     df : pd.DataFrame
@@ -298,11 +318,14 @@ def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False,
         If provided, zero-pad signals to this length before FFT.
         Ensures consistent frequency grid across recordings.
         If None, uses signal length as-is.
-    
+    interpolate : bool, default=True
+        Linearly interpolate the CDF crossing between bins. Set to False to
+        reproduce the legacy quantized (searchsorted) behavior.
+
     Returns
     -------
     f50 : float
-        Frequency at 50% spectral power
+        Frequency at 50% spectral power (interpolated if requested)
     freqs : np.ndarray
         Frequency grid (Hz)
     psd_avg_norm : np.ndarray
@@ -333,7 +356,17 @@ def spectral_edge_50(df: pd.DataFrame, d: float, apply_delta_ff: bool = False,
     freqs = np.fft.rfftfreq(n_fft, d=d)
     cdf = np.cumsum(psd_avg_norm)
     idx = int(np.searchsorted(cdf, 0.5))
-    f50 = float(freqs[idx]) if idx < len(freqs) else float(freqs[-1])
+    if idx >= len(freqs):
+        return float(freqs[-1]), freqs, psd_avg_norm, cdf
+    if not interpolate or idx == 0:
+        return float(freqs[idx]), freqs, psd_avg_norm, cdf
+    # Linear interpolation of the 0.5 crossing between bracketing bins.
+    c0, c1 = cdf[idx - 1], cdf[idx]
+    if c1 <= c0:
+        # Flat CDF segment (no power in this bin); fall back to bin edge.
+        return float(freqs[idx]), freqs, psd_avg_norm, cdf
+    frac = (0.5 - c0) / (c1 - c0)
+    f50 = float(freqs[idx - 1] + frac * (freqs[idx] - freqs[idx - 1]))
     return f50, freqs, psd_avg_norm, cdf
 
 # ============================================
@@ -391,7 +424,9 @@ def compute_all_metrics(
     all_dfs: Dict[Tuple[str, str], List[pd.DataFrame]],
     sampling_intervals_all: Dict[Tuple[str, str], List[float]],
     apply_delta_ff: bool = False,
-    fft_length_strategy: str = 'max'
+    fft_length_strategy: str = 'max',
+    zero_pad_factor: float = 1,
+    interpolate_edge: bool = True
 ) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
     """
     Compute per-recording metrics for each condition:
@@ -415,6 +450,12 @@ def compute_all_metrics(
         Strategy for determining common FFT length:
         - 'max': Use longest recording (finest frequency resolution)
         - 'median': Use median recording length (balance resolution vs padding)
+    zero_pad_factor : float, default=1
+        Multiply the strategy-derived FFT length by this factor (e.g. 4) for
+        a finer interpolated frequency grid. True resolution remains 1/T.
+    interpolate_edge : bool, default=True
+        Linearly interpolate the 50% spectral-edge crossing between bins
+        (continuous f50). False restores legacy quantized behavior.
     
     Returns
     -------
@@ -423,7 +464,8 @@ def compute_all_metrics(
         'fractions', 'f50', 'freqs', 'psd_avg_norm', 'cdf'
     """
     # Determine common FFT length across all recordings
-    target_fft_length = determine_common_fft_length(all_dfs, strategy=fft_length_strategy)
+    target_fft_length = determine_common_fft_length(
+        all_dfs, strategy=fft_length_strategy, zero_pad_factor=zero_pad_factor)
     
     results = {}
     for key, df_list in all_dfs.items():
@@ -436,7 +478,8 @@ def compute_all_metrics(
                 target_fft_length=target_fft_length
             )
             f50, freqs, psd_avg_norm, cdf = spectral_edge_50(
-                df, d, apply_delta_ff=apply_delta_ff, target_fft_length=target_fft_length
+                df, d, apply_delta_ff=apply_delta_ff, target_fft_length=target_fft_length,
+                interpolate=interpolate_edge
             )
             metrics_list.append({
                 'avg_fraction': avg_fraction,            # used to sort recordings (Figure S1-like) [^3]
@@ -782,6 +825,8 @@ def compute_fig1_metrics(
     sampling_intervals_all,
     apply_delta_ff=False,
     fft_length_strategy='max',
+    zero_pad_factor=1,
+    interpolate_edge=True,
     comparisons=None,           # list of pairs: [ ((condA, λA), (condB, λB)), ... ]
     alternative='greater',      # H1: mean(condA) > mean(condB) [^2]
     alpha=ALPHA_BH              # BH FDR level [^2]
@@ -807,6 +852,11 @@ def compute_fig1_metrics(
         If True, apply ΔF/F per neuron before spectral analysis [^2].
     fft_length_strategy : {'max', 'median'}, default='max'
         Strategy for determining common FFT length across all recordings [^1]
+    zero_pad_factor : float, default=1
+        Multiply the strategy-derived FFT length by this factor (e.g. 4) for
+        a finer interpolated frequency grid. True resolution remains 1/T.
+    interpolate_edge : bool, default=True
+        Linearly interpolate the 50% spectral-edge crossing between bins.
     comparisons : list[tuple[(cond_name_A, λ_A), (cond_name_B, λ_B)]] or None
         Optional condition-pair comparisons for stats on Fig 1F (f50) metric. H1: mean(condA) > mean(condB) [^2].
     alternative : {'greater', 'less', 'two-sided'}
@@ -832,7 +882,9 @@ def compute_fig1_metrics(
             }
     """
     results = compute_all_metrics(all_dfs, sampling_intervals_all, apply_delta_ff=apply_delta_ff,
-                                  fft_length_strategy=fft_length_strategy)
+                                  fft_length_strategy=fft_length_strategy,
+                                  zero_pad_factor=zero_pad_factor,
+                                  interpolate_edge=interpolate_edge)
 
     per_condition = {}
     for key, metrics_list in results.items():
@@ -1333,6 +1385,8 @@ def reproduce_figures_plotly(
     shade_style: str = 'std',
     cmap: dict = None,
     fft_length_strategy: str = 'max',
+    zero_pad_factor: float = 1,
+    interpolate_edge: bool = True,
     DEBUG=False
 ):
     """
@@ -1377,6 +1431,11 @@ def reproduce_figures_plotly(
         Strategy for determining common FFT length across recordings:
         - 'max': Use longest recording (finest frequency resolution)
         - 'median': Use median recording length
+    zero_pad_factor : float, default=1
+        Multiply the strategy-derived FFT length by this factor (e.g. 4) for
+        a finer interpolated frequency grid. True resolution remains 1/T.
+    interpolate_edge : bool, default=True
+        Linearly interpolate the 50% spectral-edge crossing between bins.
     
     Returns
     -------
@@ -1394,7 +1453,9 @@ def reproduce_figures_plotly(
             print(f"Condition {key}: {len(all_dfs[key])} recordings")
     # Compute metrics per recording with standardized FFT length
     results = compute_all_metrics(all_dfs, sampling_intervals_all, apply_delta_ff=apply_delta_ff,
-                                  fft_length_strategy=fft_length_strategy)
+                                  fft_length_strategy=fft_length_strategy,
+                                  zero_pad_factor=zero_pad_factor,
+                                  interpolate_edge=interpolate_edge)
 
     # Figure S2A-like
     if use_mean_and_shading:
