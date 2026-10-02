@@ -36,6 +36,21 @@ from wbfm.utils.projects.utils_project_status import check_all_needed_data_for_s
 from wbfm.utils.general.utils_filenames import get_sequential_filename
 
 
+def get_nwb_export_fname(project_data, output_folder, include_image_data: bool) -> str:
+    """
+    The canonical output path that nwb_using_project_data writes to.
+
+    Callers that want to know where a given project's export will land (for
+    example, to skip projects that were already exported) should use this
+    instead of re-deriving the name from project_data.shortened_name, so the
+    two cannot drift apart.
+    """
+    output_fname = os.path.join(output_folder, project_data.shortened_name)
+    if not include_image_data:
+        output_fname = f'{output_fname}_no_image_data'
+    return f'{output_fname}.nwb'
+
+
 def create_vol_seg_centers(name, description, ImagingVolume, positions,
                            labels=None, reference_images=None) -> PlaneSegmentation:
     """
@@ -118,10 +133,7 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
         else:
             raise PermissionError(f"Either project permissions or output folder is required to save NWB files.")
 
-    output_fname = os.path.join(output_folder, project_data.shortened_name)
-    if not include_image_data:
-        output_fname = f'{output_fname}_no_image_data'
-    output_fname = f'{output_fname}.nwb'
+    output_fname = get_nwb_export_fname(project_data, output_folder, include_image_data)
 
     # Unpack variables from project_data
     # Everything in the zimmer lab is produced with a time stamp saved in the filename of the raw data folder

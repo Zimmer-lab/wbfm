@@ -5,7 +5,7 @@ from tqdm.auto import tqdm
 import argparse
 
 from wbfm.utils.general.utils_hardcoded import load_paper_datasets
-from wbfm.utils.nwb.utils_nwb_export import nwb_using_project_data
+from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname, nwb_using_project_data
 
 if __name__ == '__main__':
     # Get args
@@ -54,7 +54,7 @@ Examples:
         for name, project in all_projects.items():
 
             # Skip if file exists
-            output_fname = os.path.join(this_folder, project.shortened_name)
+            output_fname = get_nwb_export_fname(project, this_folder, include_image_data)
             if skip_if_exists and os.path.exists(output_fname):
                 print(f'Skipping {output_fname} because it already exists')
                 continue
