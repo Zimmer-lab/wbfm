@@ -51,7 +51,7 @@ def main():
                         help='Whether to delete existing export files before exporting (default skips them)')
     parser.add_argument('--suffixes', nargs='+', default=['gfp', '', 'mutant', 'immob'],
                         help='Dataset suffixes to export')
-    parser.add_argument('--max_concurrent', type=int, default=4,
+    parser.add_argument('--max_concurrent', type=int, default=16,
                         help='Max array tasks running at once')
     parser.add_argument('--job_name', default='nwb-export')
     parser.add_argument('--mem', default='64G')
