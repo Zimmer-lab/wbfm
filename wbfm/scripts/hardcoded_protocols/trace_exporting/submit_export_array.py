@@ -15,8 +15,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from export_paper_data_as_nwb import build_tasks, get_parent_dir
-from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname_from_parts
+from export_paper_data_as_nwb import build_tasks, filter_existing_tasks, get_parent_dir
 
 # Full cluster paths, so the job does not depend on the submitting shell's
 # environment (PATH, conda activation, working directory).
@@ -67,20 +66,11 @@ def main():
     # Filter BEFORE submitting: drop datasets whose export already exists, so
     # the array contains exactly the remaining work and no task is wasted on
     # a start-load-and-exit no-op. (Each task still re-checks at runtime as a
-    # backstop.) The expected filename is computable from the name alone, so
-    # this needs no project loading.
+    # backstop.) Uses the same shared filter as the --only_index worker, so
+    # array indexes point at the same datasets in both.
     skipped = []
     if not args.delete_existing:
-        remaining = []
-        for task in tasks:
-            _, name, _, this_folder = task
-            output_fname = get_nwb_export_fname_from_parts(
-                name, this_folder, args.include_image_data)
-            if os.path.exists(output_fname):
-                skipped.append(name)
-            else:
-                remaining.append(task)
-        tasks = remaining
+        tasks, skipped = filter_existing_tasks(tasks, args.include_image_data)
     n_tasks = len(tasks)
     print(f'{n_total} project(s) total, {len(skipped)} already exported, '
           f'submitting {n_tasks}; array range will be 0-{n_tasks - 1}', flush=True)

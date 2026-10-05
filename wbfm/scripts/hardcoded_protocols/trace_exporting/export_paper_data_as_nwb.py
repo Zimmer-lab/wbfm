@@ -61,6 +61,32 @@ def build_tasks(all_suffixes, parent_dir, verbose=True):
     return tasks
 
 
+def filter_existing_tasks(tasks, include_image_data, verbose=True):
+    """
+    Drop tasks whose expected output already exists.
+
+    The expected filename is computable from the name alone, so this needs
+    no project loading. CRITICAL: both the array submitter and the
+    --only_index worker must apply this identical filter, otherwise array
+    indexes silently point at the wrong datasets (tasks whose file already
+    exists just skip, and the actually-missing datasets never run).
+
+    Returns (remaining_tasks, skipped_names).
+    """
+    remaining, skipped = [], []
+    for task in tasks:
+        _, name, _, this_folder = task
+        output_fname = get_nwb_export_fname_from_parts(name, this_folder, include_image_data)
+        if os.path.exists(output_fname):
+            skipped.append(name)
+        else:
+            remaining.append(task)
+    if verbose:
+        print(f'{len(tasks)} task(s) total, {len(skipped)} already exported, {len(remaining)} remaining',
+              flush=True)
+    return remaining, skipped
+
+
 def export_one_task(task):
     """
     Export a single project.
@@ -156,7 +182,13 @@ Examples:
     skip_if_exists = not args.delete_existing
 
     tasks = build_tasks(args.suffixes, get_parent_dir(include_image_data))
-    print(f'{len(tasks)} project(s) to export', flush=True)
+    if not DEBUG and skip_if_exists:
+        # Same filter the array submitter applies, so --only_index N refers
+        # to the same dataset in both. (Each task still re-checks at runtime
+        # as a backstop against files written after submission.)
+        tasks, _ = filter_existing_tasks(tasks, include_image_data)
+    else:
+        print(f'{len(tasks)} project(s) to export', flush=True)
 
     full_tasks = [(suffix, name, config_path, folder, include_image_data, skip_if_exists)
                   for suffix, name, config_path, folder in tasks]

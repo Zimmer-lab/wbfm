@@ -2,8 +2,15 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
+import os
+import sys
+
 from wbfm.utils.general.utils_filenames import get_sequential_filename
 from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname, get_nwb_export_fname_from_parts
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'scripts',
+                                'hardcoded_protocols', 'trace_exporting'))
+from export_paper_data_as_nwb import filter_existing_tasks
 
 
 def _dummy_project(shortened_name):
@@ -35,6 +42,31 @@ def test_export_fname_from_parts_matches_object_version(tmp_path):
         assert get_nwb_export_fname_from_parts(
             project.shortened_name, folder, include_image_data
         ) == get_nwb_export_fname(project, folder, include_image_data)
+
+
+def test_filter_existing_tasks_matches_submitter_and_worker(tmp_path):
+    """The submitter and the --only_index worker must see the same list.
+
+    Regression test: the submitter used to filter while the worker indexed
+    the unfiltered list, so array tasks skipped (already-done datasets) while
+    the actually-missing ones never ran.
+    """
+    folder = str(tmp_path)
+    names = [f'worm{i}-2022-12-10' for i in range(5)]
+    tasks = [('gfp', n, f'/fake/{n}/project_config.yaml', folder) for n in names]
+    # worm1 and worm3 already exported
+    for n in ('worm1-2022-12-10', 'worm3-2022-12-10'):
+        Path(os.path.join(folder, f'{n}_no_image_data.nwb')).touch()
+
+    remaining, skipped = filter_existing_tasks(tasks, include_image_data=False, verbose=False)
+
+    assert [n for _, n, _, _ in remaining] == ['worm0-2022-12-10', 'worm2-2022-12-10',
+                                               'worm4-2022-12-10']
+    assert sorted(skipped) == ['worm1-2022-12-10', 'worm3-2022-12-10']
+    # Index stability: worker --only_index i must resolve to the same dataset
+    # the submitter counted at position i.
+    assert remaining[0][1] == 'worm0-2022-12-10'
+    assert remaining[2][1] == 'worm4-2022-12-10'
 
 
 def test_export_fname_is_the_sequential_filename_base(tmp_path):
