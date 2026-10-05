@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from export_paper_data_as_nwb_parallel import build_tasks, get_parent_dir
+from export_paper_data_as_nwb import build_tasks, get_parent_dir
 from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname_from_parts
 
 # Full cluster paths, so the job does not depend on the submitting shell's
@@ -23,7 +23,7 @@ from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname_from_parts
 CLUSTER_PYTHON = '/lisc/data/scratch/neurobiology/zimmer/.conda/envs/wbfm/bin/python'
 CLUSTER_SCRIPT_DIR = ('/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm'
                       '/wbfm/scripts/hardcoded_protocols/trace_exporting')
-CLUSTER_EXPORT_SCRIPT = os.path.join(CLUSTER_SCRIPT_DIR, 'export_paper_data_as_nwb_parallel.py')
+CLUSTER_EXPORT_SCRIPT = os.path.join(CLUSTER_SCRIPT_DIR, 'export_paper_data_as_nwb.py')
 
 
 def build_sbatch(n_tasks, job_name, max_concurrent, mem, time, cpus_per_task, export_flags):
