@@ -3,8 +3,8 @@ Submit NWB paper-trace exports as a SLURM job array, one dataset per task.
 
 Unlike a hand-written sbatch file with a hard-coded --array range, this
 script first enumerates the actual task list (fast: project *paths* only),
-so the array size always matches the number of datasets. Run it from a
-login node with sbatch available:
+drops datasets whose export already exists, and submits an array sized to
+exactly the remaining work. Run it from a login node with sbatch available:
 
     python submit_export_array.py --include_image_data --max_concurrent 4
     python submit_export_array.py --dry_run   # print the sbatch file without submitting
@@ -16,6 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from export_paper_data_as_nwb_parallel import build_tasks, get_parent_dir
+from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname_from_parts
 
 # Full cluster paths, so the job does not depend on the submitting shell's
 # environment (PATH, conda activation, working directory).
@@ -27,8 +28,8 @@ CLUSTER_EXPORT_SCRIPT = os.path.join(CLUSTER_SCRIPT_DIR, 'export_paper_data_as_n
 
 def build_sbatch(n_tasks, job_name, max_concurrent, mem, time, cpus_per_task, export_flags):
     array_spec = f'0-{n_tasks - 1}%{max_concurrent}' if n_tasks > 0 else '0-0%1'
-    export_cmd = (f'{CLUSTER_PYTHON} -u {CLUSTER_EXPORT_SCRIPT} '
-                  f'{" ".join(export_flags)} --backend serial --only_index "$SLURM_ARRAY_TASK_ID"')
+    all_flags = export_flags + ['--backend', 'serial', '--only_index', '"$SLURM_ARRAY_TASK_ID"']
+    export_cmd = f'{CLUSTER_PYTHON} -u {CLUSTER_EXPORT_SCRIPT} {" ".join(all_flags)}'
     return f"""#!/bin/bash
 #SBATCH --job-name={job_name}
 #SBATCH --array={array_spec}
@@ -51,7 +52,7 @@ def main():
     parser.add_argument('--suffixes', nargs='+', default=['gfp', '', 'mutant', 'immob'],
                         help='Dataset suffixes to export')
     parser.add_argument('--max_concurrent', type=int, default=4,
-                        help='Max array tasks running at once (the %%N in --array=0-(N-1)%%N)')
+                        help='Max array tasks running at once')
     parser.add_argument('--job_name', default='nwb-export')
     parser.add_argument('--mem', default='64G')
     parser.add_argument('--time', default='8:00:00')
@@ -61,11 +62,31 @@ def main():
     args = parser.parse_args()
 
     tasks = build_tasks(args.suffixes, get_parent_dir(args.include_image_data))
+    n_total = len(tasks)
+
+    # Filter BEFORE submitting: drop datasets whose export already exists, so
+    # the array contains exactly the remaining work and no task is wasted on
+    # a start-load-and-exit no-op. (Each task still re-checks at runtime as a
+    # backstop.) The expected filename is computable from the name alone, so
+    # this needs no project loading.
+    skipped = []
+    if not args.delete_existing:
+        remaining = []
+        for task in tasks:
+            _, name, _, this_folder = task
+            output_fname = get_nwb_export_fname_from_parts(
+                name, this_folder, args.include_image_data)
+            if os.path.exists(output_fname):
+                skipped.append(name)
+            else:
+                remaining.append(task)
+        tasks = remaining
     n_tasks = len(tasks)
-    print(f'{n_tasks} project(s); array range will be 0-{n_tasks - 1}', flush=True)
+    print(f'{n_total} project(s) total, {len(skipped)} already exported, '
+          f'submitting {n_tasks}; array range will be 0-{n_tasks - 1}', flush=True)
     if n_tasks == 0:
-        print('No tasks; nothing to submit.', flush=True)
-        raise SystemExit(1)
+        print('Nothing remaining; nothing to submit.', flush=True)
+        raise SystemExit(0)
 
     export_flags = []
     if args.include_image_data:
@@ -79,6 +100,13 @@ def main():
                                args.mem, args.time, args.cpus_per_task, export_flags)
     if args.dry_run:
         print(sbatch_text, flush=True)
+        print('--- tasks that WOULD be dispatched ---', flush=True)
+        for _, name, _, _ in tasks:
+            print(f'  dispatch {name}', flush=True)
+        if skipped:
+            print('--- already exported (would be skipped) ---', flush=True)
+            for name in skipped:
+                print(f'  skip {name}', flush=True)
         return
 
     proc = subprocess.run(['sbatch'], input=sbatch_text, capture_output=True, text=True)

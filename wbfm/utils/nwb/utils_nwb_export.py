@@ -45,7 +45,18 @@ def get_nwb_export_fname(project_data, output_folder, include_image_data: bool) 
     instead of re-deriving the name from project_data.shortened_name, so the
     two cannot drift apart.
     """
-    output_fname = os.path.join(output_folder, project_data.shortened_name)
+    return get_nwb_export_fname_from_parts(project_data.shortened_name, output_folder, include_image_data)
+
+
+def get_nwb_export_fname_from_parts(shortened_name: str, output_folder, include_image_data: bool) -> str:
+    """
+    Same as get_nwb_export_fname, but from the name string alone.
+
+    Useful when the project object is not (yet) loaded, e.g. to check whether
+    an export already exists before submitting a job for it. shortened_name is
+    the project directory name (see ProjectData.shortened_name).
+    """
+    output_fname = os.path.join(output_folder, shortened_name)
     if not include_image_data:
         output_fname = f'{output_fname}_no_image_data'
     return f'{output_fname}.nwb'

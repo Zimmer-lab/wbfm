@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from wbfm.utils.general.utils_filenames import get_sequential_filename
-from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname
+from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname, get_nwb_export_fname_from_parts
 
 
 def _dummy_project(shortened_name):
@@ -24,6 +24,17 @@ def test_export_fname_with_image_data(tmp_path):
 
     expected = os.path.join(folder, 'ZIM2319_GFP_worm3-2022-12-10.nwb')
     assert get_nwb_export_fname(project, folder, include_image_data=True) == expected
+
+
+def test_export_fname_from_parts_matches_object_version(tmp_path):
+    """The string-only helper must agree with the project-object version."""
+    project = _dummy_project('ZIM2319_GFP_worm3-2022-12-10')
+    folder = str(tmp_path)
+
+    for include_image_data in (False, True):
+        assert get_nwb_export_fname_from_parts(
+            project.shortened_name, folder, include_image_data
+        ) == get_nwb_export_fname(project, folder, include_image_data)
 
 
 def test_export_fname_is_the_sequential_filename_base(tmp_path):
