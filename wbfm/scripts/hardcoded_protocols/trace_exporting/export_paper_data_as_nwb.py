@@ -61,6 +61,29 @@ def build_tasks(all_suffixes, parent_dir, verbose=True):
     return tasks
 
 
+def write_taskfile(path, tasks):
+    """Write the frozen index -> dataset mapping for a job array.
+
+    One `suffix<TAB>name<TAB>config_path` line per task. Workers read their
+    own line instead of re-enumerating, so array indexes cannot drift when
+    files appear mid-run (re-enumerating + re-filtering in each worker caused
+    both missed datasets and two tasks racing on the same one).
+    """
+    with open(path, 'w') as f:
+        for suffix, name, config_path, _ in tasks:
+            f.write(f'{suffix}\t{name}\t{config_path}\n')
+
+
+def read_taskfile_entry(path, idx):
+    """Return (suffix, name, config_path) for task index, or None if out of range."""
+    with open(path) as f:
+        lines = [line.rstrip('\n').split('\t') for line in f if line.strip()]
+    if not 0 <= idx < len(lines):
+        return None
+    suffix, name, config_path = lines[idx]
+    return suffix, name, config_path
+
+
 def filter_existing_tasks(tasks, include_image_data, verbose=True):
     """
     Drop tasks whose expected output already exists.
@@ -172,14 +195,37 @@ Examples:
                              'Note: each worker holds a full project in memory; with --include_image_data '
                              'keep this modest (2-4).')
     parser.add_argument('--only_index', type=int, default=None,
-                        help='Export only the single task at this index of the task list and exit. '
+                        help='Export only the single task at this index and exit. '
                              'Intended for SLURM job arrays. Out-of-range indexes exit 0 (no-op) so the '
-                             'array size may exceed the task count.')
+                             'array size may exceed the task count. '
+                             'With --taskfile, the index refers to that file; otherwise the task list '
+                             'is enumerated and filtered first.')
+    parser.add_argument('--taskfile', type=str, default=None,
+                        help='Path to a taskfile written by submit_export_array.py (frozen '
+                             'index -> dataset mapping). Use together with --only_index for '
+                             'array tasks; avoids re-enumerating, so indexes cannot drift.')
     args = parser.parse_args()
 
     DEBUG = args.debug
     include_image_data = args.include_image_data
     skip_if_exists = not args.delete_existing
+
+    if args.taskfile is not None and args.only_index is not None:
+        # Array worker: dataset is pinned by the submit-time taskfile; no
+        # enumeration, no filtering, no index drift possible.
+        entry = read_taskfile_entry(args.taskfile, args.only_index)
+        if entry is None:
+            print(f'--only_index {args.only_index} out of range for taskfile {args.taskfile}; '
+                  f'nothing to do.', flush=True)
+            raise SystemExit(0)
+        suffix, name, config_path = entry
+        this_folder = os.path.join(get_parent_dir(include_image_data), f'exported_data_{suffix}')
+        Path(this_folder).mkdir(exist_ok=True)
+        _, status, message = export_one_task(
+            (suffix, name, config_path, this_folder, include_image_data, skip_if_exists))
+        if message is not None:
+            print(message, flush=True)
+        raise SystemExit(0 if status in ('exported', 'skipped') else 1)
 
     tasks = build_tasks(args.suffixes, get_parent_dir(include_image_data))
     if not DEBUG and skip_if_exists:

@@ -10,7 +10,7 @@ from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname, get_nwb_export
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'scripts',
                                 'hardcoded_protocols', 'trace_exporting'))
-from export_paper_data_as_nwb import filter_existing_tasks
+from export_paper_data_as_nwb import filter_existing_tasks, read_taskfile_entry, write_taskfile
 
 
 def _dummy_project(shortened_name):
@@ -67,6 +67,25 @@ def test_filter_existing_tasks_matches_submitter_and_worker(tmp_path):
     # the submitter counted at position i.
     assert remaining[0][1] == 'worm0-2022-12-10'
     assert remaining[2][1] == 'worm4-2022-12-10'
+
+
+def test_taskfile_roundtrip_pins_index_to_dataset(tmp_path):
+    """Array indexes must resolve via the frozen taskfile, not re-filtering.
+
+    Regression test: workers used to re-enumerate + re-filter at start, so
+    late-starting workers saw shrunken lists -> tail tasks no-op'd on wrong
+    indexes while missing datasets never ran (and two tasks once raced on
+    the same dataset, producing a -1 suffixed duplicate).
+    """
+    folder = str(tmp_path)
+    tasks = [('gfp', f'worm{i}-2022-12-10', f'/fake/{i}.yaml', folder) for i in range(3)]
+    taskfile = str(tmp_path / 'tasks.txt')
+    write_taskfile(taskfile, tasks)
+
+    assert read_taskfile_entry(taskfile, 0) == ('gfp', 'worm0-2022-12-10', '/fake/0.yaml')
+    assert read_taskfile_entry(taskfile, 2) == ('gfp', 'worm2-2022-12-10', '/fake/2.yaml')
+    assert read_taskfile_entry(taskfile, 3) is None
+    assert read_taskfile_entry(taskfile, -1) is None
 
 
 def test_export_fname_is_the_sequential_filename_base(tmp_path):

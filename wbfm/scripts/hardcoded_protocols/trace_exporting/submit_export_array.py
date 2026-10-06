@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from export_paper_data_as_nwb import build_tasks, filter_existing_tasks, get_parent_dir
+from export_paper_data_as_nwb import build_tasks, filter_existing_tasks, get_parent_dir, write_taskfile
 
 # Full cluster paths, so the job does not depend on the submitting shell's
 # environment (PATH, conda activation, working directory).
@@ -25,9 +25,9 @@ CLUSTER_SCRIPT_DIR = ('/lisc/data/scratch/neurobiology/zimmer/wbfm/code/wbfm'
 CLUSTER_EXPORT_SCRIPT = os.path.join(CLUSTER_SCRIPT_DIR, 'export_paper_data_as_nwb.py')
 
 
-def build_sbatch(n_tasks, job_name, max_concurrent, mem, time, cpus_per_task, export_flags):
+def build_sbatch(n_tasks, job_name, max_concurrent, mem, time, cpus_per_task, export_flags, taskfile):
     array_spec = f'0-{n_tasks - 1}%{max_concurrent}' if n_tasks > 0 else '0-0%1'
-    all_flags = export_flags + ['--backend', 'serial', '--only_index', '"$SLURM_ARRAY_TASK_ID"']
+    all_flags = export_flags + ['--taskfile', taskfile, '--only_index', '"$SLURM_ARRAY_TASK_ID"']
     export_cmd = f'{CLUSTER_PYTHON} -u {CLUSTER_EXPORT_SCRIPT} {" ".join(all_flags)}'
     return f"""#!/bin/bash
 #SBATCH --job-name={job_name}
@@ -86,10 +86,15 @@ def main():
     if args.suffixes != ['gfp', '', 'mutant', 'immob']:
         export_flags += ['--suffixes'] + list(args.suffixes)
 
+    import uuid
+    taskfile_name = f'export_tasks_{uuid.uuid4().hex[:8]}.txt'
+    taskfile = os.path.join(CLUSTER_SCRIPT_DIR, taskfile_name)
+
     sbatch_text = build_sbatch(n_tasks, args.job_name, args.max_concurrent,
-                               args.mem, args.time, args.cpus_per_task, export_flags)
+                               args.mem, args.time, args.cpus_per_task, export_flags, taskfile)
     if args.dry_run:
         print(sbatch_text, flush=True)
+        print(f'--- taskfile WOULD be written to {taskfile} ---', flush=True)
         print('--- tasks that WOULD be dispatched ---', flush=True)
         for _, name, _, _ in tasks:
             print(f'  dispatch {name}', flush=True)
@@ -98,6 +103,12 @@ def main():
             for name in skipped:
                 print(f'  skip {name}', flush=True)
         return
+
+    # Freeze the index -> dataset mapping BEFORE submitting, so array indexes
+    # cannot drift when files appear mid-run. Unique name per submission so
+    # concurrent submissions cannot clobber each other.
+    write_taskfile(taskfile, tasks)
+    print(f'Wrote taskfile {taskfile} with {n_tasks} entries', flush=True)
 
     proc = subprocess.run(['sbatch'], input=sbatch_text, capture_output=True, text=True)
     print(proc.stdout, flush=True)
