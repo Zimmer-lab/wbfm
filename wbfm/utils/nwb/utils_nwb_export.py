@@ -284,31 +284,44 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
         else:
             behavior_video = None
         behavior_time_series_dict = {}
-        behavior_time_series_names = ['angular_velocity', 'head_curvature', 'body_curvature', 'reversal_events',
-                                      'velocity',
-                                      'ventral_only_body_curvature', 'dorsal_only_body_curvature',
-                                      'ventral_only_head_curvature', 'dorsal_only_head_curvature']
-        behavior_time_series_dict['continuous_behaviors'] = video_class.calc_behavior_from_alias(behavior_time_series_names,
-                                                                                                 reset_index=False)
-        hilbert_outputs = ['hilbert_phase', 'hilbert_amplitude', 'hilbert_frequency', 'hilbert_carrier']
-        for name in hilbert_outputs:
-            behavior_time_series_dict[name] = video_class.calc_behavior_from_alias(name, reset_index=False)
-        # behavior_time_series_dict = video_class.calc_behavior_from_alias(behavior_time_series_names)
-        # Also add some more basic time series data
-        behavior_time_series_dict['kymograph'] = video_class.curvature(fluorescence_fps=True, reset_index=False)
-        behavior_time_series_dict['stage_position'] = video_class.stage_position(fluorescence_fps=True, reset_index=False)
-        behavior_time_series_dict['eigenworms'] = video_class.eigenworms(fluorescence_fps=True, reset_index=False)
-        # Also add a dataframe of the discrete behaviors
-        from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
-        discrete_time_series_names = BehaviorCodes.default_state_hierarchy(use_strings=True,
-                                                                           include_self_collision=True)
-        df_discrete = video_class.calc_behavior_from_alias(discrete_time_series_names, include_slowing=True,
-                                                           reset_index=False)
-        if enforce_nonoverlapping_behaviors:
-            idx = behavior_time_series_dict['continuous_behaviors']['velocity'].index
-            df_discrete = convert_binary_columns_to_one_hot(pd.DataFrame(df_discrete, index=idx),
-                                                            discrete_time_series_names)
-        behavior_time_series_dict['discrete_states'] = df_discrete
+        # Index all behavior series in physical time (seconds), matching the traces (rate=volumes_per_second)
+        original_use_physical_time = video_class.use_physical_time
+        video_class.use_physical_time = True
+        try:
+            behavior_time_series_names = ['angular_velocity', 'head_curvature', 'body_curvature', 'reversal_events',
+                                          'velocity',
+                                          'ventral_only_body_curvature', 'dorsal_only_body_curvature',
+                                          'ventral_only_head_curvature', 'dorsal_only_head_curvature']
+            behavior_time_series_dict['continuous_behaviors'] = video_class.calc_behavior_from_alias(behavior_time_series_names,
+                                                                                                     reset_index=False)
+            hilbert_outputs = ['hilbert_phase', 'hilbert_amplitude', 'hilbert_frequency', 'hilbert_carrier']
+            for name in hilbert_outputs:
+                behavior_time_series_dict[name] = video_class.calc_behavior_from_alias(name, reset_index=False)
+            # behavior_time_series_dict = video_class.calc_behavior_from_alias(behavior_time_series_names)
+            # Also add some more basic time series data
+            behavior_time_series_dict['kymograph'] = video_class.curvature(fluorescence_fps=True, reset_index=False)
+            behavior_time_series_dict['stage_position'] = video_class.stage_position(fluorescence_fps=True, reset_index=False)
+            behavior_time_series_dict['eigenworms'] = video_class.eigenworms(fluorescence_fps=True, reset_index=False)
+            # Centerline is split into X and Y; each is stored as a 2d (time x segment) series, like stage_position
+            behavior_time_series_dict['centerline'] = {
+                'X': video_class.centerlineX(fluorescence_fps=True, reset_index=False),
+                'Y': video_class.centerlineY(fluorescence_fps=True, reset_index=False)}
+            df_centerline_abs = video_class.centerline_absolute_coordinates(fluorescence_fps=True, reset_index=False)
+            behavior_time_series_dict['centerline_absolute'] = {
+                xy: df_centerline_abs.xs(xy, level=1, axis=1) for xy in ['X', 'Y']}
+            # Also add a dataframe of the discrete behaviors
+            from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
+            discrete_time_series_names = BehaviorCodes.default_state_hierarchy(use_strings=True,
+                                                                               include_self_collision=True)
+            df_discrete = video_class.calc_behavior_from_alias(discrete_time_series_names, include_slowing=True,
+                                                               reset_index=False)
+            if enforce_nonoverlapping_behaviors:
+                idx = behavior_time_series_dict['continuous_behaviors']['velocity'].index
+                df_discrete = convert_binary_columns_to_one_hot(pd.DataFrame(df_discrete, index=idx),
+                                                                discrete_time_series_names)
+            behavior_time_series_dict['discrete_states'] = df_discrete
+        finally:
+            video_class.use_physical_time = original_use_physical_time
 
     else:
         print("No behavior data found")
@@ -902,7 +915,7 @@ def convert_behavior_series_to_nwb(nwbfile, behavior_time_series_dict):
             _time_series_columns = time_series.to_dict(orient='list')
         time_series_dict = {}
         for colname, coldata in _time_series_columns.items():
-            coldata = coldata.values if isinstance(coldata, pd.Series) else coldata
+            coldata = coldata.values if isinstance(coldata, (pd.Series, pd.DataFrame)) else coldata
             # Convert column name to string, but be careful if it is an integer
             # Specifically if it is <10, it should be padded with zeros to maintain sorting
             if isinstance(colname, int):
