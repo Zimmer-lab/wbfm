@@ -663,9 +663,14 @@ class WormFullVideoPosture:
         x = (self.centerlineX(fluorescence_fps, **kwargs) - 340) * mm_per_pixel
         y = (self.centerlineY(fluorescence_fps, **kwargs) - 324) * mm_per_pixel
 
+        stage = self.stage_position(fluorescence_fps, **kwargs)
+        # At full fps, the stage and centerline data can differ in length by a few frames; both start at frame 0
+        n = min(len(stage), len(x))
+        x, y, stage = x.iloc[:n], y.iloc[:n], stage.iloc[:n]
+
         # Rotation depends on Ulises' pipeline and camera
-        x_abs = self.stage_position(fluorescence_fps, **kwargs).values[:, 0] - y.T
-        y_abs = self.stage_position(fluorescence_fps, **kwargs).values[:, 1] + x.T
+        x_abs = stage.values[:, 0] - y.T
+        y_abs = stage.values[:, 1] + x.T
 
         df = pd.concat([x_abs, y_abs], keys=['X', 'Y']).swaplevel().T
 
@@ -1202,7 +1207,9 @@ class WormFullVideoPosture:
         if make_consisent_with_stage_speed:
             stage_speed = self.worm_speed(fluorescence_fps=fluorescence_fps, signed=True, strong_smoothing=True)
             # Flip if the correlation is negative
-            if np.corrcoef(stage_speed, velocity)[0, 1] < 0:
+            # At full fps, the stage and centerline data can differ in length by a few frames; both start at frame 0
+            n = min(len(stage_speed), len(velocity))
+            if np.corrcoef(np.asarray(stage_speed)[:n], np.asarray(velocity)[:n])[0, 1] < 0:
                 velocity *= -1
         if strong_smoothing:
             window = 150

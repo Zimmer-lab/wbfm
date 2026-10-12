@@ -366,6 +366,18 @@ def _calc_behavior_time_series_dict(video_class, fluorescence_fps: bool, enforce
         df_discrete = convert_binary_columns_to_one_hot(pd.DataFrame(df_discrete, index=idx),
                                                         discrete_time_series_names)
     behavior_time_series_dict['discrete_states'] = df_discrete
+
+    # Different sources (e.g. stage vs. centerline) can differ in length by a few frames, especially at full fps
+    # All start at frame 0, so truncate everything to the shortest length to share a common time axis
+    all_lengths = {f"{name}/{k}": len(ts) for name, value in behavior_time_series_dict.items()
+                   for k, ts in (value.items() if isinstance(value, dict) else [(None, value)])}
+    n_min = min(all_lengths.values())
+    if n_min != max(all_lengths.values()):
+        logging.info(f"Truncating behavior time series (fluorescence_fps={fluorescence_fps}) to a common length "
+                     f"of {n_min}; original lengths: {all_lengths}")
+        behavior_time_series_dict = {
+            name: ({k: ts.iloc[:n_min] for k, ts in value.items()} if isinstance(value, dict) else value.iloc[:n_min])
+            for name, value in behavior_time_series_dict.items()}
     return behavior_time_series_dict
 
 
