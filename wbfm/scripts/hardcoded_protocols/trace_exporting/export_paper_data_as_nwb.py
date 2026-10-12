@@ -115,7 +115,7 @@ def export_one_task(task):
     Export a single project.
 
     `task` is a tuple of plain strings/bools only:
-        (suffix, name, config_path, this_folder, include_image_data, skip_if_exists)
+        (suffix, name, config_path, this_folder, include_image_data, skip_if_exists, include_high_res_behavior)
     so it is picklable under any multiprocessing start method. The full
     project is loaded here, from its config path.
 
@@ -123,7 +123,7 @@ def export_one_task(task):
     Thread-safety note: only safe in separate processes (or serially); see
     the module docstring for why threads corrupt outputs.
     """
-    _, name, config_path, this_folder, include_image_data, skip_if_exists = task
+    _, name, config_path, this_folder, include_image_data, skip_if_exists, include_high_res_behavior = task
     # Skip check first, from the name alone: no project loading needed, and the
     # filename cannot drift from the writer's (same helper builds both).
     output_fname = get_nwb_export_fname_from_parts(name, this_folder, include_image_data)
@@ -137,7 +137,8 @@ def export_one_task(task):
 
     try:
         print(f'Exporting {name} to {this_folder}', flush=True)
-        nwb_using_project_data(project, include_image_data=include_image_data, output_folder=this_folder)
+        nwb_using_project_data(project, include_image_data=include_image_data, output_folder=this_folder,
+                               include_high_res_behavior=include_high_res_behavior)
     except Exception as e:
         return name, 'error', f'Error exporting {name}: {e}'
     return name, 'exported', None
@@ -180,6 +181,9 @@ Examples:
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--include_image_data', action='store_true', help='Whether to include image data in the export')
+    parser.add_argument('--include_high_res_behavior', action='store_true',
+                        help='Whether to also export behavior time series at the full behavior camera frame rate '
+                             '(BehaviorHighResolution module; much larger files)')
     parser.add_argument('--delete_existing', action='store_true',
                         help='Whether to delete existing export files before exporting (default skips them)')
     parser.add_argument('--debug', action='store_true', help='Debug mode: export a single project, then stop')
@@ -208,6 +212,7 @@ Examples:
 
     DEBUG = args.debug
     include_image_data = args.include_image_data
+    include_high_res_behavior = args.include_high_res_behavior
     skip_if_exists = not args.delete_existing
 
     if args.taskfile is not None and args.only_index is not None:
@@ -222,7 +227,7 @@ Examples:
         this_folder = os.path.join(get_parent_dir(include_image_data), f'exported_data_{suffix}')
         Path(this_folder).mkdir(exist_ok=True)
         _, status, message = export_one_task(
-            (suffix, name, config_path, this_folder, include_image_data, skip_if_exists))
+            (suffix, name, config_path, this_folder, include_image_data, skip_if_exists, include_high_res_behavior))
         if message is not None:
             print(message, flush=True)
         raise SystemExit(0 if status in ('exported', 'skipped') else 1)
@@ -236,7 +241,7 @@ Examples:
     else:
         print(f'{len(tasks)} project(s) to export', flush=True)
 
-    full_tasks = [(suffix, name, config_path, folder, include_image_data, skip_if_exists)
+    full_tasks = [(suffix, name, config_path, folder, include_image_data, skip_if_exists, include_high_res_behavior)
                   for suffix, name, config_path, folder in tasks]
 
     if DEBUG or args.only_index is not None:

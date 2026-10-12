@@ -46,6 +46,9 @@ def main():
     parser = argparse.ArgumentParser(
         description='Enumerate NWB export tasks, then submit an exactly-sized SLURM job array')
     parser.add_argument('--include_image_data', action='store_true', help='Whether to include image data in the export')
+    parser.add_argument('--include_high_res_behavior', action='store_true',
+                        help='Whether to also export behavior time series at the full behavior camera frame rate '
+                             '(BehaviorHighResolution module; much larger files)')
     parser.add_argument('--delete_existing', action='store_true',
                         help='Whether to delete existing export files before exporting (default skips them)')
     parser.add_argument('--suffixes', nargs='+', default=['gfp', '', 'mutant', 'immob'],
@@ -81,6 +84,8 @@ def main():
     export_flags = []
     if args.include_image_data:
         export_flags.append('--include_image_data')
+    if args.include_high_res_behavior:
+        export_flags.append('--include_high_res_behavior')
     if args.delete_existing:
         export_flags.append('--delete_existing')
     if args.suffixes != ['gfp', '', 'mutant', 'immob']:

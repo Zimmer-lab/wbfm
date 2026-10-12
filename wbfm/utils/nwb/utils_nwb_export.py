@@ -105,7 +105,7 @@ def create_vol_seg_centers(name, description, ImagingVolume, positions,
 
 
 def nwb_using_project_data(project_data: ProjectData, include_image_data=True, output_folder=None,
-                           enforce_nonoverlapping_behaviors=False, DEBUG=False):
+                           enforce_nonoverlapping_behaviors=False, include_high_res_behavior=False, DEBUG=False):
     """
     Convert a ProjectData class to an NWB h5 file, optionally including all raw image data.
 
@@ -114,6 +114,9 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
     Parameters
     ----------
     project_data
+    include_high_res_behavior: if True, also export all behavior time series at the full behavior camera frame rate,
+        in a separate 'BehaviorHighResolution' processing module (same organization as 'Behavior').
+        Note: this is roughly frames_per_volume (~24x) larger than the 'Behavior' module
 
     Returns
     -------
@@ -283,49 +286,25 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
             behavior_video = video_class.raw_behavior_video
         else:
             behavior_video = None
-        behavior_time_series_dict = {}
         # Index all behavior series in physical time (seconds), matching the traces (rate=volumes_per_second)
         original_use_physical_time = video_class.use_physical_time
         video_class.use_physical_time = True
         try:
-            behavior_time_series_names = ['angular_velocity', 'head_curvature', 'body_curvature', 'reversal_events',
-                                          'velocity',
-                                          'ventral_only_body_curvature', 'dorsal_only_body_curvature',
-                                          'ventral_only_head_curvature', 'dorsal_only_head_curvature']
-            behavior_time_series_dict['continuous_behaviors'] = video_class.calc_behavior_from_alias(behavior_time_series_names,
-                                                                                                     reset_index=False)
-            hilbert_outputs = ['hilbert_phase', 'hilbert_amplitude', 'hilbert_frequency', 'hilbert_carrier']
-            for name in hilbert_outputs:
-                behavior_time_series_dict[name] = video_class.calc_behavior_from_alias(name, reset_index=False)
-            # behavior_time_series_dict = video_class.calc_behavior_from_alias(behavior_time_series_names)
-            # Also add some more basic time series data
-            behavior_time_series_dict['kymograph'] = video_class.curvature(fluorescence_fps=True, reset_index=False)
-            behavior_time_series_dict['stage_position'] = video_class.stage_position(fluorescence_fps=True, reset_index=False)
-            behavior_time_series_dict['eigenworms'] = video_class.eigenworms(fluorescence_fps=True, reset_index=False)
-            # Centerline is split into X and Y; each is stored as a 2d (time x segment) series, like stage_position
-            behavior_time_series_dict['centerline'] = {
-                'X': video_class.centerlineX(fluorescence_fps=True, reset_index=False),
-                'Y': video_class.centerlineY(fluorescence_fps=True, reset_index=False)}
-            df_centerline_abs = video_class.centerline_absolute_coordinates(fluorescence_fps=True, reset_index=False)
-            behavior_time_series_dict['centerline_absolute'] = {
-                xy: df_centerline_abs.xs(xy, level=1, axis=1) for xy in ['X', 'Y']}
-            # Also add a dataframe of the discrete behaviors
-            from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
-            discrete_time_series_names = BehaviorCodes.default_state_hierarchy(use_strings=True,
-                                                                               include_self_collision=True)
-            df_discrete = video_class.calc_behavior_from_alias(discrete_time_series_names, include_slowing=True,
-                                                               reset_index=False)
-            if enforce_nonoverlapping_behaviors:
-                idx = behavior_time_series_dict['continuous_behaviors']['velocity'].index
-                df_discrete = convert_binary_columns_to_one_hot(pd.DataFrame(df_discrete, index=idx),
-                                                                discrete_time_series_names)
-            behavior_time_series_dict['discrete_states'] = df_discrete
+            behavior_time_series_dict = _calc_behavior_time_series_dict(
+                video_class, fluorescence_fps=True, enforce_nonoverlapping_behaviors=enforce_nonoverlapping_behaviors)
+            if include_high_res_behavior:
+                # Same organization, but at the full behavior camera frame rate
+                behavior_high_res_time_series_dict = _calc_behavior_time_series_dict(
+                    video_class, fluorescence_fps=False,
+                    enforce_nonoverlapping_behaviors=enforce_nonoverlapping_behaviors)
+            else:
+                behavior_high_res_time_series_dict = None
         finally:
             video_class.use_physical_time = original_use_physical_time
 
     else:
         print("No behavior data found")
-        behavior_video, behavior_time_series_dict = None, None
+        behavior_video, behavior_time_series_dict, behavior_high_res_time_series_dict = None, None, None
 
     # Unpack centroids and segmentation-to-final-id mapping
     df_tracking = project_data.final_tracks
@@ -333,7 +312,8 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
     nwb_file, fname = nwb_with_traces_from_components(calcium_video_dict, segmentation_video, gce_quant_dict,
                                                       session_start_time, subject_id, strain, physical_units_class,
                                                       behavior_video, behavior_time_series_dict, df_tracking,
-                                                      output_fname, include_image_data)
+                                                      output_fname, include_image_data,
+                                                      behavior_high_res_time_series_dict=behavior_high_res_time_series_dict)
     # Update in the project config. The export itself is already saved at this
     # point, so a failure here (e.g. read-only filesystem) is only a warning.
     if cfg_nwb is not None:
@@ -345,6 +325,48 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
                             f"the project nwb config ({e}). Continuing.")
 
     return nwb_file, fname
+
+
+def _calc_behavior_time_series_dict(video_class, fluorescence_fps: bool, enforce_nonoverlapping_behaviors=False):
+    """
+    Build the dictionary of behavior time series to be exported to nwb, at either the fluorescence (volume) frame rate
+    or the full behavior camera frame rate.
+
+    Each value is either a dataframe (one sub time series per column) or a dict of dataframes/series.
+    """
+    opt = dict(fluorescence_fps=fluorescence_fps, reset_index=False)
+    behavior_time_series_dict = {}
+    behavior_time_series_names = ['angular_velocity', 'head_curvature', 'body_curvature', 'reversal_events',
+                                  'velocity',
+                                  'ventral_only_body_curvature', 'dorsal_only_body_curvature',
+                                  'ventral_only_head_curvature', 'dorsal_only_head_curvature']
+    behavior_time_series_dict['continuous_behaviors'] = video_class.calc_behavior_from_alias(behavior_time_series_names,
+                                                                                             **opt)
+    hilbert_outputs = ['hilbert_phase', 'hilbert_amplitude', 'hilbert_frequency', 'hilbert_carrier']
+    for name in hilbert_outputs:
+        behavior_time_series_dict[name] = video_class.calc_behavior_from_alias(name, **opt)
+    # Also add some more basic time series data
+    behavior_time_series_dict['kymograph'] = video_class.curvature(**opt)
+    behavior_time_series_dict['stage_position'] = video_class.stage_position(**opt)
+    behavior_time_series_dict['eigenworms'] = video_class.eigenworms(**opt)
+    # Centerline is split into X and Y; each is stored as a 2d (time x segment) series, like stage_position
+    behavior_time_series_dict['centerline'] = {
+        'X': video_class.centerlineX(**opt),
+        'Y': video_class.centerlineY(**opt)}
+    df_centerline_abs = video_class.centerline_absolute_coordinates(**opt)
+    behavior_time_series_dict['centerline_absolute'] = {
+        xy: df_centerline_abs.xs(xy, level=1, axis=1) for xy in ['X', 'Y']}
+    # Also add a dataframe of the discrete behaviors
+    from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
+    discrete_time_series_names = BehaviorCodes.default_state_hierarchy(use_strings=True,
+                                                                       include_self_collision=True)
+    df_discrete = video_class.calc_behavior_from_alias(discrete_time_series_names, include_slowing=True, **opt)
+    if enforce_nonoverlapping_behaviors:
+        idx = behavior_time_series_dict['continuous_behaviors']['velocity'].index
+        df_discrete = convert_binary_columns_to_one_hot(pd.DataFrame(df_discrete, index=idx),
+                                                        discrete_time_series_names)
+    behavior_time_series_dict['discrete_states'] = df_discrete
+    return behavior_time_series_dict
 
 
 def nwb_from_matlab_tracker(matlab_fname, output_folder=None):
@@ -419,7 +441,7 @@ def nwb_from_matlab_tracker(matlab_fname, output_folder=None):
 
 def nwb_with_traces_from_components(calcium_video_dict, segmentation_video, gce_quant_dict, session_start_time, subject_id, strain,
                                     physical_units_class, behavior_video, behavior_time_series_dict, df_tracking,
-                                    output_fname, include_image_data):
+                                    output_fname, include_image_data, behavior_high_res_time_series_dict=None):
     # Initialize and populate the NWB file
     nwbfile = initialize_nwb_file(session_start_time, strain, subject_id)
 
@@ -456,6 +478,10 @@ def nwb_with_traces_from_components(calcium_video_dict, segmentation_video, gce_
         nwbfile = convert_behavior_series_to_nwb(nwbfile, behavior_time_series_dict)
     else:
         print("No behavior time series data found, skipping...")
+    if behavior_high_res_time_series_dict is not None:
+        nwbfile = convert_behavior_series_to_nwb(nwbfile, behavior_high_res_time_series_dict,
+                                                 module_name="BehaviorHighResolution",
+                                                 description="Behavioral time series at the behavior camera frame rate")
     
     # Add centroids (output of the tracking), if it exists
     if df_tracking is not None:
@@ -891,10 +917,10 @@ def convert_behavior_video_to_nwb(nwbfile, behavior_video, fps):
     return nwbfile
 
 
-def convert_behavior_series_to_nwb(nwbfile, behavior_time_series_dict):
-    print("Converting behavior time series to nwb format...")
-    behavior_module = nwbfile.create_processing_module(name="Behavior",
-                                                       description="Behavioral time series")
+def convert_behavior_series_to_nwb(nwbfile, behavior_time_series_dict, module_name="Behavior",
+                                   description="Behavioral time series"):
+    print(f"Converting behavior time series to nwb format (module: {module_name})...")
+    behavior_module = nwbfile.create_processing_module(name=module_name, description=description)
 
     for name, time_series in behavior_time_series_dict.items():
         unit = 'seconds'
