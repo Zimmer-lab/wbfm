@@ -767,8 +767,11 @@ def convert_traces_and_tracking_to_nwb(nwbfile, segmentation_video, gce_quant_di
         # reference_images=one_p_series,  # optional
     )
 
-    # Do not repeat ids for all time points, just save t=0
-    calc_IDs = np.squeeze(blobquant_red[:, 0, 4])
+    # Do not repeat ids for all time points: one summary ID per blob, taken as
+    # the most common non-empty ID across time. Sampling frame 0 only loses
+    # IDs for datasets with tracking gaps at the start of the recording
+    # (e.g. 2023-11-30_13-58_wt_worm3_FM kept only 3 of 36 IDs that way).
+    calc_IDs = _summary_ids_from_blobquant(blobquant_red)
     calc_labels = calc_IDs.astype(str)
     calc_labels = np.where(['neuron' not in n for n in calc_labels], calc_labels, '')
     Calclabels = SegmentationLabels(
@@ -978,6 +981,29 @@ def _add_blob(blob, blobquant):
     else:
         blobquant = np.vstack((blobquant, blobarr))
     return blobquant
+
+
+def _summary_ids_from_blobquant(blobquant) -> np.ndarray:
+    """
+    One summary neuron ID per blob, across all time points.
+
+    blobquant has shape (n_blobs, n_times, 5) with the ID string in column 4
+    (see _add_blob). Returns the most common non-empty ID per blob.
+
+    Frame 0 must not be used here: datasets with tracking gaps at the start
+    of the recording have empty IDs at frame 0 even for confidently
+    identified neurons, so sampling frame 0 silently drops almost all IDs.
+    """
+    summary_ids = []
+    for i in range(blobquant.shape[0]):
+        ids_this_blob = blobquant[i, :, 4].astype(str)
+        ids_this_blob = ids_this_blob[(ids_this_blob != '') & (ids_this_blob != '0') & (ids_this_blob != 'nan')]
+        if len(ids_this_blob) == 0:
+            summary_ids.append('')
+        else:
+            values, counts = np.unique(ids_this_blob, return_counts=True)
+            summary_ids.append(values[np.argmax(counts)])
+    return np.array(summary_ids)
 
 
 def convert_tracking_dataframe_to_nwb_format(gce_quant_raw, DEBUG=False):
