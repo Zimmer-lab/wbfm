@@ -163,7 +163,7 @@ if __name__ == '__main__':
         description='Export traces in nwb format',
         epilog='''
 Examples:
-  # Export all default suffixes (gfp, '', mutant, immob), serially
+  # Export all default suffixes (gfp, immob, '', immob_mutant_o2, immob_o2, immob_o2_hiscl, mutant, avb_hiscl, avb_hiscl_control), serially
   python export_paper_data_as_nwb.py
 
   # Export specific suffixes only
