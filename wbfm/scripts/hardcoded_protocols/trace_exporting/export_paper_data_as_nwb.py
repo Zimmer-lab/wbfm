@@ -187,7 +187,9 @@ Examples:
     parser.add_argument('--delete_existing', action='store_true',
                         help='Whether to delete existing export files before exporting (default skips them)')
     parser.add_argument('--debug', action='store_true', help='Debug mode: export a single project, then stop')
-    parser.add_argument('--suffixes', nargs='+', default=['gfp', '', 'mutant', 'immob'],
+    parser.add_argument('--suffixes', nargs='+',
+                        default=['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant',
+                                 'avb_hiscl', 'avb_hiscl_control'],
                         help='Dataset suffixes to export')
     parser.add_argument('--backend', choices=['serial', 'processes', 'threads'], default='serial',
                         help="'serial' (default, safe) exports one dataset at a time. "
