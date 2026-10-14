@@ -36,6 +36,11 @@ from wbfm.utils.general.utils_hardcoded import load_paper_datasets
 from wbfm.utils.nwb.utils_nwb_export import get_nwb_export_fname_from_parts, nwb_using_project_data
 from wbfm.utils.projects.finished_project_data import ProjectData
 
+# Keep in sync with export_paper_data_for_hierarchical_model.py and
+# submit_export_array.py (which imports this instead of hardcoding its own).
+DEFAULT_SUFFIXES = ['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant',
+                    'avb_hiscl', 'avb_hiscl_control']
+
 
 def get_parent_dir(include_image_data: bool) -> str:
     parent_dir = '/lisc/data/scratch/neurobiology/zimmer/fieseler/paper/nwb'
@@ -187,9 +192,7 @@ Examples:
     parser.add_argument('--delete_existing', action='store_true',
                         help='Whether to delete existing export files before exporting (default skips them)')
     parser.add_argument('--debug', action='store_true', help='Debug mode: export a single project, then stop')
-    parser.add_argument('--suffixes', nargs='+',
-                        default=['gfp', 'immob', '', 'immob_mutant_o2', 'immob_o2', 'immob_o2_hiscl', 'mutant',
-                                 'avb_hiscl', 'avb_hiscl_control'],
+    parser.add_argument('--suffixes', nargs='+', default=list(DEFAULT_SUFFIXES),
                         help='Dataset suffixes to export')
     parser.add_argument('--backend', choices=['serial', 'processes', 'threads'], default='serial',
                         help="'serial' (default, safe) exports one dataset at a time. "

@@ -15,7 +15,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from export_paper_data_as_nwb import build_tasks, filter_existing_tasks, get_parent_dir, write_taskfile
+from export_paper_data_as_nwb import build_tasks, filter_existing_tasks, get_parent_dir, write_taskfile, \
+    DEFAULT_SUFFIXES
 
 # Full cluster paths, so the job does not depend on the submitting shell's
 # environment (PATH, conda activation, working directory).
@@ -51,7 +52,7 @@ def main():
                              '(BehaviorHighResolution module; much larger files)')
     parser.add_argument('--delete_existing', action='store_true',
                         help='Whether to delete existing export files before exporting (default skips them)')
-    parser.add_argument('--suffixes', nargs='+', default=['gfp', '', 'mutant', 'immob'],
+    parser.add_argument('--suffixes', nargs='+', default=list(DEFAULT_SUFFIXES),
                         help='Dataset suffixes to export')
     parser.add_argument('--max_concurrent', type=int, default=16,
                         help='Max array tasks running at once')
@@ -88,7 +89,7 @@ def main():
         export_flags.append('--include_high_res_behavior')
     if args.delete_existing:
         export_flags.append('--delete_existing')
-    if args.suffixes != ['gfp', '', 'mutant', 'immob']:
+    if args.suffixes != DEFAULT_SUFFIXES:
         export_flags += ['--suffixes'] + list(args.suffixes)
 
     import uuid
