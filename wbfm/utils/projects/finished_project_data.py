@@ -67,6 +67,21 @@ from wbfm.utils.visualization.filtering_traces import fast_slow_decomposition, f
     fill_nan_in_dataframe
 
 
+def _nwb_segmentation_to_tzxy(dat, lazy: bool) -> da.Array:
+    """NWB segmentation (TXYZ, possibly with trailing singleton axes) to a dask array in TZXY, one chunk per volume.
+
+    lazy=False reproduces the old behaviour: da.squeeze on the raw h5py dataset reads all of it into memory.
+    lazy=True wraps the dataset in dask first, so volumes are read on access.
+    """
+    if lazy:
+        dat = da.squeeze(da.from_array(dat, chunks=(1,) + tuple(dat.shape[1:])))
+    else:
+        dat = da.squeeze(dat)
+    chunks = (1, ) + dat.shape[1:]
+    return da.from_array(dat, chunks=chunks).transpose((0, 3, 1, 2)) if not isinstance(dat, da.Array) \
+        else dat.rechunk(chunks).transpose((0, 3, 1, 2))
+
+
 @dataclass
 class ProjectData:
     """
@@ -833,12 +848,23 @@ class ProjectData:
             raise TypeError("Must pass pathlike or already loaded project data")
 
     @staticmethod
-    def load_final_project_data_from_nwb(nwb_path: Union[str, os.PathLike], **kwargs):
+    def load_final_project_data_from_nwb(nwb_path: Union[str, os.PathLike], lazy_segmentation: Optional[bool] = None,
+                                         **kwargs):
         """
         Like load_final_project_data_from_config, but for NWB files
 
         See https://github.com/focolab/NWBelegans for more information
+
+        Parameters
+        ----------
+        lazy_segmentation: if True, the (tracked and untracked) segmentation stays a lazy dask array backed by the
+            h5py dataset, read one volume at a time. If False (default), the whole segmentation is read into memory
+            on load (tens of GB for long recordings). If None, read the environment variable
+            WBFM_NWB_LAZY_SEGMENTATION ('1'/'true' to enable).
+            Lazy image data has crashed napari before (2f409136), so this stays opt-in.
         """
+        if lazy_segmentation is None:
+            lazy_segmentation = os.environ.get('WBFM_NWB_LAZY_SEGMENTATION', '').strip().lower() in ('1', 'true', 'yes')
 
         # Do not use a with block in order to keep the file open
         # This allows "weak" closing of the file
@@ -940,18 +966,14 @@ class ProjectData:
         try:
             activity = nwb_obj.processing['CalciumActivity']
             # Transpose data from TXYZ to TZXY
-            dat = da.squeeze(activity['CalciumSeriesSegmentation'].data)
-            chunks = (1, ) + dat.shape[1:]
-            obj.segmentation = da.from_array(dat, chunks=chunks).transpose((0, 3, 1, 2))
+            obj.segmentation = _nwb_segmentation_to_tzxy(activity['CalciumSeriesSegmentation'].data, lazy_segmentation)
         except (KeyError, AttributeError) as e:
             obj.logger.info(f"Could not load segmentation from NWB file: {e}")
 
         try:
             activity = nwb_obj.processing['CalciumActivity']
             # Transpose data from TXYZ to TZXY
-            dat = da.squeeze(activity['CalciumSeriesSegmentationUntracked'].data)
-            chunks = (1, ) + dat.shape[1:]
-            obj.raw_segmentation = da.from_array(dat, chunks=chunks).transpose((0, 3, 1, 2))
+            obj.raw_segmentation = _nwb_segmentation_to_tzxy(activity['CalciumSeriesSegmentationUntracked'].data, lazy_segmentation)
         except (KeyError, AttributeError) as e:
             # Set to be equal to the segmentation, if it exists
             if obj.segmentation is not None:
