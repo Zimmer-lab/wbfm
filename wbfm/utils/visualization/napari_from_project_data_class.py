@@ -12,7 +12,11 @@ from wbfm.gui.utils.utils_gui import change_viewer_time_point
 from wbfm.utils.external.custom_errors import MissingAnalysisError, NoBehaviorAnnotationsError
 from wbfm.utils.neuron_matching.class_frame_pair import FramePair
 import napari
-from napari.utils.colormaps import DirectLabelColormap
+try:
+    from napari.utils.colormaps import DirectLabelColormap
+except ImportError:
+    # napari < 0.4.19
+    DirectLabelColormap = None
 
 from wbfm.utils.general.utils_filenames import get_sequential_filename
 from wbfm.utils.visualization.utils_napari import napari_labels_from_traces_dataframe, NapariPropertyHeatMapper, \
@@ -20,6 +24,10 @@ from wbfm.utils.visualization.utils_napari import napari_labels_from_traces_data
 
 
 def _set_direct_label_colormap(layer, color_dict):
+    if DirectLabelColormap is None:
+        layer.color = color_dict
+        layer.color_mode = 'direct'
+        return
     color = dict(color_dict)
     background = layer.colormap.background_value
     color[background] = color.get(background, 'transparent')
