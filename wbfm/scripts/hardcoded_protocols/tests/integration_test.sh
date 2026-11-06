@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Stop at the first failed command, instead of continuing to later steps (e.g. snakemake) with a broken project
+set -euo pipefail
 
 # Function to display a help message
 function show_help {
@@ -13,7 +15,7 @@ USE_CLUSTER="True"
 while getopts ch flag
 do
     case "${flag}" in
-        c) USE_CLUSTER=${OPTARG};;
+        c) USE_CLUSTER="";;
         h) show_help
            exit 0;;
         *) echo "Error: Unknown flag"; exit 1;;
@@ -52,7 +54,7 @@ done
 
 # Initialize projects, again for each subfolder
 COMMAND=$CODE_DIR/"scripts/cluster/create_multiple_projects_from_data_parent_folder.sh"
-NWB_COMMAND=$CODE_DIR/"scripts/pipeline_alternate/0a-create_new_project_from_nwb.py"
+NWB_COMMAND=$CODE_DIR/"scripts/0-create_new_project_from_nwb.py"
 for f in "${SUBFOLDERS[@]}"; do
     
     PROJECT_PATH=$PARENT_PROJECT_DIR/$f

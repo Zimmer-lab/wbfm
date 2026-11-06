@@ -17,7 +17,7 @@ class PhysicalUnitConversion:
     leifer_um_per_unit: float = 84
 
     volumes_per_second: float = None
-    exposure_time: int = 12  # Only used if volumes_per_second is not specified
+    exposure_time: int = None  # Only used if volumes_per_second is not specified
 
     num_z_slices: int = None
     num_flyback_planes_discarded: int = None  # This should give an error if not properly set
@@ -156,9 +156,18 @@ class PhysicalUnitConversion:
             if 'volumes_per_second' not in opt:
                 project_cfg.logger.debug("Using hard coded camera fps; this depends on the exposure time")
                 camera_fps = opt.get('camera_fps', 1000)
-                if 'exposure_time' not in opt:
-                    logging.debug("exposure_time not found in physical_units or project config; using default")
-                exposure_time = opt.get('exposure_time', 12)
+                exposure_time = opt.get('exposure_time')
+                if exposure_time is None or exposure_time == '':
+                    # Fall back to the raw data config (source of truth for microscope
+                    # settings), without modifying the project file on disk
+                    try:
+                        raw_cfg_for_exposure = project_cfg.get_raw_data_config()
+                        exposure_time = raw_cfg_for_exposure.config.get('exposure_time', None)
+                    except (AttributeError, FileNotFoundError, IncompleteConfigFileError):
+                        exposure_time = None
+                    if exposure_time is None or exposure_time == '':
+                        raise IncompleteConfigFileError(f"exposure_time not found in physical_units; this must be specified if volumes_per_second is not specified ({project_cfg.config.get('project_dir', '')})")
+                    opt['exposure_time'] = exposure_time
                 frames_per_volume = get_behavior_fluorescence_fps_conversion(project_cfg)
                 opt['volumes_per_second'] = camera_fps / exposure_time / frames_per_volume
                 if DEBUG:

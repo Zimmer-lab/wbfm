@@ -8,7 +8,7 @@ from ruamel.yaml import YAML
 
 
 def edit_config(config_fname: typing.Union[str, pathlib.Path], edits: dict, allow_new_creation=True, DEBUG: bool = False) -> dict:
-    """Generic overwriting, based on DLC. Will create new file if one isn't found"""
+    """Generic overwriting of yaml config files. Will create new file if one isn't found"""
 
     if DEBUG:
         print(f"Editing config file at: {config_fname}")

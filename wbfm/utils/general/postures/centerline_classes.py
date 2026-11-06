@@ -132,7 +132,8 @@ class WormFullVideoPosture:
 
     def _validate_and_downsample(self, df: Optional[Union[pd.DataFrame, pd.Series]], fluorescence_fps: bool,
                                  reset_index=False, use_physical_time=None,
-                                 manual_annotation=False, force_downsampling=False, remove_idx_of_tracking_failures=True) -> Optional[Union[pd.DataFrame, pd.Series]]:
+                                 manual_annotation=False, force_downsampling=False, remove_idx_of_tracking_failures=True,
+                                 DEBUG=False) -> Optional[Union[pd.DataFrame, pd.Series]]:
         """
         Final postprocessing step for any annotation or data vector: removes tracking failure indices,
         downsamples to fluorescence frame rate if needed, shortens to trace length, and assigns the
@@ -190,6 +191,9 @@ class WormFullVideoPosture:
                 needs_subsampling = fluorescence_fps and not self.manual_beh_annotation_already_converted_to_fluorescence_fps
             else:
                 needs_subsampling = fluorescence_fps and not self.beh_annotation_already_converted_to_fluorescence_fps
+            if DEBUG:
+                print(f"needs_subsampling={needs_subsampling}, remove_idx_of_tracking_failures={remove_idx_of_tracking_failures}, df.shape={df.shape}, df.index={df.index}")
+                
             # Get cleaned and downsampled dataframe
             try:
                 if remove_idx_of_tracking_failures:
@@ -205,21 +209,27 @@ class WormFullVideoPosture:
                     else:
                         raise NotImplementedError
             except IndexError as e:
-                print(df)
-                print(df.shape)
-                print(self.tracking_failure_idx)
-                print(self.subsample_indices)
+                if DEBUG:
+                    print(df)
+                    print(df.shape)
+                    print(self.tracking_failure_idx)
+                    print(self.subsample_indices)
                 raise e
             # Shorten to the correct length, if necessary. Note that we have to check for series or dataframe
             if needs_subsampling:
+                if DEBUG:
+                    print(f"Before shortening to trace length, df.shape={df.shape}, df.index={df.index}")
                 df = self._shorten_to_trace_length(df)
+                if DEBUG:
+                    print(f"After shortening to trace length, df.shape={df.shape}, df.index={df.index}")
 
             # Index postprocessing
             if reset_index:
                 df.reset_index(drop=True, inplace=True)
             else:
                 df = self.convert_index_to_physical_time(df, fluorescence_fps, use_physical_time)
-
+        if DEBUG:
+            print(f"After index conversion, df.shape={df.shape}, df.index={df.index}")
         return df
 
     def convert_index_to_physical_time(self, df, fluorescence_fps, use_physical_time=None):
@@ -653,9 +663,14 @@ class WormFullVideoPosture:
         x = (self.centerlineX(fluorescence_fps, **kwargs) - 340) * mm_per_pixel
         y = (self.centerlineY(fluorescence_fps, **kwargs) - 324) * mm_per_pixel
 
+        stage = self.stage_position(fluorescence_fps, **kwargs)
+        # At full fps, the stage and centerline data can differ in length by a few frames; both start at frame 0
+        n = min(len(stage), len(x))
+        x, y, stage = x.iloc[:n], y.iloc[:n], stage.iloc[:n]
+
         # Rotation depends on Ulises' pipeline and camera
-        x_abs = self.stage_position(fluorescence_fps, **kwargs).values[:, 0] - y.T
-        y_abs = self.stage_position(fluorescence_fps, **kwargs).values[:, 1] + x.T
+        x_abs = stage.values[:, 0] - y.T
+        y_abs = stage.values[:, 1] + x.T
 
         df = pd.concat([x_abs, y_abs], keys=['X', 'Y']).swaplevel().T
 
@@ -1192,7 +1207,9 @@ class WormFullVideoPosture:
         if make_consisent_with_stage_speed:
             stage_speed = self.worm_speed(fluorescence_fps=fluorescence_fps, signed=True, strong_smoothing=True)
             # Flip if the correlation is negative
-            if np.corrcoef(stage_speed, velocity)[0, 1] < 0:
+            # At full fps, the stage and centerline data can differ in length by a few frames; both start at frame 0
+            n = min(len(stage_speed), len(velocity))
+            if np.corrcoef(np.asarray(stage_speed)[:n], np.asarray(velocity)[:n])[0, 1] < 0:
                 velocity *= -1
         if strong_smoothing:
             window = 150
@@ -1918,15 +1935,10 @@ class WormFullVideoPosture:
             project_data.logger.warning("No project config found; returning empty posture class")
             return WormFullVideoPosture()
 
-        # Use the project data class to check for tracking failures
-        invalid_idx = project_data.estimate_tracking_failures_from_project()
-
         old_params = project_config.config.get('deprecated_dataset_params', {})
         bigtiff_start_volume = old_params.get('bigtiff_start_volume', 0)
         opt = dict(bigtiff_start_volume=bigtiff_start_volume,
-                   num_volumes=project_data.num_frames,
-                   project_config=project_config,
-                   tracking_failure_idx=invalid_idx)
+                   project_config=project_config)
 
         # Get the folder that contains all behavior information
         # Try 1: read from config file
@@ -2022,7 +2034,19 @@ class WormFullVideoPosture:
         opt['_use_physical_time'] = project_data.use_physical_time
 
         # Even if no files found, at least save the fps
-        return WormFullVideoPosture(**all_files, **opt)
+        worm_posture_class = WormFullVideoPosture(**all_files, **opt)
+
+        inferred_num_frames = project_data._infer_num_frames(posture_class=worm_posture_class)
+        if inferred_num_frames is not None:
+            worm_posture_class.num_volumes = inferred_num_frames
+
+        # Keep the posture object attached after initialization is complete.
+        project_data.worm_posture_class = worm_posture_class
+
+        invalid_idx = project_data.estimate_tracking_failures_from_project(worm_posture_class=worm_posture_class)
+        worm_posture_class.tracking_failure_idx = invalid_idx
+
+        return worm_posture_class
 
     @staticmethod
     def find_stage_position_in_folder(_folder):
@@ -2513,7 +2537,7 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
                 # Ulises made these
                 df_behavior_annotations = pd.read_csv(behavior_fname)
                 behavior_annotations = df_behavior_annotations['Annotation']
-            elif "AVAL_manual_annotation" in str(behavior_fname) or "AVAR_manual_annotation" in str(behavior_fname):
+            elif "AVAL_manual_annotation" in str(behavior_fname) or "AVAR_manual_annotation" in str(behavior_fname) or "reversals_tracify" in str(behavior_fname):
                 logging.warning(f"Reading using manual annotation from Itamar's tracify package ")
                 # From Itamar's tracify package, which saves only the starts and ends
                 # UNITS ARE FRAMES

@@ -33,8 +33,11 @@ def reindex_segmentation(DEBUG, all_matches, seg_masks, new_masks, min_confidenc
     with tqdm(total=len(all_lut), desc="Reindexing segmentation") as pbar:
         def parallel_func(i):
             lut = all_lut[i]
+            seg = np.asarray(seg_masks[i, ...])
+            if seg.size and seg.max() >= len(lut):
+                raise ValueError(_label_too_high_message(i, int(seg.max()), len(lut), 'segmentation masks'))
             try:
-                new_masks[i, ...] = lut[seg_masks[i, ...]]
+                new_masks[i, ...] = lut[seg]
             except IndexError as e:
                 logging.error(f"IndexError for volume {i}: {e}; removing segmentation for that image")
                 # If the index is out of bounds, then probably the image is corrupted
@@ -186,6 +189,12 @@ def create_spherical_segmentation(this_config, sphere_radius, DEBUG=False):
     # blosc.use_threads = None
 
 
+def _label_too_high_message(i_volume, max_label, lut_size, where):
+    return (f"Volume {i_volume}: mask label {max_label} in the {where}, but reindexing supports labels below "
+            f"{lut_size}. Labels this high usually mean an error upstream (e.g. an import that offset labels or "
+            f"added extra objects); relabel the segmentation so every label is below {lut_size}.")
+
+
 def all_matches_to_lookup_tables(all_matches: dict, min_confidence=None) -> dict:
     """
     Convert a dictionary of match arrays into a lookup table
@@ -218,14 +227,14 @@ def all_matches_to_lookup_tables(all_matches: dict, min_confidence=None) -> dict
                 conf = np.ones_like(dlc_ind)
                 if min_confidence is not None:
                     logging.warning("Confidence threshold passed, but confidence isn't saved; skipping")
+            if np.max(seg_ind) >= lut_size:
+                raise ValueError(_label_too_high_message(i_volume, int(np.max(seg_ind)), lut_size, 'tracks'))
             for dlc, seg, c in zip(dlc_ind, seg_ind, conf):
                 # Raw indices of the lut should match the local index
                 if min_confidence is None or c > min_confidence:
                     lut[seg] = dlc
                     # Otherwise keep as 0
             # lut[seg_ind] = dlc_ind
-            if np.max(seg_ind) > lut_size:
-                raise ValueError("Lookup-table size is too small; increase this (in code) or fix it!")
         except NoMatchesError:
             # Some volumes may be empty
             pass

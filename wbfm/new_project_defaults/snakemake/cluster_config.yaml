@@ -82,7 +82,7 @@ alt_barlow_embedding:
 subtract_background:
     time: 0-08:00:00
     mem: 4G
-    cpus_per_task: 8
+    cpus_per_task: 2
 
 tiff2avi:
     time: 0-18:00:00
@@ -97,12 +97,12 @@ dlc_analyze_videos:
 create_centerline:
     time: 0-12:00:00
     mem: 8G
-    cpus_per_task: 4
+    cpus_per_task: 2
 
 normalize_img:
     time: 0-06:00:00
     mem: 4G
-    cpus_per_task: 8
+    cpus_per_task: 2
 
 worm_unet:
     time: 0-08:00:00
@@ -112,16 +112,16 @@ worm_unet:
 
 sam2_segment:
     time: 0-12:00:00  # Might be faster than this, needs testing
-    cpus_per_task: 24
+    cpus_per_task: 2
     gres: gpu:1
     constraint: "l40s|a30|t4|l4"
 
 coil_unet:
     time: 0-08:00:00
-    cpus_per_task: 24
+    cpus_per_task: 2
     gres: gpu:1
     constraint: "l40s|a30|t4|l4"
 
 binarize:
     time: 0-06:00:00
-    cpus_per_task: 8
+    cpus_per_task: 2

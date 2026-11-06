@@ -10,6 +10,11 @@ The following steps use the command line, and assume you have the helper scripts
 The main starting point is a file in the Neurodata Without Borders (.nwb) file format.
 This should contain at least raw imaging data, but may also contain segmentation, object detection, and/or object id information.
 
+**Important:** the NWB must follow this package's axis-order and channel conventions —
+shape (T, X, Y, Z, C) with channel 0 = red (tracking/reference) and channel 1 = green (GCaMP activity).
+Channel identity is positional; channel names/wavelengths in the file are not used when reading.
+See [NWB file format](nwb_format.md) for the full specification, how to choose which channel is tracked on, and how to fix swapped channels.
+
 ## Creating a project
 
 While running, the raw data file will be "unpacked" into a [folder structure](docs/data_folder_organization.md) for easier processing, which can be re-exported as .nwb at any time.

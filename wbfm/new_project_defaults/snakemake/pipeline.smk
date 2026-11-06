@@ -38,6 +38,19 @@ except (NoBehaviorDataError, RawDataFormatError, FileNotFoundError) as e:
     background_video = "NOTFOUND_background_video"
     behavior_btf = "NOTFOUND_behavior_btf"
     raw_data_subfolder = "NOTFOUND_raw_data_subfolder"
+except ValueError as e:
+    # Most likely a version mismatch: old installed wbfm returning fewer
+    # values than this pipeline.smk expects, or vice versa
+    raise ValueError(
+        f"Version mismatch between pipeline.smk and installed wbfm when unpacking "
+        f"get_folders_for_behavior_pipeline(): {e}. "
+        f"If your project folder contains an old copy of pipeline.smk, refresh it from the "
+        f"installed package, e.g.: "
+        f"python -c \"from wbfm.utils.projects.utils_project import refresh_snakemake_folder; "
+        f"refresh_snakemake_folder('{project_dir}')\" "
+        f"or manually copy pipeline.smk/RUNME.sh from the new_project_defaults template. "
+        f"If instead your installed wbfm is too old, update the package."
+    ) from e
 
 # Also get the raw data config file (if it exists)
 try:
@@ -460,16 +473,13 @@ rule coil_unet:
         weights_path= config["coiled_shape_unet_model"]
     output:
         coil_unet_prediction = _cleanup_helper(f"{output_behavior_dir}/raw_stack_AVG_background_subtracted_normalised_worm_segmented_mask_coil_segmented.btf")
-    run:
-        from imutils.src import imutils_parser_main
+    shell:
+        """
+        module load CUDA/11.7.0  # Note that this wants an older CUDA than the SAM or DLC environments, because wbfm has an older tensorflow
+        module load cuDNN/8.4.1.50-CUDA-11.7.0
 
-        imutils_parser_main.main([
-            "unet_segmentation_contours_with_children",
-            '-bi', str(input.binary_input_img),
-            '-ri', str(input.raw_input_img),
-            '-o', str(output.coil_unet_prediction),
-            '-w', str(params.weights_path),
-        ])
+        python -c "from imutils.src import imutils_parser_main; imutils_parser_main.main(['unet_segmentation_contours_with_children', '-bi', '{input.binary_input_img}', '-ri', '{input.raw_input_img}', '-o', '{output.coil_unet_prediction}', '-w', '{params.weights_path}'])"
+        """
 
 rule binarize_coil:
     input:

@@ -36,6 +36,32 @@ from wbfm.utils.projects.utils_project_status import check_all_needed_data_for_s
 from wbfm.utils.general.utils_filenames import get_sequential_filename
 
 
+def get_nwb_export_fname(project_data, output_folder, include_image_data: bool) -> str:
+    """
+    The canonical output path that nwb_using_project_data writes to.
+
+    Callers that want to know where a given project's export will land (for
+    example, to skip projects that were already exported) should use this
+    instead of re-deriving the name from project_data.shortened_name, so the
+    two cannot drift apart.
+    """
+    return get_nwb_export_fname_from_parts(project_data.shortened_name, output_folder, include_image_data)
+
+
+def get_nwb_export_fname_from_parts(shortened_name: str, output_folder, include_image_data: bool) -> str:
+    """
+    Same as get_nwb_export_fname, but from the name string alone.
+
+    Useful when the project object is not (yet) loaded, e.g. to check whether
+    an export already exists before submitting a job for it. shortened_name is
+    the project directory name (see ProjectData.shortened_name).
+    """
+    output_fname = os.path.join(output_folder, shortened_name)
+    if not include_image_data:
+        output_fname = f'{output_fname}_no_image_data'
+    return f'{output_fname}.nwb'
+
+
 def create_vol_seg_centers(name, description, ImagingVolume, positions,
                            labels=None, reference_images=None) -> PlaneSegmentation:
     """
@@ -79,7 +105,7 @@ def create_vol_seg_centers(name, description, ImagingVolume, positions,
 
 
 def nwb_using_project_data(project_data: ProjectData, include_image_data=True, output_folder=None,
-                           enforce_nonoverlapping_behaviors=False, DEBUG=False):
+                           enforce_nonoverlapping_behaviors=False, include_high_res_behavior=False, DEBUG=False):
     """
     Convert a ProjectData class to an NWB h5 file, optionally including all raw image data.
 
@@ -88,6 +114,9 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
     Parameters
     ----------
     project_data
+    include_high_res_behavior: if True, also export all behavior time series at the full behavior camera frame rate,
+        in a separate 'BehaviorHighResolution' processing module (same organization as 'Behavior').
+        Note: this is roughly frames_per_volume (~24x) larger than the 'Behavior' module
 
     Returns
     -------
@@ -97,6 +126,15 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
         cfg_nwb = project_data.project_config.get_nwb_config()
     except PermissionError:
         logging.warning(f"You do not have permissions for project {project_data.shortened_name} to save NWB files.")
+        cfg_nwb = None
+    except FileNotFoundError as e:
+        # Missing nwb subfolder config (e.g. old project without an nwb folder).
+        # Only fatal if no explicit output_folder was given; otherwise continue
+        # with the explicit folder (mirrors hybrid-loading behavior elsewhere).
+        if output_folder is None and not DEBUG:
+            raise e
+        logging.warning(f"No nwb config for project {project_data.shortened_name} ({e}); "
+                        f"continuing with explicit output_folder.")
         cfg_nwb = None
 
     if DEBUG:
@@ -109,10 +147,7 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
         else:
             raise PermissionError(f"Either project permissions or output folder is required to save NWB files.")
 
-    output_fname = os.path.join(output_folder, project_data.shortened_name)
-    if not include_image_data:
-        output_fname = f'{output_fname}_no_image_data'
-    output_fname = f'{output_fname}.nwb'
+    output_fname = get_nwb_export_fname(project_data, output_folder, include_image_data)
 
     # Unpack variables from project_data
     # Everything in the zimmer lab is produced with a time stamp saved in the filename of the raw data folder
@@ -145,6 +180,10 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
                                            physical_units_class, output_folder)
         return nwbfile, fname
 
+    # Full export recalculates paper traces from disk caches; out-of-date caches would
+    # silently write wrong neuron names into the NWB, so fail hard here.
+    project_data.data_cacher.raise_if_caches_stale()
+
     # Unpack traces and locations
     print("Calculating traces...")
     gce_quant_red = project_data.red_traces.swaplevel(i=0, j=1, axis=1).copy()
@@ -161,14 +200,70 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
     # Use the exact options in the paper
     trace_opt = dict(interpolate_nan=True)
     df_traces_red = project_data.calc_paper_traces(channel_mode='red', **trace_opt)
-    # Here we have a subset of columns, so we need to keep only the proper set
-    kept_columns = df_traces_red.columns
-    gce_quant_red.loc[:, ('intensity_image', kept_columns)] = df_traces_red.values
     df_traces_green = project_data.calc_paper_traces(channel_mode='green', **trace_opt)
-    gce_quant_green.loc[:, ('intensity_image', kept_columns)] = df_traces_green.values
-
     df_traces_ratio = project_data.calc_paper_traces(channel_mode='dr_over_r_50', **trace_opt)
-    gce_quant_ratio.loc[:, ('intensity_image', kept_columns)] = df_traces_ratio.values
+
+    # Paper traces are cached and truncated to num_frames, while the tracking
+    # dataframes can be longer (or vice versa). Align to a common time axis
+    # and neuron set instead of failing with
+    # "Length of values (...) does not match length of index (...)".
+    n_common = min(len(gce_quant_red), len(gce_quant_green), len(gce_quant_ratio),
+                   len(df_traces_red), len(df_traces_green), len(df_traces_ratio))
+    for _name, _df in [('tracking(red)', gce_quant_red),
+                       ('tracking(green)', gce_quant_green),
+                       ('tracking(ratio)', gce_quant_ratio),
+                       ('paper(red)', df_traces_red),
+                       ('paper(green)', df_traces_green),
+                       ('paper(ratio)', df_traces_ratio)]:
+        if len(_df) != n_common:
+            logging.warning(
+                f"NWB export for {project_data.shortened_name}: truncating {_name} "
+                f"from {len(_df)} to {n_common} frames to align traces with tracking data. "
+                f"Consider refreshing the paper-trace cache if this mismatch is unexpected."
+            )
+    gce_quant_red = gce_quant_red.iloc[:n_common].copy()
+    gce_quant_green = gce_quant_green.iloc[:n_common].copy()
+    gce_quant_ratio = gce_quant_ratio.iloc[:n_common].copy()
+    df_traces_red = df_traces_red.iloc[:n_common]
+    df_traces_green = df_traces_green.iloc[:n_common]
+    df_traces_ratio = df_traces_ratio.iloc[:n_common]
+
+    # Here we have a subset of columns, so we need to keep only the proper set.
+    # Neuron sets must be identical across channels; any difference is a hard
+    # error, not something to silently intersect away.
+    _red_set = set(df_traces_red.columns)
+    _green_set = set(df_traces_green.columns)
+    _ratio_set = set(df_traces_ratio.columns)
+    if not (_red_set == _green_set == _ratio_set):
+        raise ValueError(
+            f"Neuron sets differ between paper-trace channels for "
+            f"{project_data.shortened_name}; cannot export NWB. "
+            f"red-only={sorted(_red_set - _green_set - _ratio_set)[:10]}, "
+            f"green-only={sorted(_green_set - _red_set - _ratio_set)[:10]}, "
+            f"ratio-only={sorted(_ratio_set - _red_set - _green_set)[:10]}, "
+            f"counts=(red={len(_red_set)}, green={len(_green_set)}, ratio={len(_ratio_set)})."
+        )
+    # Tracking frames are not guaranteed to store neurons in the same order as
+    # the paper traces, so every check and assignment below is by column name.
+    _red_tracked = set(gce_quant_red.columns.get_level_values(1))
+    _green_tracked = set(gce_quant_green.columns.get_level_values(1))
+    for _frame_name, _tracked in [('red', _red_tracked), ('green', _green_tracked)]:
+        _missing = sorted(_red_set - _tracked)
+        if _missing:
+            raise ValueError(
+                f"Paper-trace neurons missing from {_frame_name} tracking data for "
+                f"{project_data.shortened_name}; cannot export NWB. "
+                f"Missing (up to 10): {_missing[:10]} "
+                f"({len(_red_set - _tracked)}/{len(_red_set)} missing)."
+            )
+    kept_columns = list(df_traces_red.columns)
+    # Assign one neuron at a time by name. A positional `.values` block
+    # assignment would mix up neurons whenever the tracking frame orders them
+    # differently than the paper traces.
+    for col in kept_columns:
+        gce_quant_red[('intensity_image', col)] = df_traces_red[col].to_numpy()
+        gce_quant_green[('intensity_image', col)] = df_traces_green[col].to_numpy()
+        gce_quant_ratio[('intensity_image', col)] = df_traces_ratio[col].to_numpy()
 
     # Then drop any other columns that are not in the kept columns
     gce_quant_red = gce_quant_red.loc[:, (slice(None), kept_columns)]
@@ -191,36 +286,25 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
             behavior_video = video_class.raw_behavior_video
         else:
             behavior_video = None
-        behavior_time_series_dict = {}
-        behavior_time_series_names = ['angular_velocity', 'head_curvature', 'body_curvature', 'reversal_events',
-                                      'velocity',
-                                      'ventral_only_body_curvature', 'dorsal_only_body_curvature',
-                                      'ventral_only_head_curvature', 'dorsal_only_head_curvature']
-        behavior_time_series_dict['continuous_behaviors'] = video_class.calc_behavior_from_alias(behavior_time_series_names,
-                                                                                                 reset_index=False)
-        hilbert_outputs = ['hilbert_phase', 'hilbert_amplitude', 'hilbert_frequency', 'hilbert_carrier']
-        for name in hilbert_outputs:
-            behavior_time_series_dict[name] = video_class.calc_behavior_from_alias(name, reset_index=False)
-        # behavior_time_series_dict = video_class.calc_behavior_from_alias(behavior_time_series_names)
-        # Also add some more basic time series data
-        behavior_time_series_dict['kymograph'] = video_class.curvature(fluorescence_fps=True, reset_index=False)
-        behavior_time_series_dict['stage_position'] = video_class.stage_position(fluorescence_fps=True, reset_index=False)
-        behavior_time_series_dict['eigenworms'] = video_class.eigenworms(fluorescence_fps=True, reset_index=False)
-        # Also add a dataframe of the discrete behaviors
-        from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
-        discrete_time_series_names = BehaviorCodes.default_state_hierarchy(use_strings=True,
-                                                                           include_self_collision=True)
-        df_discrete = video_class.calc_behavior_from_alias(discrete_time_series_names, include_slowing=True,
-                                                           reset_index=False)
-        if enforce_nonoverlapping_behaviors:
-            idx = behavior_time_series_dict['continuous_behaviors']['velocity'].index
-            df_discrete = convert_binary_columns_to_one_hot(pd.DataFrame(df_discrete, index=idx),
-                                                            discrete_time_series_names)
-        behavior_time_series_dict['discrete_states'] = df_discrete
+        # Index all behavior series in physical time (seconds), matching the traces (rate=volumes_per_second)
+        original_use_physical_time = video_class.use_physical_time
+        video_class.use_physical_time = True
+        try:
+            behavior_time_series_dict = _calc_behavior_time_series_dict(
+                video_class, fluorescence_fps=True, enforce_nonoverlapping_behaviors=enforce_nonoverlapping_behaviors)
+            if include_high_res_behavior:
+                # Same organization, but at the full behavior camera frame rate
+                behavior_high_res_time_series_dict = _calc_behavior_time_series_dict(
+                    video_class, fluorescence_fps=False,
+                    enforce_nonoverlapping_behaviors=enforce_nonoverlapping_behaviors)
+            else:
+                behavior_high_res_time_series_dict = None
+        finally:
+            video_class.use_physical_time = original_use_physical_time
 
     else:
         print("No behavior data found")
-        behavior_video, behavior_time_series_dict = None, None
+        behavior_video, behavior_time_series_dict, behavior_high_res_time_series_dict = None, None, None
 
     # Unpack centroids and segmentation-to-final-id mapping
     df_tracking = project_data.final_tracks
@@ -228,13 +312,73 @@ def nwb_using_project_data(project_data: ProjectData, include_image_data=True, o
     nwb_file, fname = nwb_with_traces_from_components(calcium_video_dict, segmentation_video, gce_quant_dict,
                                                       session_start_time, subject_id, strain, physical_units_class,
                                                       behavior_video, behavior_time_series_dict, df_tracking,
-                                                      output_fname, include_image_data)
-    # Update in the project config
+                                                      output_fname, include_image_data,
+                                                      behavior_high_res_time_series_dict=behavior_high_res_time_series_dict)
+    # Update in the project config. The export itself is already saved at this
+    # point, so a failure here (e.g. read-only filesystem) is only a warning.
     if cfg_nwb is not None:
-        cfg_nwb.config['nwb_filename'] = fname
-        cfg_nwb.update_self_on_disk()
+        try:
+            cfg_nwb.config['nwb_filename'] = fname
+            cfg_nwb.update_self_on_disk()
+        except OSError as e:
+            logging.warning(f"Exported NWB file to {fname}, but could not update "
+                            f"the project nwb config ({e}). Continuing.")
 
     return nwb_file, fname
+
+
+def _calc_behavior_time_series_dict(video_class, fluorescence_fps: bool, enforce_nonoverlapping_behaviors=False):
+    """
+    Build the dictionary of behavior time series to be exported to nwb, at either the fluorescence (volume) frame rate
+    or the full behavior camera frame rate.
+
+    Each value is either a dataframe (one sub time series per column) or a dict of dataframes/series.
+    """
+    opt = dict(fluorescence_fps=fluorescence_fps, reset_index=False)
+    behavior_time_series_dict = {}
+    behavior_time_series_names = ['angular_velocity', 'head_curvature', 'body_curvature', 'reversal_events',
+                                  'velocity',
+                                  'ventral_only_body_curvature', 'dorsal_only_body_curvature',
+                                  'ventral_only_head_curvature', 'dorsal_only_head_curvature']
+    behavior_time_series_dict['continuous_behaviors'] = video_class.calc_behavior_from_alias(behavior_time_series_names,
+                                                                                             **opt)
+    hilbert_outputs = ['hilbert_phase', 'hilbert_amplitude', 'hilbert_frequency', 'hilbert_carrier']
+    for name in hilbert_outputs:
+        behavior_time_series_dict[name] = video_class.calc_behavior_from_alias(name, **opt)
+    # Also add some more basic time series data
+    behavior_time_series_dict['kymograph'] = video_class.curvature(**opt)
+    behavior_time_series_dict['stage_position'] = video_class.stage_position(**opt)
+    behavior_time_series_dict['eigenworms'] = video_class.eigenworms(**opt)
+    # Centerline is split into X and Y; each is stored as a 2d (time x segment) series, like stage_position
+    behavior_time_series_dict['centerline'] = {
+        'X': video_class.centerlineX(**opt),
+        'Y': video_class.centerlineY(**opt)}
+    df_centerline_abs = video_class.centerline_absolute_coordinates(**opt)
+    behavior_time_series_dict['centerline_absolute'] = {
+        xy: df_centerline_abs.xs(xy, level=1, axis=1) for xy in ['X', 'Y']}
+    # Also add a dataframe of the discrete behaviors
+    from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
+    discrete_time_series_names = BehaviorCodes.default_state_hierarchy(use_strings=True,
+                                                                       include_self_collision=True)
+    df_discrete = video_class.calc_behavior_from_alias(discrete_time_series_names, include_slowing=True, **opt)
+    if enforce_nonoverlapping_behaviors:
+        idx = behavior_time_series_dict['continuous_behaviors']['velocity'].index
+        df_discrete = convert_binary_columns_to_one_hot(pd.DataFrame(df_discrete, index=idx),
+                                                        discrete_time_series_names)
+    behavior_time_series_dict['discrete_states'] = df_discrete
+
+    # Different sources (e.g. stage vs. centerline) can differ in length by a few frames, especially at full fps
+    # All start at frame 0, so truncate everything to the shortest length to share a common time axis
+    all_lengths = {f"{name}/{k}": len(ts) for name, value in behavior_time_series_dict.items()
+                   for k, ts in (value.items() if isinstance(value, dict) else [(None, value)])}
+    n_min = min(all_lengths.values())
+    if n_min != max(all_lengths.values()):
+        logging.info(f"Truncating behavior time series (fluorescence_fps={fluorescence_fps}) to a common length "
+                     f"of {n_min}; original lengths: {all_lengths}")
+        behavior_time_series_dict = {
+            name: ({k: ts.iloc[:n_min] for k, ts in value.items()} if isinstance(value, dict) else value.iloc[:n_min])
+            for name, value in behavior_time_series_dict.items()}
+    return behavior_time_series_dict
 
 
 def nwb_from_matlab_tracker(matlab_fname, output_folder=None):
@@ -309,7 +453,7 @@ def nwb_from_matlab_tracker(matlab_fname, output_folder=None):
 
 def nwb_with_traces_from_components(calcium_video_dict, segmentation_video, gce_quant_dict, session_start_time, subject_id, strain,
                                     physical_units_class, behavior_video, behavior_time_series_dict, df_tracking,
-                                    output_fname, include_image_data):
+                                    output_fname, include_image_data, behavior_high_res_time_series_dict=None):
     # Initialize and populate the NWB file
     nwbfile = initialize_nwb_file(session_start_time, strain, subject_id)
 
@@ -346,6 +490,10 @@ def nwb_with_traces_from_components(calcium_video_dict, segmentation_video, gce_
         nwbfile = convert_behavior_series_to_nwb(nwbfile, behavior_time_series_dict)
     else:
         print("No behavior time series data found, skipping...")
+    if behavior_high_res_time_series_dict is not None:
+        nwbfile = convert_behavior_series_to_nwb(nwbfile, behavior_high_res_time_series_dict,
+                                                 module_name="BehaviorHighResolution",
+                                                 description="Behavioral time series at the behavior camera frame rate")
     
     # Add centroids (output of the tracking), if it exists
     if df_tracking is not None:
@@ -619,8 +767,11 @@ def convert_traces_and_tracking_to_nwb(nwbfile, segmentation_video, gce_quant_di
         # reference_images=one_p_series,  # optional
     )
 
-    # Do not repeat ids for all time points, just save t=0
-    calc_IDs = np.squeeze(blobquant_red[:, 0, 4])
+    # Do not repeat ids for all time points: one summary ID per blob, taken as
+    # the most common non-empty ID across time. Sampling frame 0 only loses
+    # IDs for datasets with tracking gaps at the start of the recording
+    # (e.g. 2023-11-30_13-58_wt_worm3_FM kept only 3 of 36 IDs that way).
+    calc_IDs = _summary_ids_from_blobquant(blobquant_red)
     calc_labels = calc_IDs.astype(str)
     calc_labels = np.where(['neuron' not in n for n in calc_labels], calc_labels, '')
     Calclabels = SegmentationLabels(
@@ -734,16 +885,29 @@ def convert_segmentation_video_to_nwb(CalcImagingVolume, device, segmentation_vi
         resolution=1.,
         # smallest meaningful difference (in specified unit) between values in data: i.e. level of precision
         rate=rate,  # sampling rate in hz
-        imaging_volume=CalcImagingVolume,
-        dimension=segmentation_video.shape
+        imaging_volume=CalcImagingVolume
     )
     return CalciumSegSeries
 
 
 def convert_behavior_video_to_nwb(nwbfile, behavior_video, fps):
     print("Converting behavior to nwb format...")
-    # Behavior is already TXY
-    chunk_shape = list(behavior_video.shape)
+    # Behavior is expected to be TXY (time, y, x). Chunk one frame at a time:
+    # using the whole video as a single chunk exceeds the HDF5 4GB chunk limit
+    # (e.g. 40008x700x688 uint8 ~19GB) and fails with
+    # "Could not create dataset data in /processing/BF_NIR/BrightFieldNIR".
+    # It would also require loading the full video into memory at once.
+    if behavior_video.ndim != 3:
+        logging.warning(
+            f"Expected 3D behavior video (TXY), got shape {behavior_video.shape}; "
+            f"attempting to squeeze singleton dimensions."
+        )
+        behavior_video = da.squeeze(behavior_video) if hasattr(behavior_video, 'compute') else np.squeeze(behavior_video)
+    if behavior_video.ndim != 3:
+        raise ValueError(
+            f"Behavior video must be 3D (TXY) for NWB export, got shape {behavior_video.shape}."
+        )
+    chunk_shape = (1,) + tuple(behavior_video.shape[1:])
 
     # Build a generator (like the raw data) but for the behavior data
     data = CustomDataChunkIterator(
@@ -768,10 +932,10 @@ def convert_behavior_video_to_nwb(nwbfile, behavior_video, fps):
     return nwbfile
 
 
-def convert_behavior_series_to_nwb(nwbfile, behavior_time_series_dict):
-    print("Converting behavior time series to nwb format...")
-    behavior_module = nwbfile.create_processing_module(name="Behavior",
-                                                       description="Behavioral time series")
+def convert_behavior_series_to_nwb(nwbfile, behavior_time_series_dict, module_name="Behavior",
+                                   description="Behavioral time series"):
+    print(f"Converting behavior time series to nwb format (module: {module_name})...")
+    behavior_module = nwbfile.create_processing_module(name=module_name, description=description)
 
     for name, time_series in behavior_time_series_dict.items():
         unit = 'seconds'
@@ -792,7 +956,7 @@ def convert_behavior_series_to_nwb(nwbfile, behavior_time_series_dict):
             _time_series_columns = time_series.to_dict(orient='list')
         time_series_dict = {}
         for colname, coldata in _time_series_columns.items():
-            coldata = coldata.values if isinstance(coldata, pd.Series) else coldata
+            coldata = coldata.values if isinstance(coldata, (pd.Series, pd.DataFrame)) else coldata
             # Convert column name to string, but be careful if it is an integer
             # Specifically if it is <10, it should be padded with zeros to maintain sorting
             if isinstance(colname, int):
@@ -817,6 +981,29 @@ def _add_blob(blob, blobquant):
     else:
         blobquant = np.vstack((blobquant, blobarr))
     return blobquant
+
+
+def _summary_ids_from_blobquant(blobquant) -> np.ndarray:
+    """
+    One summary neuron ID per blob, across all time points.
+
+    blobquant has shape (n_blobs, n_times, 5) with the ID string in column 4
+    (see _add_blob). Returns the most common non-empty ID per blob.
+
+    Frame 0 must not be used here: datasets with tracking gaps at the start
+    of the recording have empty IDs at frame 0 even for confidently
+    identified neurons, so sampling frame 0 silently drops almost all IDs.
+    """
+    summary_ids = []
+    for i in range(blobquant.shape[0]):
+        ids_this_blob = blobquant[i, :, 4].astype(str)
+        ids_this_blob = ids_this_blob[(ids_this_blob != '') & (ids_this_blob != '0') & (ids_this_blob != 'nan')]
+        if len(ids_this_blob) == 0:
+            summary_ids.append('')
+        else:
+            values, counts = np.unique(ids_this_blob, return_counts=True)
+            summary_ids.append(values[np.argmax(counts)])
+    return np.array(summary_ids)
 
 
 def convert_tracking_dataframe_to_nwb_format(gce_quant_raw, DEBUG=False):

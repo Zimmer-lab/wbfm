@@ -67,6 +67,21 @@ from wbfm.utils.visualization.filtering_traces import fast_slow_decomposition, f
     fill_nan_in_dataframe
 
 
+def _nwb_segmentation_to_tzxy(dat, lazy: bool) -> da.Array:
+    """NWB segmentation (TXYZ, possibly with trailing singleton axes) to a dask array in TZXY, one chunk per volume.
+
+    lazy=False reproduces the old behaviour: da.squeeze on the raw h5py dataset reads all of it into memory.
+    lazy=True wraps the dataset in dask first, so volumes are read on access.
+    """
+    if lazy:
+        dat = da.squeeze(da.from_array(dat, chunks=(1,) + tuple(dat.shape[1:])))
+    else:
+        dat = da.squeeze(dat)
+    chunks = (1, ) + dat.shape[1:]
+    return da.from_array(dat, chunks=chunks).transpose((0, 3, 1, 2)) if not isinstance(dat, da.Array) \
+        else dat.rechunk(chunks).transpose((0, 3, 1, 2))
+
+
 @dataclass
 class ProjectData:
     """
@@ -140,6 +155,7 @@ class ProjectData:
     # Classes for more functionality
     _trace_plotter: TracePlotter = None
     physical_unit_conversion: PhysicalUnitConversion = None
+    _worm_posture_class: Optional[WormFullVideoPosture] = None
 
     # Values for ground truth annotation (reading from excel or .csv)
     finished_neurons_column_name: str = "Finished?"
@@ -447,14 +463,53 @@ class ProjectData:
         """Class that connects tracklets with raw neuron segmentation"""
         return self._build_tracklets_and_neurons_class()
 
-    @cached_property
+    @property
     def worm_posture_class(self) -> WormFullVideoPosture:
         """
         Class with all functionality related to behavior
 
         For example, allows coloring the traces using behavioral annotation, and correlations to behavioral time series
         """
-        return WormFullVideoPosture.load_from_project(self)
+        if self._worm_posture_class is None:
+            self._worm_posture_class = WormFullVideoPosture.load_from_project(self)
+        return self._worm_posture_class
+
+    @worm_posture_class.setter
+    def worm_posture_class(self, value: WormFullVideoPosture):
+        self._worm_posture_class = value
+
+    def _infer_num_frames(self, posture_class: Optional[WormFullVideoPosture] = None) -> Optional[int]:
+        """Infer the fluorescence volume count without re-entering the posture loader."""
+        num_frames = None
+        if self.project_config is not None:
+            try:
+                num_frames = self.project_config.num_frames
+            except (AttributeError, FileNotFoundError):
+                num_frames = None
+        if num_frames is None and self.red_data is not None:
+            num_frames = self.red_data.shape[0]
+
+        if num_frames is None and self.project_config is not None:
+            try:
+                num_frames = self.project_config.get_num_frames_robust()
+            except (AttributeError, FileNotFoundError):
+                num_frames = None
+
+        if num_frames is None:
+            if posture_class is None:
+                posture_class = self._worm_posture_class
+            if posture_class is None:
+                raise ValueError("Final behavior-only fallback for inferring frames failed; must init self._worm_posture_class or pass posture_class")
+            try:
+                beh_video = posture_class.raw_behavior_video
+                if beh_video is not None:
+                    num_high_res_frames = beh_video.shape[0]
+                    frames_per_volume = self.physical_unit_conversion.frames_per_volume
+                    num_frames = int(num_high_res_frames / frames_per_volume)
+            except (AttributeError, FileNotFoundError, RecursionError):
+                num_frames = None
+
+        return num_frames
 
     @cached_property
     def tracked_worm_class(self):
@@ -494,21 +549,12 @@ class ProjectData:
 
     @cached_property
     def num_frames(self) -> int:
-        """Note that this is cached so that a user can overwrite the number of frames"""
-        num_frames = None
-        if self.project_config is not None:
-            try:
-                num_frames = self.project_config.num_frames
-            except (AttributeError, FileNotFoundError):
-                num_frames = None
-        if num_frames is None:
-            # Then try calculate from the processed data, not the raw
-            if self.red_data is not None:
-                num_frames = self.red_data.shape[0]
-        if num_frames is None:
-            # Loads the raw data, which may be slow
-            num_frames = self.project_config.get_num_frames_robust()
-        return num_frames
+        """
+        Note that this is cached so that a user can overwrite the number of frames
+
+        Note also that this is actually the number of fluorescence volumes... but it would be too big of a breaking change to rename it
+        """
+        return self._infer_num_frames(posture_class=self._worm_posture_class)
     
 
     def num_frames_minus_tracking_failures(self, **kwargs):
@@ -802,12 +848,23 @@ class ProjectData:
             raise TypeError("Must pass pathlike or already loaded project data")
 
     @staticmethod
-    def load_final_project_data_from_nwb(nwb_path: Union[str, os.PathLike], **kwargs):
+    def load_final_project_data_from_nwb(nwb_path: Union[str, os.PathLike], lazy_segmentation: Optional[bool] = None,
+                                         **kwargs):
         """
         Like load_final_project_data_from_config, but for NWB files
 
         See https://github.com/focolab/NWBelegans for more information
+
+        Parameters
+        ----------
+        lazy_segmentation: if True, the (tracked and untracked) segmentation stays a lazy dask array backed by the
+            h5py dataset, read one volume at a time. If False (default), the whole segmentation is read into memory
+            on load (tens of GB for long recordings). If None, read the environment variable
+            WBFM_NWB_LAZY_SEGMENTATION ('1'/'true' to enable).
+            Lazy image data has crashed napari before (2f409136), so this stays opt-in.
         """
+        if lazy_segmentation is None:
+            lazy_segmentation = os.environ.get('WBFM_NWB_LAZY_SEGMENTATION', '').strip().lower() in ('1', 'true', 'yes')
 
         # Do not use a with block in order to keep the file open
         # This allows "weak" closing of the file
@@ -909,18 +966,14 @@ class ProjectData:
         try:
             activity = nwb_obj.processing['CalciumActivity']
             # Transpose data from TXYZ to TZXY
-            dat = da.squeeze(activity['CalciumSeriesSegmentation'].data)
-            chunks = (1, ) + dat.shape[1:]
-            obj.segmentation = da.from_array(dat, chunks=chunks).transpose((0, 3, 1, 2))
+            obj.segmentation = _nwb_segmentation_to_tzxy(activity['CalciumSeriesSegmentation'].data, lazy_segmentation)
         except (KeyError, AttributeError) as e:
             obj.logger.info(f"Could not load segmentation from NWB file: {e}")
 
         try:
             activity = nwb_obj.processing['CalciumActivity']
             # Transpose data from TXYZ to TZXY
-            dat = da.squeeze(activity['CalciumSeriesSegmentationUntracked'].data)
-            chunks = (1, ) + dat.shape[1:]
-            obj.raw_segmentation = da.from_array(dat, chunks=chunks).transpose((0, 3, 1, 2))
+            obj.raw_segmentation = _nwb_segmentation_to_tzxy(activity['CalciumSeriesSegmentationUntracked'].data, lazy_segmentation)
         except (KeyError, AttributeError) as e:
             # Set to be equal to the segmentation, if it exists
             if obj.segmentation is not None:
@@ -2051,6 +2104,18 @@ class ProjectData:
         # Strip white space from column names
         df.columns = df.columns.str.strip()
 
+        # Tracking-only ground truth datasets have a manual annotation file
+        # without neuron IDs (e.g. columns Neuron ID, Finished?, Notes?).
+        # In that case there is no ID mapping, so return empty.
+        required_columns = {'Neuron ID', 'ID1', 'Certainty'}
+        if not required_columns.issubset(set(df.columns)):
+            self.logger.warning(
+                f"Manual annotation file {getattr(self, 'df_manual_tracking_fname', '')} "
+                f"is missing ID columns {sorted(required_columns - set(df.columns))}; "
+                "returning empty neuron ID mapping"
+            )
+            return {}
+
         # Get the automatically assigned (meaningless) neuron names
         neuron_names = df['Neuron ID'].values
         neuron_names = [str(i) for i in neuron_names]
@@ -2171,7 +2236,8 @@ class ProjectData:
 
     def estimate_tracking_failures_from_project(self, pad_nan_points=3, contamination=0.1,#'auto',
                                                 min_decrease_threshold=40,
-                                                DEBUG=False):
+                                                DEBUG=False,
+                                                worm_posture_class=None):
         """
         Uses sudden dips in the number of detected objects to guess where the tracking might fail
 
@@ -2188,6 +2254,9 @@ class ProjectData:
         -------
 
         """
+        if worm_posture_class is None:
+            worm_posture_class = self._worm_posture_class
+
         try:
             all_vol = [self.segmentation_metadata.get_all_volumes(i) for i in range(self.num_frames)]
         except (AttributeError, FileNotFoundError) as e:
@@ -3222,32 +3291,54 @@ def split_project_data_in_time(project_data: "ProjectData",
         segments_spec.append((s, e))
 
     segments: List[ProjectData] = []
+    if verbose:
+        print("==============================================================================")
+        print(f"Splitting project data into {len(segments_spec)} segments with total length {T}")
+
     for start, stop in segments_spec:
         if verbose:
-            print(f"Creating segment for frames [{start}:{stop}] (project T={T})")
+            print(f"    Creating segment for frames [{start}:{stop}] (project T={T})")
+
+        slice_kwargs = dict(start=start, stop=stop, verbose=verbose, off_by_one_tolerance=off_by_one_tolerance)
 
         new_pd = copy(project_data)
-        new_pd = slice_time_like_object(new_pd, start, stop, T=T, copy_obj=False,
-                                        load_cached=False, verbose=verbose,
-                                        reference_T=None, allow_rate_conversion=False,
-                                        off_by_one_tolerance=off_by_one_tolerance)
+        new_pd = slice_time_like_object(
+            new_pd, 
+            T=T, 
+            copy_obj=False,
+            load_cached=False,
+            reference_T=None, 
+            allow_rate_conversion=False, 
+            **slice_kwargs
+        )
 
         posture = getattr(project_data, "worm_posture_class", None)
         if posture is not None:
-            # These attributes need to be sliced, i.e. they are pandas-like
-            posture_ref_T = T if also_split_high_res_fields else None
+            # First split time series at the same frame rate as the traces, most likely manual annotation
             posture_copy = slice_time_like_object(
                 posture,
-                start,
-                stop,
-                T=None,
+                T=T,
                 copy_obj=True,
                 load_cached=True,
-                verbose=verbose,
-                reference_T=posture_ref_T,
-                allow_rate_conversion=also_split_high_res_fields,
-                off_by_one_tolerance=off_by_one_tolerance
+                reference_T=None,
+                allow_rate_conversion=False,
+                **slice_kwargs
             )
+
+            if also_split_high_res_fields:
+                if verbose:
+                    print(f"    Splitting worm_posture_class to high-res timebase for frames [{start}:{stop}]")
+                # Split the same class again
+                posture_copy = slice_time_like_object(
+                    posture_copy,
+                    T=None,  # Will detect the high frame rate
+                    copy_obj=False,
+                    load_cached=True,
+                    reference_T=T,  # Will use this to convert the split points to the high frame rate
+                    allow_rate_conversion=True,
+                    **slice_kwargs
+                )
+            
             setattr(new_pd, "worm_posture_class", posture_copy)
 
             # These attributes need to be offset, i.e. they are lists of indices

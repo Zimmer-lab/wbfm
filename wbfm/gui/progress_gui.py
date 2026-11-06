@@ -15,9 +15,11 @@ from napari import Viewer
 from PyQt5 import QtCore, QtWidgets
 
 from wbfm.gui.utils.utils_gui import add_fps_printer
+from wbfm.gui.utils.napari_trace_explorer import show_project_sanity_problems, fit_viewer_window_to_screen
 from wbfm.gui.utils.file_dialog_widget import FileDialog
 from wbfm.utils.projects.utils_project import safe_cd
-from wbfm.utils.projects.utils_project_status import check_all_needed_data_for_step
+from wbfm.utils.projects.utils_project_status import check_all_needed_data_for_step, \
+    check_traces_and_segmentation_sanity
 from wbfm.utils.projects.finished_project_data import ProjectData
 
 
@@ -222,6 +224,24 @@ class UiMainWindow(object):
         else:
             self.tracesProgress.setValue(0)
 
+        # Surface clear messages for common failure modes (no traces / failed segmentation)
+        self._warn_about_project_sanity(seg_status=seg_status, traces_status=traces_status)
+
+    def _warn_about_project_sanity(self, seg_status: bool, traces_status: bool):
+        """Show a dialog if traces are missing or segmentation looks failed."""
+        if not hasattr(self, 'project_data'):
+            return
+        # Only check traces content if the files claim to exist; otherwise the
+        # progress bars already show the step as incomplete
+        problems = check_traces_and_segmentation_sanity(
+            self.project_data,
+            check_traces=traces_status,
+            check_segmentation=seg_status,
+        )
+        if problems:
+            traces_missing = traces_status and any(p.startswith("No traces found") for p in problems)
+            show_project_sanity_problems(problems, fatal=traces_missing)
+
     def _load_config_files(self, project_path):
         self.project_data = ProjectData.load_final_project_data(project_path, allow_hybrid_loading=True)
         self.cfg = self.project_data.project_config
@@ -232,6 +252,7 @@ class UiMainWindow(object):
         which_layers = ['Raw red data', 'Raw green data']
         self.viewer = self.project_data.add_layers_to_viewer(self.viewer, which_layers=which_layers)
         self.viewer.show()
+        fit_viewer_window_to_screen(self.viewer)
         add_fps_printer(self.viewer)
 
     def napari_for_masks(self):
@@ -240,6 +261,7 @@ class UiMainWindow(object):
         which_layers = ['Red data', 'Green data', 'Raw segmentation']
         self.viewer = self.project_data.add_layers_to_viewer(self.viewer, which_layers=which_layers)
         self.viewer.show()
+        fit_viewer_window_to_screen(self.viewer)
         add_fps_printer(self.viewer)
 
     def napari_for_masks_tracking(self):
@@ -248,6 +270,7 @@ class UiMainWindow(object):
         which_layers = ['Red data', 'Green data', 'Raw segmentation', 'Intermediate global IDs']
         self.project_data.add_layers_to_viewer(self.viewer, which_layers=which_layers)
         self.viewer.show()
+        fit_viewer_window_to_screen(self.viewer)
 
     def napari_for_masks_training(self):
         """Open napari window for segmentation and raw data"""
@@ -255,13 +278,22 @@ class UiMainWindow(object):
         which_layers = ['Red data', 'Green data', 'Raw segmentation']
         self.project_data.add_layers_to_viewer(self.viewer, which_layers=which_layers)
         self.viewer.show()
+        fit_viewer_window_to_screen(self.viewer)
 
     def open_traces_gui(self):
+        # Warn clearly before opening if traces are missing or segmentation failed
+        problems = check_traces_and_segmentation_sanity(self.project_data)
+        if problems:
+            traces_missing = any(p.startswith("No traces found") for p in problems)
+            show_project_sanity_problems(problems, fatal=traces_missing)
+            if traces_missing:
+                return
         self.viewer = Viewer(ndisplay=3)
         which_layers = ['Red data', 'Green data', 'Raw segmentation', 'Colored segmentation',
                         'Neuron IDs', 'Intermediate global IDs']
         self.project_data.add_layers_to_viewer(self.viewer, which_layers=which_layers)
         self.viewer.show()
+        fit_viewer_window_to_screen(self.viewer)
 
 
 if __name__ == "__main__":

@@ -24,8 +24,9 @@ def setup_logger_object(log_filename, actually_set_up_file=False):
             formatter = logging.Formatter(fmt='%(asctime)s %(name)-12s %(levelname)-8s %(message)s', datefmt='%m-%d %H:%M')
             fh.setFormatter(formatter)
             logger.addHandler(fh)
-    except PermissionError:
+    except (PermissionError, OSError):
         # Assume we are reading someone else's project, so we shouldn't need a log
+        # (OSError covers read-only filesystems, errno 30, not just PermissionError)
         pass
 
     # Check if the console logger has already been set up, and don't duplicate

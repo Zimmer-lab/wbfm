@@ -12,10 +12,27 @@ from wbfm.gui.utils.utils_gui import change_viewer_time_point
 from wbfm.utils.external.custom_errors import MissingAnalysisError, NoBehaviorAnnotationsError
 from wbfm.utils.neuron_matching.class_frame_pair import FramePair
 import napari
+try:
+    from napari.utils.colormaps import DirectLabelColormap
+except ImportError:
+    # napari < 0.4.19
+    DirectLabelColormap = None
 
 from wbfm.utils.general.utils_filenames import get_sequential_filename
 from wbfm.utils.visualization.utils_napari import napari_labels_from_traces_dataframe, NapariPropertyHeatMapper, \
     napari_tracks_from_match_list, napari_labels_from_frames
+
+
+def _set_direct_label_colormap(layer, color_dict):
+    if DirectLabelColormap is None:
+        layer.color = color_dict
+        layer.color_mode = 'direct'
+        return
+    color = dict(color_dict)
+    background = layer.colormap.background_value
+    color[background] = color.get(background, 'transparent')
+    color[None] = color.get(None, 'black')
+    layer.colormap = DirectLabelColormap(color_dict=color)
 
 
 @dataclass
@@ -322,8 +339,7 @@ class NapariLayerInitializer:
                 # Also normalize based on the total intensity across colors per object, to make the colormap work
                 df_prop = df_prop.divide(df_prop.sum(axis=0), axis=1)
                 prop_dict = {k: np.array(tuple(v) + (1.0, )) for k, v in df_prop.to_dict(orient='list').items()}
-                _layer.color = prop_dict
-                _layer.color_mode = 'direct'
+                _set_direct_label_colormap(_layer, prop_dict)
                 layers_actually_added.append('Neuropal segmentation')
 
         if 'Neuropal Ids' in which_layers and project_data.neuropal_manager.segmentation is not None:
@@ -396,8 +412,7 @@ class NapariLayerInitializer:
             _layer_opt.update(layer_opt)
             _layer = viewer.add_labels(seg, **_layer_opt)
             _layer.blending = 'translucent_no_depth'
-            _layer.color = prop_dict
-            _layer.color_mode = 'direct'
+            _set_direct_label_colormap(_layer, prop_dict)
 
         project_data.logger.debug(f"Finished adding layers {which_layers}")
         missed_layers = list(set(which_layers) - set(layers_actually_added))
