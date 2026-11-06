@@ -2537,7 +2537,7 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
                 # Ulises made these
                 df_behavior_annotations = pd.read_csv(behavior_fname)
                 behavior_annotations = df_behavior_annotations['Annotation']
-            elif "AVAL_manual_annotation" in str(behavior_fname) or "AVAR_manual_annotation" in str(behavior_fname):
+            elif "AVAL_manual_annotation" in str(behavior_fname) or "AVAR_manual_annotation" in str(behavior_fname) or "reversals_tracify" in str(behavior_fname):
                 logging.warning(f"Reading using manual annotation from Itamar's tracify package ")
                 # From Itamar's tracify package, which saves only the starts and ends
                 # UNITS ARE FRAMES
