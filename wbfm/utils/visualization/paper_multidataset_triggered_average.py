@@ -823,18 +823,64 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             behavior_shading_type = None
         return behavior_shading_type
 
-    def get_traces_single_neuron(self, neuron_name, trigger_type, return_individual_traces=False, DEBUG=False):
+    def get_traces_single_neuron(self, neuron_name, trigger_type, return_individual_traces=False,
+                                 combine_left_right=False, DEBUG=False):
+        """
+        Get the triggered traces of one neuron across all datasets
+
+        Columns are full names like '2022-11-23_worm9_BAGL' (or '2022-11-23_worm9_BAGL_3' for individual traces)
+
+        combine_left_right - if True, then within each dataset (and event, for individual traces) the L/R neurons are
+            combined using combine_columns_with_suffix, and neuron_name is matched exactly against the combined names
+            (e.g. 'BAG' is the mean of 'BAGL' and 'BAGR', and 'RME' does NOT include 'RMED').
+            This gives one column per dataset, which is required if each column is treated as an independent sample
+            (e.g. a t-test). Columns are then named by dataset (and event index), without the neuron name.
+            If False (legacy), then match by substring, so a combined name like 'BAG' returns separate columns for
+            'BAGL' and 'BAGR' of the same dataset.
+        """
         df = self.get_df_triggered_from_trigger_type(trigger_type, return_individual_traces=return_individual_traces)
         # Get the full names of all the neurons with this name
         # Names will be like '2022-11-23_worm9_BAGL' and we are checking for 'BAGL'
+        # If combining, this is a superset of the final columns
         neuron_names = [n for n in list(df.columns) if neuron_name in n and f'{neuron_name}_' not in n]
         if DEBUG:
             print(f"Found {len(neuron_names)} neurons with name {neuron_name}")
             print(f"Neuron names: {neuron_names}")
         df_subset = df.loc[:, neuron_names]
+        if combine_left_right and not df_subset.empty:
+            df_subset = self._combine_left_right_within_datasets(df_subset, neuron_name, return_individual_traces)
         if df_subset.empty:
             raise NeuronNotFoundError(f"No neurons found with name {neuron_name} for trigger type {trigger_type}")
         return df_subset
+
+    @staticmethod
+    def _combine_left_right_within_datasets(df_subset, neuron_name, return_individual_traces=False):
+        """
+        Splits columns like '2022-11-23_worm9_BAGL' into dataset and neuron name, combines L/R neurons separately
+        for each dataset, and returns the columns matching neuron_name exactly, named by dataset
+        """
+        # The neuron name is the last part of the column name, or second to last for individual traces
+        i_name = -2 if return_individual_traces else -1
+
+        def _split(col):
+            parts = col.split('_')
+            name = parts.pop(i_name)
+            return '_'.join(parts), name
+
+        columns_per_dataset = defaultdict(dict)
+        for col in df_subset.columns:
+            dataset_name, name = _split(col)
+            columns_per_dataset[dataset_name][name] = df_subset[col]
+
+        combined_columns = {}
+        for dataset_name, name_to_trace in columns_per_dataset.items():
+            df_combined = combine_columns_with_suffix(pd.DataFrame(name_to_trace))
+            if neuron_name in df_combined.columns:
+                combined_columns[dataset_name] = df_combined[neuron_name]
+            elif neuron_name in name_to_trace:
+                # A non-combined name was requested, e.g. 'BAGL'
+                combined_columns[dataset_name] = name_to_trace[neuron_name]
+        return pd.DataFrame(combined_columns, index=df_subset.index)
 
     def get_valid_neuron_names(self, trigger_type, remove_nonided_neurons=True):
         """
@@ -928,8 +974,9 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
     def get_boxplot_before_and_after(self, neuron_name, trigger_type,
                                      summary_function=None,
                                      dynamic_window_center=False, dynamic_window_length=2,
+                                     dynamic_window_use_absolute=True,
                                      gap=0, same_size_window=False,
-                                     return_individual_traces=False, DEBUG=False):
+                                     return_individual_traces=False, combine_left_right=False, DEBUG=False):
         """
         Preps data for a ttest or other comparison before and after the event, by calculating the median of the traces
         (collapsing the time dimension, and leaving the trial dimension)
@@ -944,8 +991,14 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
         dynamic_window_center - if True, then the window of the 'after' values will be centered around the smoothed max value
         dynamic_window_length - if dynamic_window_center is True, then this is the length of the window (half on each side)
             Note: the center will be, at the max: len(trace) - (dynamic_window_length/2)
+        dynamic_window_use_absolute - if True (default), the dynamic window is centered on the largest absolute
+            deviation of the smoothed mean trace from its pre-event mean, so decreases are found as well as increases.
+            If False (legacy), it is centered on the maximum, which places the window at the event onset for
+            neurons that decrease after the event
         same_size_window - if True, then the window before and after the event will be the same size
         return_individual_traces - if True, then do not pool trials within individuals, but treat each trial independently
+        combine_left_right - if True, then L/R neurons of the same dataset are averaged into one sample;
+            see get_traces_single_neuron
 
         Returns
         -------
@@ -956,7 +1009,8 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
         if not dynamic_window_center:
             logging.warning("Dynamic window center is False (the paper uses True); using fixed window size for after values")
         df_subset = self.get_traces_single_neuron(neuron_name, trigger_type,
-                                                  return_individual_traces=return_individual_traces)
+                                                  return_individual_traces=return_individual_traces,
+                                                  combine_left_right=combine_left_right)
         with warnings.catch_warnings():
             warnings.simplefilter(action='ignore', category=RuntimeWarning)
             means_before = summary_function(df_subset.loc[:-gap, :], axis=0)
@@ -978,7 +1032,12 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                 df_subset_after = df_subset.loc[0:].iloc[half_window:-half_window]
                 if df_subset_after.empty:
                     raise ValueError("No data after the event")
-                idx_max = df_subset_after.rolling(window=5, center=True).mean().mean(axis=1).idxmax()
+                smoothed_mean = df_subset_after.rolling(window=5, center=True).mean().mean(axis=1)
+                if dynamic_window_use_absolute:
+                    baseline = df_subset.loc[:-gap, :].mean(axis=1).mean()
+                    idx_max = (smoothed_mean - baseline).abs().idxmax()
+                else:
+                    idx_max = smoothed_mean.idxmax()
                 # Get the window around the smoothed max value
                 idx_range = [idx_max - idx_half_window, idx_max + idx_half_window]
                 # Closest index to the max value
@@ -1308,6 +1367,7 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
                                                output_dir=None,
                                                ttest_kwargs=None,
                                                df_p_values=None,
+                                               combine_left_right=True,
                                                to_show=True, DEBUG=False, **kwargs):
     """
     Calculate the data for a t-test on the traces before and after the event.
@@ -1317,8 +1377,10 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
     neuron_list
     plotter_classes
     trigger_type
-    gap
-    same_size_window
+    ttest_kwargs - passed to PaperMultiDatasetTriggeredAverage.get_boxplot_before_and_after
+    combine_left_right - if True (default), L/R neurons (e.g. 'BAGL' and 'BAGR' for 'BAG') are averaged within each
+        dataset, so each dataset is one sample. If False (legacy), they are separate samples, which double counts
+        datasets with both sides identified
     kwargs
 
     Returns
@@ -1326,7 +1388,7 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
 
     """
     default_ttest_kwargs = dict(return_individual_traces=False, summary_function=None,
-                                same_size_window=False, gap=0)
+                                same_size_window=False, gap=0, combine_left_right=combine_left_right)
     if ttest_kwargs is None:
         ttest_kwargs = default_ttest_kwargs
     else:
