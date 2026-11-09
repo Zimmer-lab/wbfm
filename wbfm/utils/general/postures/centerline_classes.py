@@ -440,7 +440,7 @@ class WormFullVideoPosture:
     def self_collision(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """This is intended to be summed with the main behavioral vector"""
         df = self.raw_self_collision
-        df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+        df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
         return df
 
     @cached_property
@@ -463,7 +463,7 @@ class WormFullVideoPosture:
     def stimulus(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """This is intended to be summed with the main behavioral vector"""
         df = self.raw_stimulus
-        df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+        df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
         return df
 
     @cached_property
@@ -497,7 +497,7 @@ class WormFullVideoPosture:
         """This is intended to be summed with the main behavioral vector"""
         try:
             df = self.raw_pause
-            df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+            df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
             return df
         except NoBehaviorAnnotationsError:
             return None
@@ -529,7 +529,7 @@ class WormFullVideoPosture:
         """This is intended to be summed with the main behavioral vector"""
         try:
             df = self.raw_slowing
-            df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+            df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
             return df
         except NoBehaviorAnnotationsError:
             return None
@@ -581,7 +581,7 @@ class WormFullVideoPosture:
         """This is intended to be summed with the main behavioral vector"""
         try:
             df = self.raw_turn_annotation
-            df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+            df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
             return df
         except NoBehaviorAnnotationsError:
             return None
@@ -619,7 +619,7 @@ class WormFullVideoPosture:
     def head_cast_annotation(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """This is intended to be summed with the main behavioral vector"""
         df = self.raw_head_cast_annotation
-        df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+        df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
         return df
 
     @cached_property
@@ -2549,7 +2549,13 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
                 logging.warning(f"Reading using manual annotation from Itamar's tracify package ")
                 # From Itamar's tracify package, which saves only the starts and ends
                 # UNITS ARE FRAMES
-                starts_ends = pd.read_csv(behavior_fname).astype(int)
+                starts_ends = pd.read_csv(behavior_fname)
+                if not {'start', 'end'}.issubset(starts_ends.columns) or starts_ends[['start', 'end']].isna().any().any():
+                    # Malformed file (e.g. a full-length index instead of starts and ends); skippable by callers
+                    raise NoManualBehaviorAnnotationsError(
+                        f"{behavior_fname} is not a valid start/end file (columns: {list(starts_ends.columns)}); "
+                        f"it likely needs to be regenerated in tracify")
+                starts_ends = starts_ends.astype(int)
                 behavior_annotations = make_binary_vector_from_starts_and_ends(starts_ends['start'], starts_ends['end'], original_vals=template_vector)
                 # Change the integers to match Ulises' original annotation; see _ulises_int_2_flag
                 behavior_annotations = pd.Series(behavior_annotations, name='annotation')
