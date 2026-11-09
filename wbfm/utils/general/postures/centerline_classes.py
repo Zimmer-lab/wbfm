@@ -133,7 +133,7 @@ class WormFullVideoPosture:
     def _validate_and_downsample(self, df: Optional[Union[pd.DataFrame, pd.Series]], fluorescence_fps: bool,
                                  reset_index=False, use_physical_time=None,
                                  manual_annotation=False, force_downsampling=False, remove_idx_of_tracking_failures=True,
-                                 DEBUG=False) -> Optional[Union[pd.DataFrame, pd.Series]]:
+                                 is_annotation=False, DEBUG=False) -> Optional[Union[pd.DataFrame, pd.Series]]:
         """
         Final postprocessing step for any annotation or data vector: removes tracking failure indices,
         downsamples to fluorescence frame rate if needed, shortens to trace length, and assigns the
@@ -183,14 +183,17 @@ class WormFullVideoPosture:
                 raise DataSynchronizationError("reset_index", "use_physical_time")
             df = df.copy()
 
-            self.check_requested_frame_rate(fluorescence_fps, manual_annotation=manual_annotation)
+            if is_annotation or manual_annotation:
+                self.check_requested_frame_rate(fluorescence_fps, manual_annotation=manual_annotation)
             # Logic to determine if it is possible to downsample
             if force_downsampling:
                 needs_subsampling = True
             elif manual_annotation:
                 needs_subsampling = fluorescence_fps and not self.manual_beh_annotation_already_converted_to_fluorescence_fps
             else:
-                needs_subsampling = fluorescence_fps and not self.beh_annotation_already_converted_to_fluorescence_fps
+                # Only behavior annotations can be 'already converted'; continuous signals (hilbert, curvature, ...)
+                # are always high resolution, even if the annotation file is at fluorescence fps
+                needs_subsampling = fluorescence_fps and not (is_annotation and self.beh_annotation_already_converted_to_fluorescence_fps)
             if DEBUG:
                 print(f"needs_subsampling={needs_subsampling}, remove_idx_of_tracking_failures={remove_idx_of_tracking_failures}, df.shape={df.shape}, df.index={df.index}")
                 
@@ -1111,7 +1114,8 @@ class WormFullVideoPosture:
 
         # Perform the downsampling at the very end
         beh_vec = self._validate_and_downsample(beh, fluorescence_fps=fluorescence_fps, reset_index=reset_index,
-                                                manual_annotation=use_manual_annotation,remove_idx_of_tracking_failures=remove_idx_of_tracking_failures)
+                                                manual_annotation=use_manual_annotation, is_annotation=True,
+                                                remove_idx_of_tracking_failures=remove_idx_of_tracking_failures)
         # Make sure there are no nan values.
         # Necessary because sometimes removing tracking failures adds nan, even when they should be recognized
         beh_vec.replace(np.nan, BehaviorCodes.UNKNOWN, inplace=True)
@@ -2428,7 +2432,8 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
     behavior_fname_candidates = ['3-tracking/manual_annotation/manual_behavior_annotation.xlsx',
                                  '3-tracking/postprocessing/manual_behavior_annotation.xlsx',
                                  'behavior/AVAL_manual_annotation.csv',
-                                 'behavior/AVAR_manual_annotation.csv']
+                                 'behavior/AVAR_manual_annotation.csv',
+                                 'behavior/reversals_tracify.csv']
     behavior_fname_candidates = [cfg.resolve_relative_path(f) for f in behavior_fname_candidates]
     for this_fname in behavior_fname_candidates:
         if os.path.exists(this_fname):
@@ -2438,6 +2443,9 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
     if behavior_fname is not None:
         if verbose >= 1:
             print(f"Found behavior annotation by searching hard-coded paths in local project: {behavior_fname}")
+        if str(behavior_fname).endswith('.csv'):
+            # Itamar's tracify files (starts and ends) are in high-resolution behavior frames, NOT volumes
+            is_likely_manually_annotated = False
         return behavior_fname, is_likely_manually_annotated
 
     # Final checks are all in raw behavior data folders, implying they are not the stable style
