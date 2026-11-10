@@ -979,7 +979,7 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
     def get_boxplot_before_and_after(self, neuron_name, trigger_type,
                                      summary_function=None,
                                      dynamic_window_center=False, dynamic_window_length=2,
-                                     dynamic_window_use_absolute=True,
+                                     dynamic_window_use_absolute=True, fixed_idx_range=None,
                                      gap=0, same_size_window=False,
                                      return_individual_traces=False, combine_left_right=False, DEBUG=False):
         """
@@ -1000,6 +1000,8 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
             deviation of the smoothed mean trace from its pre-event mean, so decreases are found as well as increases.
             If False (legacy), it is centered on the maximum, which places the window at the event onset for
             neurons that decrease after the event
+        fixed_idx_range - if not None, then use this (start, end) in index units as the 'after' window, instead of
+            calculating it. Useful for measuring a different group (e.g. mutants) in the window found for another (WT)
         same_size_window - if True, then the window before and after the event will be the same size
         return_individual_traces - if True, then do not pool trials within individuals, but treat each trial independently
         combine_left_right - if True, then L/R neurons of the same dataset are averaged into one sample;
@@ -1026,6 +1028,9 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
                 gap_idx = i_of_0 + gap + len_before
                 idx_range = (i_of_0 - len_before, gap_idx)
                 means_after = summary_function(df_subset.iloc[i_of_0:gap_idx, :], axis=0)
+            elif fixed_idx_range is not None:
+                idx_range = list(fixed_idx_range)
+                means_after = summary_function(df_subset.loc[idx_range[0]:idx_range[1], :], axis=0)
             elif dynamic_window_center:
                 assert gap == 0, "Dynamic window center only works with gap=0"
                 half_window = int(dynamic_window_length / 2)  # In list units
@@ -1504,6 +1509,64 @@ def plot_ttests_from_triggered_average_classes(neuron_list: List[str],
             fig.write_image(fname)
 
     return all_figs, df_boxplot, df_p_values, df_idx_range
+
+
+def calc_mutant_vs_wt_test(neuron_list: List[str],
+                           plotter_wt: PaperMultiDatasetTriggeredAverage,
+                           plotter_mutant: PaperMultiDatasetTriggeredAverage,
+                           trigger_type: str,
+                           ttest_kwargs=None,
+                           min_num_datasets=3,
+                           mutant_str='Mutant vs WT') -> pd.DataFrame:
+    """
+    Tests directly whether the response (after - before, per dataset) differs between mutant and wild type.
+
+    Both groups are measured in the window found for wild type (the larger group), so that the window is not chosen
+    using the few mutant datasets. L/R neurons are combined within each dataset, so one sample = one dataset.
+    Uses Welch's t-test, with FDR correction across neurons (this family only; do not pool with the WT/mutant tests).
+    Neurons with fewer than min_num_datasets datasets in either group are omitted from the output.
+
+    Note: a non-significant result means 'not shown to differ', not 'equivalent'; the mutant groups are small.
+
+    Returns a dataframe in the same format as df_p_values from plot_ttests_from_triggered_average_classes, i.e.
+    indexed by (neuron, is_mutant_str, trigger_type) with columns p_value, p_value_corrected, count, plus
+    'fc' = median mutant response - median WT response, so it can be concatenated with the other tables.
+    count = number of datasets in the smaller group.
+    """
+    default_kwargs = dict(dynamic_window_center=True, dynamic_window_length=6, combine_left_right=True)
+    if ttest_kwargs is not None:
+        default_kwargs.update(ttest_kwargs)
+    # Always one value per dataset, and no individual traces
+    default_kwargs.update(combine_left_right=True, return_individual_traces=False)
+    ttest_kwargs = default_kwargs
+
+    rows = []
+    for neuron in neuron_list:
+        try:
+            before_wt, after_wt, idx_range = plotter_wt.get_boxplot_before_and_after(neuron, trigger_type, **ttest_kwargs)
+            before_mut, after_mut, _ = plotter_mutant.get_boxplot_before_and_after(
+                neuron, trigger_type, fixed_idx_range=idx_range, **ttest_kwargs)
+        except NeuronNotFoundError:
+            print(f"Neuron {neuron} not found; skipping")
+            continue
+        delta_wt = np.asarray(after_wt - before_wt, dtype=float)
+        delta_mut = np.asarray(after_mut - before_mut, dtype=float)
+        delta_wt, delta_mut = delta_wt[~np.isnan(delta_wt)], delta_mut[~np.isnan(delta_mut)]
+        n = min(len(delta_wt), len(delta_mut))
+        if n < min_num_datasets:
+            # Not enough datasets in one of the groups; omit the row entirely (a NaN row would be plotted as a box)
+            continue
+        p_value = stats.ttest_ind(delta_mut, delta_wt, equal_var=False)[1]
+        if np.isnan(p_value):
+            continue
+        rows.append(dict(neuron=neuron, is_mutant_str=mutant_str, trigger_type=trigger_type, p_value=p_value,
+                         count=n, fc=np.nanmedian(delta_mut) - np.nanmedian(delta_wt)))
+    df = pd.DataFrame(rows, columns=['neuron', 'is_mutant_str', 'trigger_type', 'p_value', 'count', 'fc'])
+    df = df.set_index(['neuron', 'is_mutant_str', 'trigger_type'])
+    df['p_value_corrected'] = np.nan
+    if len(df) > 0:
+        df['p_value_corrected'] = multipletests(df['p_value'].values, method='fdr_bh', alpha=0.05)[1]
+    return df
 
 
 def plot_triggered_averages_from_triggered_average_classes(neuron_list: List[str],
