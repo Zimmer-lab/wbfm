@@ -842,7 +842,12 @@ class PaperMultiDatasetTriggeredAverage(PaperColoredTracePlotter):
         # Get the full names of all the neurons with this name
         # Names will be like '2022-11-23_worm9_BAGL' and we are checking for 'BAGL'
         # If combining, this is a superset of the final columns
-        neuron_names = [n for n in list(df.columns) if neuron_name in n and f'{neuron_name}_' not in n]
+        if return_individual_traces:
+            # Names will be like '2022-11-23_worm9_BAGL_3', so check the neuron part only
+            # (the check below would exclude all of these when neuron_name is exact, because of 'BAGL_')
+            neuron_names = [n for n in list(df.columns) if neuron_name in n.split('_')[-2]]
+        else:
+            neuron_names = [n for n in list(df.columns) if neuron_name in n and f'{neuron_name}_' not in n]
         if DEBUG:
             print(f"Found {len(neuron_names)} neurons with name {neuron_name}")
             print(f"Neuron names: {neuron_names}")

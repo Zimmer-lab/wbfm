@@ -140,6 +140,7 @@ def intrinsic_categories_color_discrete_map(return_hex=True, mix_fraction = 0.0)
         cmap = {k: add_alpha(v) for k, v in cmap.items()}
     return cmap
 
+
 def export_legend_for_paper(fname=None, frameon=True, ethogram=False, reversal_shading=False,
                             include_self_collision=False, triple_plots=False, o2=True, bayesian_supp=False, o2_supp=False):
     if ethogram:
