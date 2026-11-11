@@ -280,11 +280,13 @@ class CCAPlotter:
 
     def calc_mode_dot_product(self, mode=0, binary_behaviors=False, **kwargs):
         """
-        Calculate the dot product between a cca mode and the equivalent pca mode
+        Calculate the cosine similarity between a cca mode and the equivalent pca mode (same index), in neuron space
+
+        Note that the sign is arbitrary, so the absolute value is generally what should be used
 
         Parameters
         ----------
-        mode
+        mode - 0-indexed mode
         binary_behaviors
         kwargs
 
@@ -292,16 +294,16 @@ class CCAPlotter:
         -------
 
         """
-        # CCA mode
+        # CCA mode (neuron space)
         _, _, cca = self.calc_cca(n_components=mode+1, binary_behaviors=binary_behaviors, **kwargs)
         df_x, _ = self.get_weights_from_cca(cca, binary_behaviors, **kwargs)
-        # PCA mode
+        cca_vec = df_x.iloc[mode, :].values
+        # PCA mode (neuron space); weights are (n_neurons, n_components)
         df_x_pca, _ = self.calc_pca_mode(mode, return_pca_weights=True)
-        # Normalize the modes
-        df_x = df_x / np.linalg.norm(df_x)
-        df_x = df_x.iloc[mode, :]
-        df_x_pca = df_x_pca / np.linalg.norm(df_x_pca)  # PCA is already 1 dimensional
-        return df_x.values.dot(df_x_pca.values)[0]
+        df_x_pca = df_x_pca.reindex(df_x.columns)
+        pca_vec = df_x_pca.iloc[:, mode].values
+        # Cosine similarity (normalize each mode separately)
+        return cca_vec.dot(pca_vec) / (np.linalg.norm(cca_vec) * np.linalg.norm(pca_vec))
 
     def _get_beh_df(self, binary_behaviors, raw_not_truncated=None):
         if raw_not_truncated is None:
@@ -383,11 +385,21 @@ class CCAPlotter:
             df_y = pd.DataFrame(cca.y_weights_, index=df_beh.columns).T
             df_x = pd.DataFrame(cca.x_weights_, index=df_traces.columns).T
         # Convert the weights to the original neuron space, if using PCA preprocessing
+        # Note: weights are directions, so only the linear part of the PCA map is applied. Using
+        # pipeline.inverse_transform would also add back the data mean (from the mean subtraction or pca.mean_)
         if self.preprocess_traces_using_pca:
-            df_x = pd.DataFrame(self._pca_traces.inverse_transform(df_x), columns=self._df_traces.columns)
+            df_x = pd.DataFrame(df_x.values @ self._get_pca_components(self._pca_traces),
+                                columns=self._df_traces.columns)
         if self.preprocess_behavior_using_pca and not binary_behaviors:
-            df_y = pd.DataFrame(self._pca_beh.inverse_transform(df_y), columns=self._df_beh.columns)
+            df_y = pd.DataFrame(df_y.values @ self._get_pca_components(self._pca_beh),
+                                columns=self._df_beh.columns)
         return df_x, df_y
+
+    @staticmethod
+    def _get_pca_components(pipe_or_pca) -> np.ndarray:
+        """Returns the (n_components, n_features) PCA loadings from either a fitted PCA or a pipeline ending in one"""
+        pca = pipe_or_pca.named_steps['pca'] if isinstance(pipe_or_pca, Pipeline) else pipe_or_pca
+        return pca.components_
 
     def plot_single_mode(self, i_mode=0, binary_behaviors=False, use_pca=False, show_legend=True,
                          output_folder=None, **kwargs):
