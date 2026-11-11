@@ -93,12 +93,12 @@ for x in speed_types:
     # fig.update_yaxes(dict(title="Probability", range=[0, 0.019]))
     fig.update_yaxes(dict(title="Probability", range=[0, 0.07])
                     )
-    fig.update_xaxes(dict(title="Angular Velocity (degrees?/s)", 
-                          range=[-0.04, 0.04]))
+    fig.update_xaxes(dict(title="Angular Velocity (rad/s)", 
+                          range=[-3.3, 3.3]))
     fig.update_xaxes(dict(title=""), row=2, col=1)
     
     fig.update_traces(xbins=dict( # bins used for histogram
-        size=0.002
+        size=1/6  # Same bins as the old 0.002 rad/frame, at 83.33 behavior frames/s
     ))
     apply_figure_settings(fig, width_factor=0.4, height_factor=0.2, plotly_not_matplotlib=True)
     

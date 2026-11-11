@@ -1195,13 +1195,19 @@ class WormFullVideoPosture:
 
     # @lru_cache(maxsize=8)
     def worm_angular_velocity(self, fluorescence_fps=False, remove_outliers=True, strong_smoothing=False,
-                              make_consisent_with_stage_speed=True, **kwargs):
+                              make_consisent_with_stage_speed=True, rad_per_s=True, **kwargs):
         """
         This is the angular velocity in PCA space (first two modes)
+
+        Units: radians per second if rad_per_s (default). Otherwise radians per high-res behavior frame, which is what
+        raw_worm_angular_velocity computes (np.gradient without a time step). Note that the derivative is always taken
+        at the high-res behavior frame rate, so subsampling to fluorescence fps does not change the units.
 
         Note: remove outliers by default
         """
         velocity = self.raw_worm_angular_velocity
+        if rad_per_s:
+            velocity = velocity / self.get_time_delta_in_s(fluorescence_fps=False)
         velocity = self._validate_and_downsample(velocity, fluorescence_fps=fluorescence_fps, **kwargs)
         if remove_outliers:
             window = 10
@@ -1787,7 +1793,8 @@ class WormFullVideoPosture:
         """
 
         # Get the speed; use angular speed because sometimes the reversal annotations are wrong
-        speed = self.worm_angular_velocity(fluorescence_fps=True)
+        # Keep rad/frame, which the piecewise fits were tuned on
+        speed = self.worm_angular_velocity(fluorescence_fps=True, rad_per_s=False)
         plateau_state, working_pw_fits = self.calc_plateau_state_from_trace(speed, **plateau_kwargs)
         return plateau_state, working_pw_fits
 
