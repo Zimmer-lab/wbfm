@@ -7,6 +7,7 @@ In fig_2_CCA_with_eigenworms, the neuronal traces are truncated to 3 PCA modes b
 components, CCA can only rotate the top-3 PCA subspace. Here we keep N_PCA_MODES (default 5) instead.
 
 Part 1: The same figures as fig_2_CCA_with_eigenworms (identical settings except the number of PCA modes)
+        Settings follow the .ipynb (which made the published panels), not the older .py backup next to it
         The pure-PCA panel (pca-2d) and the state-transition graphs do not depend on this, so they are not redone
 Part 2: Comparisons between BASELINE_PCA_MODES (3) and N_PCA_MODES (supplement)
         A: Sweep over the number of PCA modes: neuronal variance explained, behavioral variance explained, and
@@ -50,7 +51,8 @@ if not INTERACTIVE:
     go.Figure.show = lambda self, *args, **kwargs: None
 
 from wbfm.utils.external.utils_plotly import plotly_plot_mean_and_shading
-from wbfm.utils.general.utils_hardcoded import load_paper_datasets, neurons_with_confident_ids
+from wbfm.utils.general.utils_hardcoded import (load_paper_datasets, neurons_with_confident_ids,
+                                                neurons_with_less_confident_ids)
 from wbfm.utils.general.utils_paper import (apply_figure_settings, behavior_name_mapping, plot_foldchange_boxes,
                                             plotly_paper_color_discrete_map)
 from wbfm.utils.projects.finished_project_data import ProjectData
@@ -106,7 +108,7 @@ all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 
 # %% Example dataset: 2d CCA latent spaces (continuous and discrete behaviors)
 project_data_gcamp.use_physical_x_axis = True
-cca_plotter = CCAPlotter(project_data_gcamp, preprocess_behavior_using_pca=True, **cca_opt)
+cca_plotter = CCAPlotter(project_data_gcamp, preprocess_behavior_using_pca=False, **cca_opt)
 
 fig = cca_plotter.plot(plot_3d=False, output_folder=output_folder, show_legend=False)
 fig = cca_plotter.plot(plot_3d=False, binary_behaviors=True, show_legend=False, output_folder=output_folder)
@@ -272,9 +274,12 @@ save_plotly(fig, 'variance_explained_by_cca_cumulative.png')
 fig.show()
 
 # %% Neuronal CCA weights: mode 1
-weights_opt = dict(combine_left_and_right=True, preprocess_behavior_using_pca=True, **cca_opt)
+# Note: the mode 1 and mode 2 settings differ (min_datasets_present and behavior PCA), as in the original notebook
+weights_opt1 = dict(combine_left_and_right=True, min_datasets_present=3, weights_kwargs=dict(n_components=2), **cca_opt)
+weights_opt2 = dict(combine_left_and_right=True, min_datasets_present=6, weights_kwargs=dict(n_components=3),
+                    preprocess_behavior_using_pca=True, correct_sign_using_top_weight=True, **cca_opt)
 all_cca_classes1, df_weights1, df_weights_binary1 = calc_cca_weights_for_all_projects(
-    all_projects_gcamp, which_mode=0, min_datasets_present=6, weights_kwargs=dict(n_components=2), **weights_opt)
+    all_projects_gcamp, which_mode=0, **weights_opt1)
 
 
 def melt_both_weights(df_weights, df_weights_binary):
@@ -288,19 +293,23 @@ def melt_both_weights(df_weights, df_weights_binary):
 
 
 neurons_to_plot = neurons_with_confident_ids(combine_left_right=True)
+# Less confident IDs are shown in parentheses
+less_confident_mapping = neurons_with_less_confident_ids(combine_left_right=True, return_mapping=True)
 df_both1 = melt_both_weights(df_weights1, df_weights_binary1)
-fig = px.box(df_both1[df_both1['Neuron'].isin(neurons_to_plot)], x='Neuron', y='Weight', color='Behavior Type',
+df_both1['Neuron'] = df_both1['Neuron'].map(lambda x: less_confident_mapping.get(x, x))
+neurons_to_plot1 = neurons_with_confident_ids(combine_left_right=True, add_parentheses_for_less_confident=True)
+fig = px.box(df_both1[df_both1['Neuron'].isin(neurons_to_plot1)], x='Neuron', y='Weight', color='Behavior Type',
              hover_data=['Dataset Name'], color_discrete_map=plotly_paper_color_discrete_map())
 apply_figure_settings(fig, width_factor=1.0, height_factor=0.2, plotly_not_matplotlib=True)
 fig.update_yaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black", title="CCA Weight<br>(Component 1)")
-fig.update_layout(legend=dict(yanchor="top", y=1.05, xanchor="left", x=0.8))
+fig.update_layout(legend=dict(yanchor="top", y=1.2, xanchor="left", x=0.8))
+fig.update_xaxes(tickmode='array')
 save_plotly(fig, 'paired_boxplot_neural_weights_BOTH.png')
 fig.show()
 
 # %% SUPP: Neuronal CCA weights: mode 2
 all_cca_classes2, df_weights2, df_weights_binary2 = calc_cca_weights_for_all_projects(
-    all_projects_gcamp, which_mode=1, min_datasets_present=6, weights_kwargs=dict(n_components=3),
-    correct_sign_using_top_weight=True, **weights_opt)
+    all_projects_gcamp, which_mode=1, **weights_opt2)
 df_weights2 = df_weights2[[c for c in df_weights2.columns if c in neurons_to_plot]]
 df_weights_binary2 = df_weights_binary2[[c for c in df_weights_binary2.columns if c in neurons_to_plot]]
 
@@ -370,7 +379,7 @@ fig = px.box(df_weights_beh3.rename(columns=behavior_name_mapping(shorten=True))
              color_discrete_sequence=[plotly_paper_color_discrete_map()['CCA']])
 apply_figure_settings(fig, width_factor=0.25, height_factor=0.2, plotly_not_matplotlib=True)
 fig.update_yaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black", title="Weight <br> (mode 3)")
-fig.update_xaxes(title="")
+fig.update_xaxes(title="", tickmode='linear', dtick=1)  # Otherwise plotly skips every other label
 save_plotly(fig, 'paired_boxplot_beh_weights3.png')
 fig.show()
 
@@ -417,8 +426,8 @@ for y_col, y_title, fname in [
     fig.add_vline(x=N_PCA_MODES, line=dict(color='black', width=1, dash='dash'))
     fig.update_xaxes(title=x_title, tickvals=N_PCA_MODES_SWEEP)
     fig.update_yaxes(title=y_title, range=[0, 1.0])
-    fig.update_layout(legend=dict(yanchor="bottom", y=0.0, xanchor="right", x=1.0))
-    apply_figure_settings(fig, width_factor=0.3, height_factor=0.2)
+    fig.update_layout(legend=dict(yanchor="middle", y=0.5, xanchor="left", x=1.02))
+    apply_figure_settings(fig, width_factor=0.45, height_factor=0.2)
     save_plotly(fig, fname)
     fig.show()
 
@@ -432,9 +441,10 @@ for method in method_opts:
     fig = plotly_plot_mean_and_shading(_df, x='n_pca_modes', y='Canonical correlation', color='Component', cmap=mode_cmap)
     fig.add_vline(x=N_PCA_MODES, line=dict(color='black', width=1, dash='dash'))
     fig.update_xaxes(title=x_title, tickvals=N_PCA_MODES_SWEEP)
-    fig.update_yaxes(title=f'Correlation of CCA<br>latent spaces ({method})', range=[0, 1.05])
-    fig.update_layout(legend=dict(yanchor="bottom", y=0.0, xanchor="right", x=1.0))
-    apply_figure_settings(fig, width_factor=0.3, height_factor=0.2)
+    beh_label = 'continuous' if method == 'CCA' else 'discrete'
+    fig.update_yaxes(title=f'Correlation of<br>latent spaces<br>({beh_label})', range=[0, 1.05])
+    fig.update_layout(legend=dict(yanchor="middle", y=0.5, xanchor="left", x=1.02))
+    apply_figure_settings(fig, width_factor=0.45, height_factor=0.2)
     save_plotly(fig, f'supp_npcs_canonical_correlation_{method.replace(" ", "_")}.png')
     fig.show()
 
@@ -453,7 +463,7 @@ def calc_cca_pca_overlap(c: CCAPlotter, binary_behaviors: bool) -> np.ndarray:
 ks_to_compare = [BASELINE_PCA_MODES, N_PCA_MODES]
 for method, opt in method_opts.items():
     fig = make_subplots(rows=1, cols=2, column_widths=[BASELINE_PCA_MODES, N_PCA_MODES], horizontal_spacing=0.08,
-                        subplot_titles=[f'{k} PCA modes kept' for k in ks_to_compare])
+                        subplot_titles=[f'{k} PCs kept' for k in ks_to_compare])
     rows_csv = []
     for i_col, k in enumerate(ks_to_compare):
         overlap = np.mean([calc_cca_pca_overlap(c, **opt) for c in sweep_plotters[k].values()], axis=0)
@@ -466,7 +476,8 @@ for method, opt in method_opts.items():
         rows_csv.append(pd.DataFrame(overlap, index=y_labels, columns=x_labels).assign(n_pca_modes=k))
     fig.update_yaxes(autorange='reversed')
     fig.update_yaxes(showticklabels=False, row=1, col=2)
-    apply_figure_settings(fig, width_factor=0.45, height_factor=0.15)
+    apply_figure_settings(fig, width_factor=0.45, height_factor=0.17)
+    fig.update_layout(margin=dict(t=40))  # Room for the subplot titles
     save_plotly(fig, f'supp_npcs_cca_pca_overlap_{method.replace(" ", "_")}.png')
     pd.concat(rows_csv).to_csv(os.path.join(output_folder, f'supp_npcs_cca_pca_overlap_{method.replace(" ", "_")}.csv'))
     fig.show()
@@ -490,19 +501,17 @@ print(df_weight_similarity.groupby(['Behavior type', 'Component'])['Weight simil
 
 fig = px.box(df_weight_similarity, x='Component', y='Weight similarity', color='Behavior type',
              color_discrete_map=plotly_paper_color_discrete_map())
-fig.update_yaxes(title=f'Neuronal weight similarity<br>({BASELINE_PCA_MODES} vs. {N_PCA_MODES} PCA modes)', range=[0, 1.05])
+fig.update_yaxes(title=f'Weight similarity<br>({BASELINE_PCA_MODES} vs. {N_PCA_MODES} PCs)', range=[0, 1.05])
 fig.update_layout(showlegend=False)
 apply_figure_settings(fig, width_factor=0.2, height_factor=0.2)
 save_plotly(fig, 'supp_npcs_weight_similarity.png')
 fig.show()
 
 # %% D: Median neuronal CCA weight per neuron (baseline vs N_PCA_MODES), same settings as the weight figures above
-baseline_weights_opt = weights_opt.copy()
-baseline_weights_opt['truncate_traces_to_n_components'] = BASELINE_PCA_MODES
 _, df_weights1_base, df_weights_binary1_base = calc_cca_weights_for_all_projects(
-    all_projects_gcamp, which_mode=0, min_datasets_present=6, weights_kwargs=dict(n_components=2), **baseline_weights_opt)
+    all_projects_gcamp, which_mode=0, **{**weights_opt1, 'truncate_traces_to_n_components': BASELINE_PCA_MODES})
 _, df_weights2_base, df_weights_binary2_base = calc_cca_weights_for_all_projects(
-    all_projects_gcamp, which_mode=1, min_datasets_present=6, weights_kwargs=dict(n_components=3), **baseline_weights_opt)
+    all_projects_gcamp, which_mode=1, **{**weights_opt2, 'truncate_traces_to_n_components': BASELINE_PCA_MODES})
 
 all_medians = []
 for mode, beh_type, df_base, df_new in [(1, 'Continuous', df_weights1_base, df_weights1),
@@ -521,28 +530,39 @@ for mode, beh_type, df_base, df_new in [(1, 'Continuous', df_weights1_base, df_w
 df_medians = pd.concat(all_medians)
 df_medians.to_csv(os.path.join(output_folder, 'supp_npcs_median_weights.csv'), index=False)
 
-fig = make_subplots(rows=1, cols=2, subplot_titles=['Component 1', 'Component 2'], horizontal_spacing=0.15)
+fig = make_subplots(rows=1, cols=2, subplot_titles=['Component 1', 'Component 2'], horizontal_spacing=0.18)
 cmap = plotly_paper_color_discrete_map()
-n_labels = 6  # Label the neurons with the largest weights (per component and behavior type)
+n_labels = 4  # Label the continuous-CCA neurons with the largest weights (alternating label sides to reduce overlap)
+label_positions = ['middle left', 'middle right']
 for i_col, mode in enumerate([1, 2]):
+    r_text = []
     for beh_type in ['Continuous', 'Discrete']:
         _df = df_medians[(df_medians['Component'] == mode) & (df_medians['Behavior Type'] == beh_type)]
-        top = set(_df.assign(m=_df[['baseline', 'new']].abs().max(axis=1)).nlargest(n_labels, 'm')['Neuron'])
-        r = _df['baseline'].corr(_df['new'])
-        fig.add_trace(go.Scatter(x=_df['baseline'], y=_df['new'], mode='markers+text', name=f'{beh_type} (r={r:.2f})',
-                                 text=[n if n in top else '' for n in _df['Neuron']], textposition='top center',
-                                 textfont=dict(size=8), marker=dict(color=cmap[beh_type], size=6),
-                                 hovertext=_df['Neuron'], showlegend=True),
+        r_text.append(f"<span style='color:{cmap[beh_type]}'>r={_df['baseline'].corr(_df['new']):.2f}</span>")
+        text, positions = [''] * len(_df), ['top center'] * len(_df)
+        if beh_type == 'Continuous':
+            ranked = _df[['baseline', 'new']].abs().max(axis=1).reset_index(drop=True).sort_values(ascending=False)
+            for rank, idx in enumerate(ranked.index[:n_labels]):
+                text[idx] = less_confident_mapping.get(_df['Neuron'].iloc[idx], _df['Neuron'].iloc[idx])
+                positions[idx] = label_positions[rank % 2]
+        fig.add_trace(go.Scatter(x=_df['baseline'], y=_df['new'], mode='markers+text', name=beh_type,
+                                 text=text, textposition=positions, textfont=dict(size=9),
+                                 marker=dict(color=cmap[beh_type], size=6, opacity=0.8),
+                                 hovertext=_df['Neuron'], showlegend=(i_col == 0)),
                       row=1, col=i_col + 1)
-    lim = df_medians.loc[df_medians['Component'] == mode, ['baseline', 'new']].abs().max().max() * 1.1
+    lim = df_medians.loc[df_medians['Component'] == mode, ['baseline', 'new']].abs().max().max() * 1.2
     fig.add_shape(type='line', x0=-lim, y0=-lim, x1=lim, y1=lim, line=dict(color='gray', dash='dash', width=1),
                   row=1, col=i_col + 1)
-    fig.update_xaxes(title=f'Median weight<br>({BASELINE_PCA_MODES} PCA modes)', range=[-lim, lim],
+    # Correlations (continuous, discrete) in the lower right corner
+    fig.add_annotation(text='<br>'.join(r_text), x=lim, y=-lim, xanchor='right', yanchor='bottom', showarrow=False,
+                       align='right', font=dict(size=10), row=1, col=i_col + 1)
+    fig.update_xaxes(title=f'Median weight<br>({BASELINE_PCA_MODES} PCs)', range=[-lim, lim],
                      zeroline=True, zerolinecolor='black', zerolinewidth=1, row=1, col=i_col + 1)
     fig.update_yaxes(range=[-lim, lim], zeroline=True, zerolinecolor='black', zerolinewidth=1, row=1, col=i_col + 1)
-fig.update_yaxes(title=f'Median weight<br>({N_PCA_MODES} PCA modes)', row=1, col=1)
-fig.update_layout(legend=dict(yanchor="top", y=-0.35, xanchor="left", x=0.0, orientation='h'))
-apply_figure_settings(fig, width_factor=0.5, height_factor=0.25)
+fig.update_yaxes(title=f'Median weight<br>({N_PCA_MODES} PCs)', row=1, col=1)
+fig.update_layout(legend=dict(yanchor="middle", y=0.5, xanchor="left", x=1.02))
+apply_figure_settings(fig, width_factor=0.6, height_factor=0.25)
+fig.update_layout(margin=dict(t=40))  # Room for the subplot titles
 save_plotly(fig, 'supp_npcs_median_weights_scatter.png')
 fig.show()
 
