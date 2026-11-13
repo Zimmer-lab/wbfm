@@ -91,6 +91,7 @@ beh_video.shape
 # In[14]:
 
 
+
 # obj.onset_vector()
 
 
@@ -117,6 +118,7 @@ fig.show()
 
 
 # In[ ]:
+
 
 
 obj.onset_vector()

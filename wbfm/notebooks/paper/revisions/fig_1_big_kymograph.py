@@ -607,6 +607,7 @@ df_duration.columns
 # In[ ]:
 
 
+
 states = ['BehaviorCodes.FWD', 'BehaviorCodes.REV']
 titles = ["Fwd", "Bwd"]
 
@@ -647,6 +648,7 @@ for x, t in zip(states, titles):
 
 
 # In[ ]:
+
 
 
 fig = px.histogram(df_duration.melt(id_vars=['dataset_name', 'genotype']), 
@@ -698,6 +700,7 @@ df_frequency = pd.concat([df_frequency_gcamp, df_frequency_gfp])
 
 
 # In[ ]:
+
 
 
 states = ['BehaviorCodes.FWD', 'BehaviorCodes.REV']
@@ -958,6 +961,7 @@ from wbfm.utils.general.utils_paper import export_legend_for_paper
 # In[93]:
 
 
+
 fname = f"legend_reversal.png"
 fname = os.path.join("fig1", fname)
 
@@ -1058,6 +1062,7 @@ df_duration['BehaviorCodes.SLOWING'] /= fps
 
 
 # In[ ]:
+
 
 
 states = ['BehaviorCodes.SLOWING']

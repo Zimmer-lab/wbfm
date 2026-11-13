@@ -122,14 +122,9 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
                     'phase_shift',
                     'eigenworm3_coefficient', 'eigenworm4_coefficient'
         ]
-    # Reference values for ttests; prob_flip_sign is special
-    var_names_ref = [0.01]  # pca amplitudes are strictly positive, so use a ROPE
-    var_names_ref.extend([0.0] * (len(var_names) - len(var_names_ref)))
-    var_names_ref = xr.DataArray(
-        var_names_ref,
-        dims=["variable"],
-        coords={"variable": var_names}
-    )
+    # All t-tests are against 0. Note: a previous version used a per-variable reference DataArray with a
+    # "variable" dim, which xarray broadcast across every data variable, so each variable was compared to
+    # all references and averaged (effectively ~0 for all, with a 1/11 weight on 0.01)
 
     var_names2 = ["sigmoid_term"]
 
@@ -153,7 +148,7 @@ def calculate_bayesian_ttests(suffix = '_pca_global', single_neuron=None, do_gfp
         all_dfs[n].append(var_df.T)
 
         # Also calculate the bayesian p-value vs. 0 for all columns
-        prob_gt_zero = (posterior[var_names] > var_names_ref).mean()
+        prob_gt_zero = (posterior[var_names] > 0).mean()
         if verbose >= 1:
             print(f"Neuron {n} prob_gt_zero:\n{prob_gt_zero}")
         # Get the smaller one (or vector) and multiply by 2

@@ -36,7 +36,7 @@ import plotly.express as px
 from wbfm.utils.general.utils_filenames import add_name_suffix
 
 
-# In[4]:
+# In[3]:
 
 
 # Load multiple datasets
@@ -44,19 +44,19 @@ from wbfm.utils.general.utils_hardcoded import load_paper_datasets
 all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 
 
-# In[5]:
+# In[4]:
 
 
 all_projects_gfp = load_paper_datasets('gfp')
 
 
-# In[6]:
+# In[5]:
 
 
 all_projects_immob = load_paper_datasets('immob')
 
 
-# In[7]:
+# In[6]:
 
 
 # Get specific example datasets
@@ -86,14 +86,13 @@ project_data_immob2 = all_projects_immob['ZIM2165_immob_adj_set_2_worm2-2022-11-
 # project_data_fm2immob_immob2 = ProjectData.load_final_project_data_from_config(fname, verbose=0)
 
 
-
 # In[8]:
 
 
 # [str(p.project_config.self_path) for p in all_projects_gcamp.values()]
 
 
-# In[8]:
+# In[9]:
 
 
 # path_to_saved_data = "../step1_analysis/figure_1"
@@ -230,6 +229,7 @@ export_legend_for_paper(reversal_shading=True, fname=fname)
 # In[36]:
 
 
+
 fname = 'intro/reversal_and_collision_legend.png'
 export_legend_for_paper(reversal_shading=True, fname=fname, include_self_collision=True)
 
@@ -305,13 +305,13 @@ fig.savefig(fname.replace(".png", ".svg"), transparent=True)
 
 # # PCA weights across wbfm and immob
 
-# In[200]:
+# In[22]:
 
 
 from wbfm.utils.visualization.utils_cca import calc_pca_weights_for_all_projects
 from wbfm.utils.external.utils_plotly import plotly_boxplot_colored_boxes
 from wbfm.utils.general.utils_paper import apply_figure_settings
-from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids, intrinsic_definition
 from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation
 from wbfm.utils.general.utils_paper import data_type_name_mapping, plotly_paper_color_discrete_map, calc_p_values_for_pca_weights
 import plotly.graph_objects as go
@@ -319,21 +319,22 @@ from wbfm.utils.general.utils_paper import intrinsic_categories_color_discrete_m
 from wbfm.utils.external.utils_plotly import colored_text
 
 
-# In[14]:
+# In[16]:
+
 
 
 wbfm_weights = calc_pca_weights_for_all_projects(all_projects_gcamp, use_paper_options=True, combine_left_right=True,
                                                  include_only_confident_ids=True)
 
 
-# In[15]:
+# In[17]:
 
 
 immob_weights = calc_pca_weights_for_all_projects(all_projects_immob, use_paper_options=True, combine_left_right=True,
                                                   include_only_confident_ids=True)
 
 
-# In[222]:
+# In[18]:
 
 
 df_both, df_significant_diff, df_4states_counts = calc_p_values_for_pca_weights(wbfm_weights, immob_weights,
@@ -342,7 +343,7 @@ df_both, df_significant_diff, df_4states_counts = calc_p_values_for_pca_weights(
 
 # ## Main plot: dr/r50 traces
 
-# In[231]:
+# In[19]:
 
 
 # Plot
@@ -372,14 +373,14 @@ fname = Path(fname).with_suffix('.svg')
 fig.write_image(fname)
 
 
-# In[227]:
+# In[24]:
 
 
 from wbfm.utils.general.utils_paper import intrinsic_categories_color_discrete_map
 
-df_4states_counts = df_4states['Result'].value_counts().reset_index()
+# df_4states_counts = df_4states['Result'].value_counts().reset_index()
 df_4states_counts['Result_simple'] = df_4states_counts['Result'].map(intrinsic_definition)
-df_4states['Result_simple'] = df_4states['Result'].map(intrinsic_definition)
+# df_4states['Result_simple'] = df_4states['Result'].map(intrinsic_definition)
 
 fig = px.pie(df_4states_counts, names='Result_simple', values='count', color='Result_simple', 
              color_discrete_map=intrinsic_categories_color_discrete_map())
@@ -400,7 +401,7 @@ fname = Path(fname).with_suffix('.svg')
 fig.write_image(fname)
 
 
-# In[163]:
+# In[ ]:
 
 
 df_4states['Result_simple'].value_counts()
@@ -408,28 +409,29 @@ df_4states['Result_simple'].value_counts()
 
 # ## Supp figure: dr/r20 traces
 
-# In[210]:
+# In[ ]:
+
 
 
 wbfm_weights_r20 = calc_pca_weights_for_all_projects(all_projects_gcamp, use_paper_options=True, combine_left_right=True,
                                                  include_only_confident_ids=True, channel_mode='dr_over_r_20')
 
 
-# In[211]:
+# In[ ]:
 
 
 immob_weights_r20 = calc_pca_weights_for_all_projects(all_projects_immob, use_paper_options=True, combine_left_right=True,
                                                   include_only_confident_ids=True, channel_mode='dr_over_r_20')
 
 
-# In[219]:
+# In[ ]:
 
 
 df_both_r20, df_significant_diff_r20, df_4states_counts_r20 = calc_p_values_for_pca_weights(wbfm_weights_r20, immob_weights_r20,
                                                                                 intrinsic_categories_fname='fig3/intrinsic_categories_r20.xlsx')
 
 
-# In[230]:
+# In[ ]:
 
 
 # Plot
@@ -459,7 +461,7 @@ fname = Path(fname).with_suffix('.svg')
 fig.write_image(fname)
 
 
-# In[228]:
+# In[ ]:
 
 
 from wbfm.utils.general.utils_paper import intrinsic_categories_color_discrete_map
@@ -511,7 +513,7 @@ fig.write_image(fname)
 # 
 # i.e. the cumulative histogram, with error bar per dataset
 
-# In[139]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.multiproject_wrappers import build_dataframe_of_variance_explained
@@ -715,7 +717,7 @@ fname = Path(fname).with_suffix('.svg')
 fig.write_image(fname)
 
 
-# In[74]:
+# In[ ]:
 
 
 # %debug
@@ -723,14 +725,15 @@ fig.write_image(fname)
 
 # # Dimensionality of single neurons
 
-# In[232]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.utils_dimensionality import calculate_dimensionality_of_single_neurons
 from wbfm.utils.general.utils_hardcoded import get_hierarchical_modeling_dir
 
 
-# In[181]:
+# In[ ]:
+
 
 
 parent_folder = get_hierarchical_modeling_dir(immobilized=True)
@@ -738,40 +741,54 @@ fname = 'data.h5'
 df_immob = pd.read_hdf(os.path.join(parent_folder, fname))
 
 
-# In[182]:
+# In[ ]:
 
 
 parent_folder
 
 
-# In[184]:
+# In[ ]:
 
 
 # [print(c) for c in df_immob.columns]
 
 
-# In[185]:
+# In[ ]:
 
 
 df_immob['AVAL']
 
 
-# In[186]:
+# In[ ]:
 
 
 df_immob['AVAL_manifold']
 
 
-# In[236]:
+# In[ ]:
 
 
 calculate_dimensionality_of_single_neurons(combine_left_right=False)
 
 
-# In[235]:
+# In[ ]:
 
 
 calculate_dimensionality_of_single_neurons(combine_left_right=True)
+
+
+# # Reviewer question: How many modes are required for 80% variance?
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
 
 
 # # Scratch

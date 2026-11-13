@@ -41,13 +41,13 @@ from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation
 from wbfm.utils.general.utils_hardcoded import load_paper_datasets
 
 
-# In[23]:
+# In[4]:
 
 
 all_projects_no_light = load_paper_datasets('no_light_control_fm')
 
 
-# In[6]:
+# In[5]:
 
 
 all_projects_wt = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
@@ -57,7 +57,7 @@ all_projects_wt = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 
 # ## Angular speed
 
-# In[44]:
+# In[6]:
 
 
 from wbfm.utils.visualization.plot_summary_statistics import calc_speed_dataframe
@@ -65,14 +65,15 @@ from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_c
 from wbfm.utils.general.utils_paper import data_type_name_mapping
 
 
-# In[47]:
+# In[7]:
 
 
 df_speed_wt = calc_speed_dataframe(all_projects_wt)
 df_speed_no_light = calc_speed_dataframe(all_projects_no_light)
 
 
-# In[60]:
+# In[26]:
+
 
 
 df_speed_wt['Genotype'] = 'Wild Type'
@@ -110,7 +111,7 @@ for x in speed_types:
     fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[87]:
+# In[9]:
 
 
 df_speed_wt
@@ -118,26 +119,26 @@ df_speed_wt
 
 # ## Durations
 
-# In[56]:
+# In[10]:
 
 
 from wbfm.utils.visualization.plot_summary_statistics import calc_durations_dataframe
 
 
-# In[57]:
+# In[11]:
 
 
 df_duration_wt = calc_durations_dataframe(all_projects_wt)
 df_duration_no_light = calc_durations_dataframe(all_projects_no_light)
 
 
-# In[33]:
+# In[12]:
 
 
 # %debug
 
 
-# In[58]:
+# In[13]:
 
 
 df_duration_wt['genotype'] = 'Wild Type'
@@ -150,7 +151,8 @@ df_duration['BehaviorCodes.FWD'] /= fps
 df_duration['BehaviorCodes.REV'] /= fps
 
 
-# In[63]:
+# In[14]:
+
 
 
 states = ['BehaviorCodes.FWD', 'BehaviorCodes.REV']
@@ -194,21 +196,21 @@ for x, t in zip(states, titles):
 
 # ## Turns
 
-# In[70]:
+# In[15]:
 
 
 from wbfm.utils.visualization.plot_summary_statistics import calc_turn_amplitude_dataframe
 from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
 
 
-# In[67]:
+# In[16]:
 
 
 df_turns_wt = calc_turn_amplitude_dataframe(all_projects_wt)
 df_turns_no_light = calc_turn_amplitude_dataframe(all_projects_no_light)
 
 
-# In[71]:
+# In[17]:
 
 
 df_turns_wt['genotype'] = 'Wild Type'
@@ -217,14 +219,14 @@ df_turns_no_light['genotype'] = 'No Light'
 df_turns = pd.concat([df_turns_wt, df_turns_no_light])
 
 
-# In[72]:
+# In[18]:
 
 
 beh_list = [BehaviorCodes.VENTRAL_TURN, BehaviorCodes.DORSAL_TURN]
 cmap = [BehaviorCodes.ethogram_cmap()[beh] for beh in beh_list]
 
 
-# In[80]:
+# In[19]:
 
 
 df_turns['Amplitude'] = df_turns['Amplitude'].abs()
@@ -259,7 +261,7 @@ fig.write_image(fname, scale=3)
 fig.write_image(fname.replace(".png", ".svg"))
 
 
-# In[81]:
+# In[20]:
 
 
 fig = px.pie(df_turns, names="Turn Direction", color_discrete_sequence=cmap)
@@ -312,13 +314,13 @@ fig.write_image(fname.replace(".png", ".svg"))
 
 # # Trajectory example
 
-# In[7]:
+# In[21]:
 
 
 from wbfm.utils.general.utils_paper import plot_trajectory
 
 
-# In[84]:
+# In[22]:
 
 
 p = all_projects_no_light['2025-12-03_17-34_no_light_control_worm10_auto-2025-12-03']
@@ -370,17 +372,20 @@ plot_trajectory(p, beh_annotation_kwargs=dict(include_pause=False), to_save=Fals
 
 # # Debug not finding behavior
 
-# In[24]:
+# In[ ]:
 
 
 
 
 
-# In[30]:
+# In[23]:
 
 
 p.worm_posture_class
 
 
-# In[35]:
+# In[25]:
+
+
+# p.worm_posture_class._raw_curvature
 
