@@ -318,3 +318,37 @@ def calculate_all_bayesian_model_data(suffix='_pca_global', single_neuron=None, 
     df_params = df_params.merge(Xy_var_ratio_median, on=['Dataset Type', 'neuron_name'], how='outer')
 
     return df_params, df_params_full, y_max_gfp, x_max_gfp
+
+
+def wrap_to_pi(x):
+    """Wrap angles (radians) to the interval [-pi, pi)."""
+    return (np.asarray(x) + np.pi) % (2 * np.pi) - np.pi
+
+
+def circular_posterior_difference_pvalue(v1, v2, n_mc=20000, rng=None):
+    """
+    Two-sided posterior test of whether two circular parameters (e.g. phase_shift, in radians) differ.
+
+    Pairs of posterior draws are subtracted and wrapped to [-pi, pi). The wrapped differences are then
+    "unrolled" around their circular mean, so that 0 is compared against a contiguous distribution even when
+    the difference is near +-pi (where a naive sign test would split the mass ~50/50 and return p ~ 1).
+
+    Returns
+    -------
+    p_two_sided : float
+        2 * min(P(delta > 0), P(delta < 0)) on the unrolled difference distribution
+    mean_diff : float
+        Circular mean of the wrapped difference (radians, in [-pi, pi))
+    """
+    rng = np.random.default_rng(rng)
+    s1 = rng.choice(np.asarray(v1), size=n_mc, replace=True)
+    s2 = rng.choice(np.asarray(v2), size=n_mc, replace=True)
+
+    delta = wrap_to_pi(s1 - s2)
+    mean_diff = np.angle(np.mean(np.exp(1j * delta)))
+    # Unroll around the circular mean: values now lie in [mean_diff - pi, mean_diff + pi), which always contains 0
+    delta_unrolled = mean_diff + wrap_to_pi(delta - mean_diff)
+
+    p_gt0 = np.mean(delta_unrolled > 0)
+    p_two_sided = 2 * min(p_gt0, 1 - p_gt0)
+    return p_two_sided, mean_diff
