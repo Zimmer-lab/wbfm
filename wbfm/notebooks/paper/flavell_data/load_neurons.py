@@ -15,8 +15,38 @@ except ImportError:
 
 DEFAULT_BEHAVIOR_COLUMNS = ['velocity', 'angular_velocity', 'head_curvature', 'body_curvature', 'pumping']
 
+# Same simple preprocessing as our paper traces (see paper_trace_settings and plotting_classes.py):
+# dR/R50 per neuron, then a centered rolling mean over 3 frames
+ROLLING_MEAN_WINDOW = 3
+# Post-reversal turns: the Flavell data has no turn annotation (ours uses the full kymograph).
+# On our data, labeling a fixed window after every reversal end matches our annotation better (frame F1 0.75)
+# than any body curvature threshold (best F1 0.65), because ~95% of our reversals end in a turn (median 1.4 s).
+POST_REVERSAL_TURN_DURATION_S = 1.5
 
-def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, include_hierarchical=False, include_immob=False):
+
+def preprocess_flavell_traces(traces):
+    """Convert raw ratiometric traces (neurons x time) to dR/R50 with a 3-frame rolling mean, like our paper traces."""
+    df = pd.DataFrame(np.asarray(traces, dtype=np.float64).T)
+    r0 = df.median(axis=0)
+    df = (df - r0) / r0
+    df = df.rolling(ROLLING_MEAN_WINDOW, min_periods=1, center=True).mean()
+    return df.values.T
+
+
+def post_reversal_turn_mask(reversal_events, n_timepoints, frame_duration_s,
+                            turn_duration_s=POST_REVERSAL_TURN_DURATION_S):
+    """Boolean mask of the fixed-duration turn window after each reversal end (never overlapping a reversal)."""
+    n_frames = int(np.ceil(turn_duration_s / frame_duration_s))
+    is_rev = np.zeros(n_timepoints, dtype=bool)
+    turn = np.zeros(n_timepoints, dtype=bool)
+    for start, stop in reversal_events:
+        is_rev[start:min(stop, n_timepoints)] = True
+        turn[min(stop, n_timepoints):min(stop + n_frames, n_timepoints)] = True
+    return turn & ~is_rev
+
+
+def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, include_hierarchical=False, include_immob=False,
+                 preprocess=True):
     """Load neuron traces from JSON files.
 
     Args:
@@ -24,6 +54,7 @@ def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, inc
         behavior_columns: List of behavior column names to include (default: DEFAULT_BEHAVIOR_COLUMNS)
         verbose: Whether to print loading progress (default: True)
         include_hierarchical: Whether to also load hierarchical modeling data from wbfm (default: False)
+        preprocess: Convert Flavell traces to dR/R50 + 3-frame rolling mean, matching our data (default: True)
 
     Returns:
         DataFrame with dataset_name, local_time, behavior columns, and neuron columns
@@ -44,6 +75,8 @@ def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, inc
             data = json.load(f)
         
         traces = data["trace_original"]
+        if preprocess:
+            traces = preprocess_flavell_traces(traces)
         labeled = data.get("labeled", {})
         n_timepoints = len(traces[0])
         
@@ -74,6 +107,8 @@ def load_neurons(glob_pattern="*.json", behavior_columns=None, verbose=True, inc
                     end = min(stop, n_timepoints)
                     reversal[start:end] = 'reversal'
             df['reversal'] = reversal
+            frame_duration_s = data['avg_timestep'] * 60  # avg_timestep is in minutes
+            df['post_reversal_turn'] = post_reversal_turn_mask(reversal_events, n_timepoints, frame_duration_s)
         
         df.insert(0, 'local_time', np.arange(n_timepoints))
         df.insert(0, 'dataset_name', fname)

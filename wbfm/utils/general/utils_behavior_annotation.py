@@ -1191,7 +1191,8 @@ def approximate_slowing_using_speed_from_config(project_cfg, min_length=3, retur
     from wbfm.utils.projects.finished_project_data import ProjectData
     project_data = ProjectData.load_final_project_data_from_config(project_cfg)
 
-    y = project_data.worm_posture_class.worm_angular_velocity(fluorescence_fps=False)
+    # Peak detection thresholds (height, deriv_epsilon) are in rad/frame, so do not convert to rad/s
+    y = project_data.worm_posture_class.worm_angular_velocity(fluorescence_fps=False, rad_per_s=False)
     beh_vec, beh_vec_raw = calc_slowing_using_peak_detection(y, min_length)
 
     if return_raw_rise_high_fall:

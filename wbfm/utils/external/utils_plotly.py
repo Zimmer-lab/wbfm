@@ -321,83 +321,272 @@ def float2rgba(float_color, alpha=0.2):
     return fillcolor
 
 
-def get_nonoverlapping_text_positions(x, y, all_text, fig, weight=100, k=None, add_nodes_with_no_text=True,
-                                      x_range=None, y_range=None, **kwargs):
+def get_nonoverlapping_text_positions(
+    x,
+    y,
+    all_text,
+    fig=None,
+    weight=0.1,
+    k=0.2,
+    add_nodes_with_no_text=True,
+    x_range=None,
+    y_range=None,
+    DEBUG=False,
+    **kwargs,
+):
     """
+    Add arrow annotations to a plotly figure, with text placed by a force-directed layout so labels don't overlap.
+
+    Each labeled point gets a fixed "data" node and a movable "text" node joined by a spring; networkx's spring_layout
+    then pushes text nodes apart.
 
     Parameters
     ----------
-    x
-    y
-    all_text
-    fig
+    x, y - data coordinates (Series, list, or array); matched to all_text by position, not index
+    all_text - label for each point; empty strings / NaN get no annotation
+    fig - plotly figure to annotate; if None, a simple scatter is created
     weight - weight of the edge between the data and the text (attraction)
-    k - optimal distance between nodes
-    add_nodes_with_no_text
-    x_range
-    y_range
-    kwargs
+    k - optimal distance between nodes, in data units
+    add_nodes_with_no_text - if True, unlabeled points still repel labels (but are not annotated)
+    x_range, y_range - [min, max]. Points outside are ignored entirely (no label, no repulsion), and labels of
+        points inside are clipped to stay within the range
+    DEBUG - print layout diagnostics
+    kwargs - passed to the annotation font, e.g. size=12
 
     Returns
     -------
+    fig
 
     """
+    import numpy as np
+    import pandas as pd
     import networkx as nx
-    positions = np.array(list(zip(x, y)))
-    G = nx.Graph()
+    import plotly.graph_objects as go
 
-    # Add nodes
-    fixed_nodes = []
-    text_index_mapping = dict()
-    for i, (pos, text) in enumerate(zip(positions, all_text)):
-        if len(text) == 0:
-            # Skip empty text
-            if not add_nodes_with_no_text:
-                continue
-        text_index_mapping[text] = i
-        #     continue
-        G.add_node(text, pos=pos)
-        G.add_node(f"data_{i}", pos=pos)  # Will be fixed in place
-        G.add_edge(f"data_{i}", text, weight=weight)  # Try to keep the text near the data
-        fixed_nodes.append(f"data_{i}")
+    # Convert pandas Series/lists to positional NumPy arrays.
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    all_text = np.asarray(all_text, dtype=object)
 
-    # Add edges independent of distance
-    # for i in range(len(positions)):
-    #     G.add_edge(f"data_{i}", f"text_{i}", weight=weight)  # Try to keep the text near the data
-        # for j in range(i + 1, len(positions)):
-        #     dist = np.linalg.norm(positions[i] - positions[j])
-        #     G.add_edge(f"text_{i}", f"text_{j}", weight=1.0 / (dist + 1e-4))
-        # print(1.0 / (dist + 1e-4))
+    if not (len(x) == len(y) == len(all_text)):
+        raise ValueError("x, y, and all_text must have equal lengths.")
 
-    # Apply force-directed layout
-    new_positions = nx.spring_layout(G, pos=nx.get_node_attributes(G, 'pos'), fixed=fixed_nodes,
-                                     weight='weight',  k=k,)
+    positions = np.column_stack([x, y])
 
-    # Update the plot with new text positions
-    # adjusted_text_positions = np.array([new_positions[k] for k in new_positions.keys() if k in all_text])
+    # Plotly silently ignores rows containing NaN/inf. NetworkX does not.
+    finite_mask = np.isfinite(positions).all(axis=1)
 
-    # Create new scatter plot with adjusted text positions
-    if fig is None:
-        adjusted_scatter = go.Scatter(
-            x=x, y=y,
-            mode='markers',
-        )
-        fig = go.Figure(data=[adjusted_scatter])
+    if not finite_mask.any():
+        raise ValueError("No rows contain finite x and y coordinates.")
 
-    # for i, (t, (x_new, y_new)) in enumerate(zip(text, adjusted_text_positions)):
-    for t, i in text_index_mapping.items():
-        # i is the index in the original data list
-        if len(t) == 0:
-            # Skip empty text
-            continue
-        _x, _y = x.iat[i], y.iat[i]
-        x_new, y_new = new_positions[t]
+    finite_positions = positions[finite_mask]
+
+    # Points outside the requested ranges are not shown, so they get no label and do not push other labels around.
+    with np.errstate(invalid="ignore"):
+        in_range_mask = np.ones(len(positions), dtype=bool)
         if x_range is not None:
-            x_new = max(x_range[0], min(x_range[1], x_new))
+            in_range_mask &= (x >= x_range[0]) & (x <= x_range[1])
         if y_range is not None:
-            y_new = max(y_range[0], min(y_range[1], y_new))
-        fig.add_annotation(x=_x, y=_y, ax=x_new, ay=y_new,  # arrowhead=2,
-                           text=t, xref="x", yref="y", axref="x", ayref="y", font=dict(**kwargs))
+            in_range_mask &= (y >= y_range[0]) & (y <= y_range[1])
+    valid_mask = finite_mask & in_range_mask
+
+    # Calculate spans only from valid coordinates.
+    x_span = np.ptp(finite_positions[:, 0])
+    y_span = np.ptp(finite_positions[:, 1])
+
+    if not np.isfinite(x_span) or x_span == 0:
+        x_span = 1.0
+
+    if not np.isfinite(y_span) or y_span == 0:
+        y_span = 1.0
+
+    def is_empty_text(value):    
+        if pd.isna(value):
+            return True
+    
+        return str(value).strip() == ""
+
+    if DEBUG:
+        print("\n--- get_nonoverlapping_text_positions DEBUG ---")
+        print(f"Input rows: {len(positions)}")
+        print(f"Valid coordinate rows: {finite_mask.sum()}")
+        print(f"Invalid coordinate rows: {(~finite_mask).sum()}")
+        print(f"weight={weight}, k={k}")
+        print(
+            f"x range: {finite_positions[:, 0].min()} "
+            f"to {finite_positions[:, 0].max()}"
+        )
+        print(
+            f"y range: {finite_positions[:, 1].min()} "
+            f"to {finite_positions[:, 1].max()}"
+        )
+
+        invalid_indices = np.flatnonzero(~finite_mask)
+        if len(invalid_indices):
+            print(f"Skipped coordinate indices: {invalid_indices.tolist()}")
+
+        out_of_range_indices = np.flatnonzero(finite_mask & ~in_range_mask)
+        if len(out_of_range_indices):
+            print(f"Skipped out-of-range indices: {out_of_range_indices.tolist()}")
+
+    G = nx.Graph()
+    fixed_nodes = []
+    text_nodes = {}
+
+    # Prevent text nodes from starting exactly on their fixed data nodes.
+    jitter_fraction = 0.02
+    golden_angle = 2.399963229728653
+
+    for i, (pos, text) in enumerate(zip(positions, all_text)):
+        # Never pass NaN or infinity to NetworkX; also skip points outside the requested ranges.
+        if not valid_mask[i]:
+            continue
+
+        empty = is_empty_text(text)
+
+        if empty and not add_nodes_with_no_text:
+            continue
+
+        # IDs must be unique; text itself may contain duplicate values.
+        data_node = ("data", i)
+        text_node = ("text", i)
+
+        angle = i * golden_angle
+
+        jitter = np.array([
+            jitter_fraction * x_span * np.cos(angle),
+            jitter_fraction * y_span * np.sin(angle),
+        ])
+
+        G.add_node(data_node, pos=pos.copy())
+        G.add_node(text_node, pos=pos + jitter)
+        G.add_edge(data_node, text_node, weight=weight)
+
+        fixed_nodes.append(data_node)
+        text_nodes[i] = text_node
+
+    if not text_nodes:
+        if DEBUG:
+            print("No text nodes were added.")
+            print("--- END DEBUG ---\n")
+        return fig
+
+    initial_positions = nx.get_node_attributes(G, "pos")
+
+    if DEBUG:
+        initial_text_positions = np.array([
+            initial_positions[node] for node in text_nodes.values()
+        ])
+
+        print(f"Graph nodes: {G.number_of_nodes()}")
+        print(f"Graph edges: {G.number_of_edges()}")
+        print(f"Text nodes: {len(text_nodes)}")
+        print(
+            "Initial text spread:",
+            np.ptp(initial_text_positions, axis=0),
+        )
+
+    new_positions = nx.spring_layout(
+        G,
+        pos=initial_positions,
+        fixed=fixed_nodes,
+        weight="weight",
+        k=k,
+        iterations=500,
+        threshold=1e-6,
+        seed=42,
+    )
+
+    final_text_positions = np.array([
+        new_positions[node] for node in text_nodes.values()
+    ])
+
+    if DEBUG:
+        print("Layout positions finite:",
+              np.isfinite(final_text_positions).all())
+        print(
+            "Unique final positions:",
+            len(np.unique(np.round(final_text_positions, 12), axis=0)),
+        )
+        print(
+            "Final text spread:",
+            np.ptp(final_text_positions, axis=0),
+        )
+
+        print("\nFirst 10 position changes:")
+        for i, text_node in list(text_nodes.items())[:10]:
+            print(
+                f"{i}: data={positions[i]}, "
+                f"initial={initial_positions[text_node]}, "
+                f"final={new_positions[text_node]}"
+            )
+
+    if not np.isfinite(final_text_positions).all():
+        raise RuntimeError(
+            "NetworkX generated non-finite positions despite filtering "
+            "invalid input coordinates."
+        )
+
+    if fig is None:
+        fig = go.Figure(
+            go.Scatter(
+                x=finite_positions[:, 0],
+                y=finite_positions[:, 1],
+                mode="markers",
+            )
+        )
+
+    annotation_positions = []
+    clipped_count = 0
+
+    for i, text_node in text_nodes.items():
+        text = all_text[i]
+
+        # Empty text can participate in layout but needs no annotation.
+        if is_empty_text(text):
+            continue
+
+        x_original, y_original = positions[i]
+        x_new, y_new = new_positions[text_node]
+
+        before_clipping = np.array([x_new, y_new])
+
+        if x_range is not None:
+            x_new = np.clip(x_new, x_range[0], x_range[1])
+
+        if y_range is not None:
+            y_new = np.clip(y_new, y_range[0], y_range[1])
+
+        if not np.allclose(before_clipping, [x_new, y_new]):
+            clipped_count += 1
+
+        annotation_positions.append([x_new, y_new])
+
+        fig.add_annotation(
+            x=x_original,
+            y=y_original,
+            ax=x_new,
+            ay=y_new,
+            text=str(text),
+            xref="x",
+            yref="y",
+            axref="x",
+            ayref="y",
+            font=dict(**kwargs),
+        )
+
+    if DEBUG:
+        print(f"\nAnnotations added: {len(annotation_positions)}")
+        print(f"Annotations clipped: {clipped_count}")
+
+        if annotation_positions:
+            annotation_positions = np.asarray(annotation_positions)
+            print(
+                "Annotation spread:",
+                np.ptp(annotation_positions, axis=0),
+            )
+
+        print("--- END DEBUG ---\n")
 
     return fig
 

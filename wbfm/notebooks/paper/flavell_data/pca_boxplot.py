@@ -12,13 +12,25 @@ from load_neurons import load_neurons
 from wbfm.utils.external.utils_pandas import combine_columns_with_suffix
 from wbfm.utils.external.utils_plotly import plotly_plot_mean_and_shading
 from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
-from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_color_discrete_map
-from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation
+from wbfm.utils.general.utils_behavior_annotation import BehaviorCodes
+from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_color_discrete_map, behavior_name_mapping
+import plotly.graph_objects as go
+from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation, modify_dataframe_to_allow_gaps_for_plotly
 
 BEHAVIOR_COLUMNS = ['velocity', 'angular_velocity', 'head_curvature', 'body_curvature', 'pumping', 'reversal', 'speed']
 METADATA_COLUMNS = ['dataset_name', 'local_time', 'source']
 COLUMN_EXCLUDE_PATTERNS = ['_manifold', 'eigenworm', 'curvature', '_frequency', '_turn', '_collision', 
                            'CCA_neural_mode', 'local_time_physical', 'pca_', 'rev', 'pause']
+
+# Page layout (fractions of an A4 page, see apply_figure_settings):
+#   row 1: PC1 weight boxplots, full width
+#   row 2: variance explained (no legend) + two example manifolds (legend on the first)
+WEIGHTS_WIDTH_FACTOR, WEIGHTS_HEIGHT_FACTOR = 1.0, 0.3
+PANEL_WIDTH_FACTOR, PANEL_HEIGHT_FACTOR = 0.33, 0.25
+PHASE_PLOT_TOP_MARGIN = 80 # pixels; room for the legend above the example manifold
+EXAMPLE_PHASE_DATASETS = ['atanas_kim_2023-2023-01-23-01', 'atanas_kim_2023-2022-07-20-01']
+# Source whose medians set the neuron order (falls back to the next if absent), to match the main paper
+SORT_SOURCE_PRIORITY = ['zimmer', 'flavell', 'immob']
 
 
 def get_neuron_columns(df):
@@ -122,14 +134,16 @@ def pca_per_dataset(df, all_neurons, labeled_neurons_to_return, anchor_neuron='A
         neuron_to_loading = dict(zip(available_all, loadings_all))
         neuron_to_idx = {n: i for i, n in enumerate(available_all)}
         
-        if anchor_neuron in available_labeled:
-            anchor_loading = neuron_to_loading[anchor_neuron]
-            if anchor_loading < 0:
-                neuron_to_loading = {k: -v for k, v in neuron_to_loading.items()}
-        
+        flip_sign = anchor_neuron in available_labeled and neuron_to_loading[anchor_neuron] < 0
+        if flip_sign:
+            neuron_to_loading = {k: -v for k, v in neuron_to_loading.items()}
+
         results[dataset_name] = {n: neuron_to_loading[n] for n in labeled_neurons_to_return if n in neuron_to_loading}
-        
+
         scores = pca.transform(X_std)
+        if flip_sign:
+            # Keep the PC1 scores consistent with the flipped loadings (high AVA = positive PC1)
+            scores[:, 0] = -scores[:, 0]
         pc_scores[dataset_name] = scores
         
         variance_explained[dataset_name] = pca.explained_variance_ratio_.copy()
@@ -586,13 +600,15 @@ def make_variance_explained_plot(variance_explained, df, zscore_neurons, DEBUG, 
             cmap=plotly_paper_color_discrete_map()
         )
         fig_var.update_layout(
-            title=f'Cumulative Variance Explained per PCA Mode by Source (mean ± std{zscore_text})',
             xaxis_title='PCA Mode',
-            yaxis_title='Cumulative Variance Explained',
-            height=600,
-            width=800
+            yaxis_title='Cumulative fraction<br>variance explained',
         )
-        apply_figure_settings(fig_var, width_factor=0.4, height_factor=0.4)
+        apply_figure_settings(fig_var, width_factor=PANEL_WIDTH_FACTOR, height_factor=PANEL_HEIGHT_FACTOR)
+        # Same top margin as the manifold panels, so the axes line up in the same row
+        # Legend inside, bottom right (empty, since the curves rise); needed because gfp_control is not in any other legend
+        fig_var.update_layout(margin=dict(t=PHASE_PLOT_TOP_MARGIN), showlegend=True,
+                              legend=dict(title=None, yanchor='bottom', y=0.0, xanchor='right', x=1.0,
+                                          bgcolor='rgba(0,0,0,0)'))
         fig_var.write_html('variance_explained_pca.html')
         fig_var.write_image('variance_explained_pca.png', scale=2)
         if DEBUG:
@@ -601,9 +617,12 @@ def make_variance_explained_plot(variance_explained, df, zscore_neurons, DEBUG, 
     return var_exp_df
 
 
-def make_all_phase_plots(pc_scores, df, zscore_text, DEBUG=False):
+def make_all_phase_plots(pc_scores, df, zscore_text, DEBUG=False, legend_dataset=EXAMPLE_PHASE_DATASETS[0]):
     """Create phase plots (PC0 vs PC1) for flavell datasets colored by reversal.
-    
+
+    Plots are sized as panels for the paper figure; only legend_dataset gets a legend.
+    The example datasets for the figure are in EXAMPLE_PHASE_DATASETS.
+
     Args:
         pc_scores: Dict of dataset_name -> PCA scores array (n_timepoints, n_components)
         df: Original DataFrame (used for source and behavioral data)
@@ -625,12 +644,23 @@ def make_all_phase_plots(pc_scores, df, zscore_text, DEBUG=False):
             'source': source,
             'timepoint': np.arange(n_timepoints),
             'reversal': group['reversal'].values if 'reversal' in group.columns else np.nan,
+            'post_reversal_turn': group['post_reversal_turn'].values if 'post_reversal_turn' in group.columns else False,
         }))
-    
+
     phase_df = pd.concat(phase_data, ignore_index=True)
-    
+
     flavell_datasets = phase_df[phase_df['source'] == 'flavell']['dataset'].unique()
-    
+
+    ethogram_cmap = BehaviorCodes.ethogram_cmap()
+    beh_names = behavior_name_mapping()
+    reversal_to_behavior_name = {'no reversal': beh_names['FWD'], 'reversal': beh_names['REV']}
+    # Turn direction can't be recovered reliably from the Flavell data, so all post-reversal turns get the
+    # ventral turn color (most of our post-reversal turns, ~70%, are ventral) but a direction-free name
+    turn_name = 'Post-reversal turn'
+    behavior_cmap = {beh_names['FWD']: ethogram_cmap[BehaviorCodes.FWD],
+                     beh_names['REV']: ethogram_cmap[BehaviorCodes.REV],
+                     turn_name: ethogram_cmap[BehaviorCodes.VENTRAL_TURN]}
+
     plot_count = 0
     for dataset_name in flavell_datasets:
         dataset_phase = phase_df[phase_df['dataset'] == dataset_name]
@@ -643,18 +673,32 @@ def make_all_phase_plots(pc_scores, df, zscore_text, DEBUG=False):
         if valid_mask.sum() == 0:
             continue
             
-        fig_phase = px.scatter(
-            dataset_phase[valid_mask],
-            x='PC0',
-            y='PC1',
-            color='reversal',
-            title=f'Phase Plot: {dataset_name} (reversal, anchored to AVA{zscore_text})',
-            color_discrete_map={'no reversal': 'blue', 'reversal': 'red'}
-        )
-        fig_phase.update_traces(marker=dict(size=4, opacity=0.7))
+        # Same style as the local (zimmer) PCA manifold plots (see plot_traces.py):
+        # continuous lines, split by behavior, with ethogram colors and paper behavior names
+        plot_data = dataset_phase[valid_mask].reset_index(drop=True)
+        plot_data['behavior'] = plot_data['reversal'].map(reversal_to_behavior_name)
+        is_turn = plot_data['post_reversal_turn'].fillna(False).astype(bool)  # NaN for rows from other sources
+        plot_data.loc[is_turn, 'behavior'] = turn_name
+        df_gaps, col_names = modify_dataframe_to_allow_gaps_for_plotly(plot_data, ['PC0', 'PC1'], 'behavior')
+        states = list(plot_data['behavior'].unique())
+        show_legend = dataset_name == legend_dataset
 
-        apply_figure_settings(fig_phase, width_factor=0.4, height_factor=0.4)
-        
+        fig_phase = go.Figure()
+        for name in behavior_cmap.keys():
+            if name not in states:
+                continue
+            i = states.index(name)
+            fig_phase.add_trace(go.Scatter(x=df_gaps[col_names[0][i]], y=df_gaps[col_names[1][i]], mode='lines',
+                                           name=name, line=dict(color=behavior_cmap[name], width=2),
+                                           showlegend=show_legend))
+        fig_phase.update_xaxes(title='PC1')
+        fig_phase.update_yaxes(title='PC2')
+
+        apply_figure_settings(fig_phase, width_factor=PANEL_WIDTH_FACTOR, height_factor=PANEL_HEIGHT_FACTOR)
+        # Legend above the axes; same top margin on all panels so the example axes line up
+        fig_phase.update_layout(margin=dict(t=PHASE_PLOT_TOP_MARGIN),
+                                legend=dict(orientation='h', yanchor='bottom', y=1.0, xanchor='left', x=0.0))
+
         fig_phase.write_html(f'phase_plot_{safe_name}_reversal.html')
         fig_phase.write_image(f'phase_plot_{safe_name}_reversal.png', scale=2)
         plot_count += 1
@@ -663,6 +707,31 @@ def make_all_phase_plots(pc_scores, df, zscore_text, DEBUG=False):
         print(f"Saved {plot_count} phase plots with reversal coloring (HTML and PNG)")
     
     return plot_count
+
+
+def make_full_page_figure(weights_png='pc1_loadings_all_three.png', variance_png='variance_explained_pca.png',
+                          example_datasets=EXAMPLE_PHASE_DATASETS, output_png='pca_comparison_full_page.png'):
+    """Tile the already-saved panel PNGs into one page.
+
+    Row 1: PC1 weights; row 2: variance explained + example manifolds.
+    Panel sizes come from apply_figure_settings, so the tiled page keeps real page proportions.
+    """
+    from PIL import Image
+
+    phase_pngs = [f"phase_plot_{d.replace('/', '_').replace(' ', '_')}_reversal.png" for d in example_datasets]
+    weights = Image.open(weights_png).convert('RGBA')
+    panels = [Image.open(f).convert('RGBA') for f in [variance_png] + phase_pngs]
+
+    width = max(weights.width, sum(p.width for p in panels))
+    height = weights.height + max(p.height for p in panels)
+    page = Image.new('RGBA', (width, height), 'white')
+    page.alpha_composite(weights, (0, 0))
+    x = 0
+    for p in panels:
+        page.alpha_composite(p, (x, weights.height))
+        x += p.width
+    page.convert('RGB').save(output_png)
+    return output_png
 
 
 def make_pairwise_comparisons(df, neuron_cols, comparisons, zscore_neurons=False, min_datasets=5, zscore_text='', DEBUG=False):
@@ -737,17 +806,13 @@ def make_pairwise_comparisons(df, neuron_cols, comparisons, zscore_neurons=False
             except Exception as e:
                 print(f"Warning: Could not calculate p-values for {src1} vs {src2}: {e}")
         
-        if 'flavell' in df_pair['source'].values:
-            flavell_medians = df_pair[df_pair['source'] == 'flavell'].groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
-            sort_neurons = flavell_medians.index.tolist()
-        else:
-            sort_neurons = None
-        
         if len(df_pair) == 0:
             continue
-        if sort_neurons is None:
-            medians = df_pair.groupby('neuron')['PC1_loading'].median().sort_values(ascending=False)
-            sort_neurons = medians.index.tolist()
+        sort_source = next((s for s in SORT_SOURCE_PRIORITY if s in df_pair['source'].values), None)
+        df_sort = df_pair[df_pair['source'] == sort_source] if sort_source is not None else df_pair
+        sort_neurons = df_sort.groupby('neuron')['PC1_loading'].median().sort_values(ascending=False).index.tolist()
+        # Neurons missing from the sorting source go at the end
+        sort_neurons += [n for n in df_pair['neuron'].unique() if n not in sort_neurons]
         
         plot_kwargs = dict(
             data_frame=df_pair, 
@@ -775,7 +840,10 @@ def make_pairwise_comparisons(df, neuron_cols, comparisons, zscore_neurons=False
             except Exception as e:
                 raise e
 
-        apply_figure_settings(fig, width_factor=1.0, height_factor=0.4)
+        apply_figure_settings(fig, width_factor=WEIGHTS_WIDTH_FACTOR, height_factor=WEIGHTS_HEIGHT_FACTOR)
+        fig.update_yaxes(zeroline=True, zerolinewidth=1, zerolinecolor='black')
+        # Legend inside the plot (as in the main paper); the right side has mostly negative weights
+        fig.update_layout(legend=dict(title=None, yanchor='top', y=1.0, xanchor='right', x=1.0, bgcolor='rgba(0,0,0,0)'))
 
         fig.write_html(f'{filename}.html')
         fig.write_image(f'{filename}.png', scale=2)
@@ -849,6 +917,10 @@ def main(include_hierarchical=False, zscore_neurons=False, nan_log_file=None, mi
     
     # Phase plot: PC0 vs PC1 for flavell datasets only, colored by reversal
     make_all_phase_plots(pc_scores, df, zscore_text, DEBUG)
+
+    # Full page: PC1 weights (all three sources) on top, variance explained + example manifolds below
+    if any(len(c) == 5 for c in comparisons):
+        make_full_page_figure()
     
     save_nan_log(nan_log, nan_log_file, DEBUG)
     

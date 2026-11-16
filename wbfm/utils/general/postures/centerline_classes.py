@@ -133,7 +133,7 @@ class WormFullVideoPosture:
     def _validate_and_downsample(self, df: Optional[Union[pd.DataFrame, pd.Series]], fluorescence_fps: bool,
                                  reset_index=False, use_physical_time=None,
                                  manual_annotation=False, force_downsampling=False, remove_idx_of_tracking_failures=True,
-                                 DEBUG=False) -> Optional[Union[pd.DataFrame, pd.Series]]:
+                                 is_annotation=False, DEBUG=False) -> Optional[Union[pd.DataFrame, pd.Series]]:
         """
         Final postprocessing step for any annotation or data vector: removes tracking failure indices,
         downsamples to fluorescence frame rate if needed, shortens to trace length, and assigns the
@@ -183,14 +183,17 @@ class WormFullVideoPosture:
                 raise DataSynchronizationError("reset_index", "use_physical_time")
             df = df.copy()
 
-            self.check_requested_frame_rate(fluorescence_fps, manual_annotation=manual_annotation)
+            if is_annotation or manual_annotation:
+                self.check_requested_frame_rate(fluorescence_fps, manual_annotation=manual_annotation)
             # Logic to determine if it is possible to downsample
             if force_downsampling:
                 needs_subsampling = True
             elif manual_annotation:
                 needs_subsampling = fluorescence_fps and not self.manual_beh_annotation_already_converted_to_fluorescence_fps
             else:
-                needs_subsampling = fluorescence_fps and not self.beh_annotation_already_converted_to_fluorescence_fps
+                # Only behavior annotations can be 'already converted'; continuous signals (hilbert, curvature, ...)
+                # are always high resolution, even if the annotation file is at fluorescence fps
+                needs_subsampling = fluorescence_fps and not (is_annotation and self.beh_annotation_already_converted_to_fluorescence_fps)
             if DEBUG:
                 print(f"needs_subsampling={needs_subsampling}, remove_idx_of_tracking_failures={remove_idx_of_tracking_failures}, df.shape={df.shape}, df.index={df.index}")
                 
@@ -437,7 +440,7 @@ class WormFullVideoPosture:
     def self_collision(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """This is intended to be summed with the main behavioral vector"""
         df = self.raw_self_collision
-        df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+        df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
         return df
 
     @cached_property
@@ -460,7 +463,7 @@ class WormFullVideoPosture:
     def stimulus(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """This is intended to be summed with the main behavioral vector"""
         df = self.raw_stimulus
-        df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+        df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
         return df
 
     @cached_property
@@ -494,7 +497,7 @@ class WormFullVideoPosture:
         """This is intended to be summed with the main behavioral vector"""
         try:
             df = self.raw_pause
-            df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+            df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
             return df
         except NoBehaviorAnnotationsError:
             return None
@@ -526,7 +529,7 @@ class WormFullVideoPosture:
         """This is intended to be summed with the main behavioral vector"""
         try:
             df = self.raw_slowing
-            df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+            df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
             return df
         except NoBehaviorAnnotationsError:
             return None
@@ -578,7 +581,7 @@ class WormFullVideoPosture:
         """This is intended to be summed with the main behavioral vector"""
         try:
             df = self.raw_turn_annotation
-            df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+            df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
             return df
         except NoBehaviorAnnotationsError:
             return None
@@ -616,7 +619,7 @@ class WormFullVideoPosture:
     def head_cast_annotation(self, fluorescence_fps=False, **kwargs) -> pd.DataFrame:
         """This is intended to be summed with the main behavioral vector"""
         df = self.raw_head_cast_annotation
-        df = self._validate_and_downsample(df, fluorescence_fps, **kwargs)
+        df = self._validate_and_downsample(df, fluorescence_fps, is_annotation=True, **kwargs)
         return df
 
     @cached_property
@@ -1111,7 +1114,8 @@ class WormFullVideoPosture:
 
         # Perform the downsampling at the very end
         beh_vec = self._validate_and_downsample(beh, fluorescence_fps=fluorescence_fps, reset_index=reset_index,
-                                                manual_annotation=use_manual_annotation,remove_idx_of_tracking_failures=remove_idx_of_tracking_failures)
+                                                manual_annotation=use_manual_annotation, is_annotation=True,
+                                                remove_idx_of_tracking_failures=remove_idx_of_tracking_failures)
         # Make sure there are no nan values.
         # Necessary because sometimes removing tracking failures adds nan, even when they should be recognized
         beh_vec.replace(np.nan, BehaviorCodes.UNKNOWN, inplace=True)
@@ -1191,13 +1195,19 @@ class WormFullVideoPosture:
 
     # @lru_cache(maxsize=8)
     def worm_angular_velocity(self, fluorescence_fps=False, remove_outliers=True, strong_smoothing=False,
-                              make_consisent_with_stage_speed=True, **kwargs):
+                              make_consisent_with_stage_speed=True, rad_per_s=True, **kwargs):
         """
         This is the angular velocity in PCA space (first two modes)
+
+        Units: radians per second if rad_per_s (default). Otherwise radians per high-res behavior frame, which is what
+        raw_worm_angular_velocity computes (np.gradient without a time step). Note that the derivative is always taken
+        at the high-res behavior frame rate, so subsampling to fluorescence fps does not change the units.
 
         Note: remove outliers by default
         """
         velocity = self.raw_worm_angular_velocity
+        if rad_per_s:
+            velocity = velocity / self.get_time_delta_in_s(fluorescence_fps=False)
         velocity = self._validate_and_downsample(velocity, fluorescence_fps=fluorescence_fps, **kwargs)
         if remove_outliers:
             window = 10
@@ -1783,7 +1793,8 @@ class WormFullVideoPosture:
         """
 
         # Get the speed; use angular speed because sometimes the reversal annotations are wrong
-        speed = self.worm_angular_velocity(fluorescence_fps=True)
+        # Keep rad/frame, which the piecewise fits were tuned on
+        speed = self.worm_angular_velocity(fluorescence_fps=True, rad_per_s=False)
         plateau_state, working_pw_fits = self.calc_plateau_state_from_trace(speed, **plateau_kwargs)
         return plateau_state, working_pw_fits
 
@@ -2428,7 +2439,8 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
     behavior_fname_candidates = ['3-tracking/manual_annotation/manual_behavior_annotation.xlsx',
                                  '3-tracking/postprocessing/manual_behavior_annotation.xlsx',
                                  'behavior/AVAL_manual_annotation.csv',
-                                 'behavior/AVAR_manual_annotation.csv']
+                                 'behavior/AVAR_manual_annotation.csv',
+                                 'behavior/reversals_tracify.csv']
     behavior_fname_candidates = [cfg.resolve_relative_path(f) for f in behavior_fname_candidates]
     for this_fname in behavior_fname_candidates:
         if os.path.exists(this_fname):
@@ -2438,6 +2450,9 @@ def get_manual_behavior_annotation_fname(cfg: ModularProjectConfig, make_absolut
     if behavior_fname is not None:
         if verbose >= 1:
             print(f"Found behavior annotation by searching hard-coded paths in local project: {behavior_fname}")
+        if str(behavior_fname).endswith('.csv'):
+            # Itamar's tracify files (starts and ends) are in high-resolution behavior frames, NOT volumes
+            is_likely_manually_annotated = False
         return behavior_fname, is_likely_manually_annotated
 
     # Final checks are all in raw behavior data folders, implying they are not the stable style
@@ -2541,7 +2556,13 @@ def parse_behavior_annotation_file(cfg: ModularProjectConfig = None, behavior_fn
                 logging.warning(f"Reading using manual annotation from Itamar's tracify package ")
                 # From Itamar's tracify package, which saves only the starts and ends
                 # UNITS ARE FRAMES
-                starts_ends = pd.read_csv(behavior_fname).astype(int)
+                starts_ends = pd.read_csv(behavior_fname)
+                if not {'start', 'end'}.issubset(starts_ends.columns) or starts_ends[['start', 'end']].isna().any().any():
+                    # Malformed file (e.g. a full-length index instead of starts and ends); skippable by callers
+                    raise NoManualBehaviorAnnotationsError(
+                        f"{behavior_fname} is not a valid start/end file (columns: {list(starts_ends.columns)}); "
+                        f"it likely needs to be regenerated in tracify")
+                starts_ends = starts_ends.astype(int)
                 behavior_annotations = make_binary_vector_from_starts_and_ends(starts_ends['start'], starts_ends['end'], original_vals=template_vector)
                 # Change the integers to match Ulises' original annotation; see _ulises_int_2_flag
                 behavior_annotations = pd.Series(behavior_annotations, name='annotation')

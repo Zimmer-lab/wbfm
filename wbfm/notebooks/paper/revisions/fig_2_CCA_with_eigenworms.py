@@ -51,9 +51,23 @@ from wbfm.utils.general.utils_hardcoded import load_paper_datasets
 all_projects_gcamp = load_paper_datasets(['gcamp', 'hannah_O2_fm'])
 
 
+# ## DEBUG
+
+# In[5]:
+
+
+from wbfm.utils.visualization.multiproject_wrappers import build_cross_dataset_eigenworms
+
+
+# In[6]:
+
+
+df_eigenworms = build_cross_dataset_eigenworms(all_projects_gcamp)
+
+
 # # Diagram with correct behavior transitions
 
-# In[ ]:
+# In[7]:
 
 
 from wbfm.utils.external.utils_pandas import get_dataframe_of_transitions
@@ -63,7 +77,7 @@ import networkx as nx
 from wbfm.utils.general.utils_paper import behavior_name_mapping
 
 
-# In[315]:
+# In[8]:
 
 
 # For each project, get the transition probability dataframe
@@ -93,7 +107,9 @@ df_counts = df_counts.drop(index=['UNKNOWN', 'TRACKING_FAILURE'])
 # df_counts = df_counts.drop(index=['UNKNOWN', 'PAUSE', 'TRACKING_FAILURE'])
 
 
-# In[334]:
+# In[ ]:
+
+
 
 
 # Build graph: a node per row
@@ -126,13 +142,13 @@ node_colors = [beh_cmap[n] for n in G.nodes()]
 node_colors_dict = {behavior_name_mapping()[n]:beh_cmap[n] for n in G.nodes()}
 
 
-# In[335]:
+# In[ ]:
 
 
 df_counts
 
 
-# In[336]:
+# In[ ]:
 
 
 import numpy as np
@@ -194,13 +210,13 @@ def add_arrow_legend(ax, scale_factor=1):
     
 
 
-# In[337]:
+# In[ ]:
 
 
 weights
 
 
-# In[338]:
+# In[ ]:
 
 
 plt.figure()
@@ -255,7 +271,7 @@ plt.savefig(fname, transparent=True)
 plt.show()
 
 
-# In[287]:
+# In[ ]:
 
 
 # Create new legend-only graph for edges
@@ -302,7 +318,7 @@ plt.show()
 
 # ### Supp: Alt version that includes PAUSE
 
-# In[292]:
+# In[ ]:
 
 
 # For each project, get the transition probability dataframe
@@ -330,7 +346,7 @@ df_counts_pause = df_counts_pause.rename(index=mapper)
 df_counts_pause = df_counts_pause.drop(index=['UNKNOWN', 'TRACKING_FAILURE'])
 
 
-# In[324]:
+# In[ ]:
 
 
 # Build graph: a node per row
@@ -366,7 +382,7 @@ node_colors = [beh_cmap[n] for n in G.nodes()]
 node_colors_dict = {behavior_name_mapping()[n]:beh_cmap[n] for n in G.nodes()}
 
 
-# In[332]:
+# In[ ]:
 
 
 plt.figure()
@@ -406,12 +422,6 @@ plt.savefig(fname, transparent=True)
 plt.show()
 
 
-# In[331]:
-
-
-scaled_weights
-
-
 # In[ ]:
 
 
@@ -426,32 +436,37 @@ scaled_weights
 # project_data_gcamp.worm_posture_class
 
 
-# In[54]:
+# In[ ]:
 
 
 output_folder = 'fig2'
 
 
-# In[55]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.utils_cca import CCAPlotter
 
 
-# In[56]:
+# In[ ]:
 
 
 project_data_gcamp.use_physical_x_axis = True
 beh_kwargs = dict(additional_behaviors=[f"eigenworm{i}" for i in range(4)])
 
-cca_plotter = CCAPlotter(project_data_gcamp, truncate_traces_to_n_components=3, preprocess_behavior_using_pca=True, trace_kwargs=dict(use_paper_options=True),
+cca_plotter = CCAPlotter(project_data_gcamp, truncate_traces_to_n_components=3, preprocess_behavior_using_pca=False, trace_kwargs=dict(use_paper_options=True),
                         beh_kwargs=beh_kwargs)
 
+
+# In[ ]:
+
+
+# %debug
 
 
 # ## Alt: more manifold modes
 
-# In[57]:
+# In[ ]:
 
 
 # project_data_gcamp.use_physical_x_axis = True
@@ -461,14 +476,13 @@ cca_plotter = CCAPlotter(project_data_gcamp, truncate_traces_to_n_components=3, 
 #                          beh_kwargs=beh_kwargs)
 
 
-
-# In[58]:
+# In[ ]:
 
 
 # fig = cca_plotter6.plot(plot_3d=False, output_folder=output_folder, show_legend=False)
 
 
-# In[59]:
+# In[ ]:
 
 
 # fig = cca_plotter6.plot(plot_3d=True, output_folder=output_folder, show_legend=False)
@@ -476,25 +490,25 @@ cca_plotter = CCAPlotter(project_data_gcamp, truncate_traces_to_n_components=3, 
 
 # ## Example dataset modes in 2d
 
-# In[60]:
+# In[ ]:
 
 
 fig = cca_plotter.plot(plot_3d=False, output_folder=output_folder, show_legend=False)
 
 
-# In[61]:
+# In[ ]:
 
 
 # fig = cca_plotter.plot(plot_3d=True, output_folder=output_folder, show_legend=False)
 
 
-# In[62]:
+# In[ ]:
 
 
 fig = cca_plotter.plot(plot_3d=False, binary_behaviors=True, show_legend=False, output_folder=output_folder)#, beh_annotation_kwargs=dict(include_collision=True))
 
 
-# In[63]:
+# In[ ]:
 
 
 fig = cca_plotter.plot(plot_3d=False, binary_behaviors=False, show_legend=False, use_pca=True, output_folder=output_folder)
@@ -502,7 +516,7 @@ fig = cca_plotter.plot(plot_3d=False, binary_behaviors=False, show_legend=False,
 
 # # Calculate variance explained per dataset
 
-# In[64]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.utils_cca import calc_r_squared_for_all_projects
@@ -510,13 +524,13 @@ from wbfm.utils.general.utils_paper import plotly_paper_color_discrete_map
 from wbfm.utils.general.utils_paper import apply_figure_settings
 
 
-# In[65]:
+# In[ ]:
 
 
 beh_kwargs = dict(additional_behaviors=[f"eigenworm{i}" for i in range(4)])
 
 
-# In[66]:
+# In[ ]:
 
 
 all_cca_classes, df_r_squared_melt, r_squared_per_row = calc_r_squared_for_all_projects(all_projects_gcamp, r_squared_kwargs=dict(n_components=[1, 2, 3]#, 4, 5]
@@ -526,7 +540,7 @@ all_cca_classes, df_r_squared_melt, r_squared_per_row = calc_r_squared_for_all_p
                                                                melt=True, beh_kwargs=beh_kwargs)
 
 
-# In[67]:
+# In[ ]:
 
 
 from wbfm.utils.external.utils_plotly import plotly_plot_mean_and_shading
@@ -559,7 +573,7 @@ fig.show()
 
 # # Latent space quality
 
-# In[68]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.utils_cca import calc_mode_correlation_for_all_projects
@@ -567,13 +581,13 @@ from wbfm.utils.external.utils_matplotlib import paired_boxplot_from_dataframes
 from wbfm.utils.general.utils_paper import apply_figure_settings
 
 
-# In[69]:
+# In[ ]:
 
 
 n_components = 3
 
 
-# In[70]:
+# In[ ]:
 
 
 all_cca_classes3, df_mode_correlations, df_mode_correlations_binary = calc_mode_correlation_for_all_projects(all_projects_gcamp, correlation_kwargs=dict(n_components=n_components),
@@ -582,7 +596,7 @@ all_cca_classes3, df_mode_correlations, df_mode_correlations_binary = calc_mode_
                                                                                                             beh_kwargs=beh_kwargs)
 
 
-# In[71]:
+# In[ ]:
 
 
 df_mode_correlations.index = np.arange(1, n_components+1)
@@ -596,7 +610,7 @@ df1['Behavior type'] = 'Discrete'
 df_mode_combined = pd.concat([df0, df1])
 
 
-# In[72]:
+# In[ ]:
 
 
 fig = px.box(df_mode_combined, color='Behavior type',
@@ -633,7 +647,7 @@ fig.write_image(fname)
 
 
 
-# In[73]:
+# In[ ]:
 
 
 all_dots = {i+1: {name: c.calc_mode_dot_product(i) for name, c in tqdm(all_cca_classes3.items())} for i in range(n_components)}
@@ -641,7 +655,7 @@ df_all_dots = pd.DataFrame(all_dots).melt(var_name='Component', value_name='PCA-
 df_all_dots['Comparison Method'] = 'CCA'
 
 
-# In[74]:
+# In[ ]:
 
 
 all_dots_discrete = {i+1: {name: c.calc_mode_dot_product(i, binary_behaviors=True) for name, c in tqdm(all_cca_classes3.items())} for i in range(n_components)}
@@ -649,19 +663,20 @@ df_all_dots_discrete = pd.DataFrame(all_dots_discrete).melt(var_name='Component'
 df_all_dots_discrete['Comparison Method'] = 'CCA Discrete'
 
 
-# In[75]:
+# In[ ]:
 
 
 df_all_dots = pd.concat([df_all_dots, df_all_dots_discrete])
 
 
-# In[76]:
+# In[ ]:
 
 
 df_all_dots['PCA-CCA similarity'] = df_all_dots['PCA-CCA similarity'].abs()
 
 
-# In[77]:
+# In[ ]:
+
 
 
 fig = px.box(df_all_dots, x='Component', y='PCA-CCA similarity', color='Comparison Method',
@@ -709,7 +724,7 @@ if to_save:
 
 # ## Also calculate variance explained of behavior time series
 
-# In[78]:
+# In[ ]:
 
 
 from wbfm.utils.visualization.utils_cca import calc_r_squared_for_all_projects
@@ -717,13 +732,13 @@ from wbfm.utils.general.utils_paper import plotly_paper_color_discrete_map
 from wbfm.utils.general.utils_paper import apply_figure_settings
 
 
-# In[79]:
+# In[ ]:
 
 
 beh_kwargs = dict(additional_behaviors=[f"eigenworm{i}" for i in range(4)])
 
 
-# In[80]:
+# In[ ]:
 
 
 all_cca_classes_beh, df_r_squared_melt_beh, all_r_squared_per_row_beh = calc_r_squared_for_all_projects(all_projects_gcamp, 
@@ -734,7 +749,7 @@ all_cca_classes_beh, df_r_squared_melt_beh, all_r_squared_per_row_beh = calc_r_s
                                                                                                         melt=True)
 
 
-# In[81]:
+# In[ ]:
 
 
 df = all_r_squared_per_row_beh.copy()
@@ -802,32 +817,32 @@ for method in df['Method'].unique():
 
 # ## Alternative visualization: Flavell-style boxes in columns
 
-# In[82]:
+# In[ ]:
 
 
 all_r_squared_per_row_beh.head()
 
 
-# In[83]:
+# In[ ]:
 
 
 df.groupby(['Method', 'Behavior Variable', 'Components'])['Cumulative Variance explained'].mean()
 
 
-# In[84]:
+# In[ ]:
 
 
 # df_multi = df.set_index(['Method', 'Behavior Variable', 'Components'])
 # df_multi.to_dict()['Cumulative Variance explained']
 
 
-# In[85]:
+# In[ ]:
 
 
 from wbfm.utils.general.utils_paper import plot_foldchange_boxes
 
 
-# In[95]:
+# In[ ]:
 
 
 import pandas as pd
@@ -887,13 +902,13 @@ plt.savefig(fname)
 plt.show()
 
 
-# In[340]:
+# In[ ]:
 
 
 all_r_squared_per_row_beh.head()
 
 
-# In[96]:
+# In[ ]:
 
 
 # SAME but discrete only
@@ -953,13 +968,15 @@ plt.show()
 
 # ## Gut check: reconstruction of other curvatures from eigenworms
 
-# In[88]:
+# In[ ]:
+
 
 
 from sklearn.linear_model import LinearRegression
 
 
-# In[89]:
+# In[ ]:
+
 
 
 def _calc_r_squared(X, X_r_recon):
@@ -969,7 +986,7 @@ def _calc_r_squared(X, X_r_recon):
     return r_squared
 
 
-# In[90]:
+# In[ ]:
 
 
 all_beh_var_explained = []
@@ -991,14 +1008,14 @@ for name, c in all_cca_classes_beh.items():
     
 
 
-# In[91]:
+# In[ ]:
 
 
 df_beh_r_squared = pd.concat(all_beh_var_explained)
 df_beh_r_squared
 
 
-# In[92]:
+# In[ ]:
 
 
 px.box(df_beh_r_squared, x='index', y='r_squared')
@@ -1053,15 +1070,13 @@ import plotly
 
 
 
-# # SUPP
-
 # In[ ]:
 
 
 
 
 
-# ## Variance explained per neuron (cumulative plot)
+# # Variance explained per neuron (cumulative plot)
 
 # In[ ]:
 
@@ -1187,7 +1202,7 @@ df_var_exp_hist.reset_index().explode('Cumulative Variance explained')
 from wbfm.utils.visualization.utils_cca import calc_cca_weights_for_all_projects
 import plotly.express as px
 from wbfm.utils.general.utils_paper import apply_figure_settings, plotly_paper_color_discrete_map
-from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
+from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids, neurons_with_less_confident_ids
 from wbfm.utils.visualization.utils_plot_traces import add_p_value_annotation
 output_folder = 'fig2'
 
@@ -1195,10 +1210,16 @@ output_folder = 'fig2'
 # In[ ]:
 
 
-all_cca_classes1, df_weights1, df_weights_binary1 = calc_cca_weights_for_all_projects(all_projects_gcamp, which_mode=0, min_datasets_present=6,
+beh_kwargs = dict(additional_behaviors=[f"eigenworm{i}" for i in range(4)])
+
+
+# In[ ]:
+
+
+all_cca_classes1, df_weights1, df_weights_binary1 = calc_cca_weights_for_all_projects(all_projects_gcamp, which_mode=0, min_datasets_present=3,
                                                                                        weights_kwargs=dict(n_components=2),
                                                                                                              preprocess_traces_using_pca=True, truncate_traces_to_n_components=3,
-                                                                                                            preprocess_behavior_using_pca=True,
+                                                                                                            # preprocess_behavior_using_pca=True,
                                                                                     combine_left_and_right=True, beh_kwargs=beh_kwargs,
                                                                                    trace_kwargs=dict(use_paper_options=True))
 
@@ -1206,21 +1227,52 @@ all_cca_classes1, df_weights1, df_weights_binary1 = calc_cca_weights_for_all_pro
 # In[ ]:
 
 
+df_weights1.head()
+
+
+# In[ ]:
+
+
+'DA01' in df_weights1
+
+
+# In[ ]:
+
+
+df_both1 = df_weights1.reset_index().melt(id_vars='index').copy()
+
+print('DA01' in df_both1['variable'].values)
+print(df_both1['variable'].unique())
+df_both1.head()
+
+
+# In[ ]:
+
+
 # Both modes together
-df_both1 = df_weights1.reset_index().melt(id_vars='index')
+df_both1 = df_weights1.reset_index().melt(id_vars='index').copy()
 df_both1['Behavior Type'] = 'Continuous'
 df_both1_binary = df_weights_binary1.reset_index().melt(id_vars='index')
 df_both1_binary['Behavior Type'] = 'Discrete'
 df_both1 = pd.concat([df_both1, df_both1_binary])
 df_both1.columns = ['Dataset Name', 'Neuron', 'Weight', 'Behavior Type']
-# df_both1
+
+# Modify neuron names to use parentheses for less confident
+mapping = neurons_with_less_confident_ids(combine_left_right=True, return_mapping=True)
+df_both1['Neuron'] = df_both1['Neuron'].map(lambda x: mapping.get(x, x))
+
+
+# In[ ]:
+
+
+'DA01' in df_both1['Neuron'].values, '(DA01)' in df_both1['Neuron'].values
 
 
 # In[ ]:
 
 
 from wbfm.utils.general.utils_hardcoded import neurons_with_confident_ids
-neurons_to_plot = neurons_with_confident_ids(combine_left_right=True)
+neurons_to_plot = neurons_with_confident_ids(combine_left_right=True, add_parentheses_for_less_confident=True)
 fig = px.box(df_both1[df_both1['Neuron'].isin(neurons_to_plot)], x='Neuron', y='Weight', color='Behavior Type',
              hover_data=['Dataset Name'],
              color_discrete_map=plotly_paper_color_discrete_map())
@@ -1231,10 +1283,11 @@ fig.update_yaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black", title="C
 
 fig.update_layout(legend=dict(
     yanchor="top",
-    y=1.05,
+    y=1.2,
     xanchor="left",
     x=0.8
 ))
+fig.update_xaxes(tickmode='array')
 fig.show()
 
 fname = os.path.join(output_folder, 'paired_boxplot_neural_weights_BOTH.png')
@@ -1587,6 +1640,8 @@ fig.write_image(fname)
 # # Interactive GUI
 
 # In[ ]:
+
+
 
 
 # # Same GUI but for all datasets
