@@ -1944,3 +1944,159 @@ def plot_bayesian_model_comparison(x, y, df_to_plot=None, y_max_gfp=None, df_to_
         fig.show()
     
     return fig, df_to_plot
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.ndimage import gaussian_filter1d
+
+
+def plot_model_comparison(fname="residual_encoding_schematic", output_foldername=None, height_factor=0.15,
+                          width_factor=1.0):
+    """
+    Schematic comparing a state-only null model, direct encoding, and state-modulated encoding of behavior
+    by two example neurons
+
+    Sized in units of an A4 page (see paper_figure_page_settings); saves png and svg (transparent) if fname is not None
+
+    Parameters
+    ----------
+    fname - Base name of the output, without extension. If None, does not save
+    output_foldername - Defaults to wbfm/notebooks/paper/revisions/multiplexing
+    height_factor - Fraction of an A4 page (height)
+    width_factor - Fraction of an A4 page (width)
+    """
+    if output_foldername is None:
+        output_foldername = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                         '..', '..', 'notebooks', 'paper', 'revisions', 'multiplexing')
+
+    # Set figure formatting style for publication
+    plt.rcParams["font.sans-serif"] = "Arial"
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["axes.edgecolor"] = "black"
+    plt.rcParams["axes.linewidth"] = 1.0
+
+    # 1. Generate Synthetic Data
+    t = np.linspace(0, 10, 1000)
+    reversal_mask = (t >= 3.5) & (t <= 6.5)
+    fwd_mask = ~reversal_mask
+
+    # Shared sinusoidal behavior signal
+    freq = 1.5
+    behavior = np.sin(2 * np.pi * freq * t)
+
+    # Each neuron prefers one state: its slow baseline is elevated in the
+    # preferred state, with the behavior oscillation riding on top.
+    # Model 0 (null): baseline only, no behavior encoding.
+    # Model 1: baseline + behavior, in every state.
+    # Model 2: the oscillation is additionally gated off in the non-preferred state.
+    high_level = 2.2
+
+    def make_neuron(preferred_mask):
+        baseline = gaussian_filter1d(np.where(preferred_mask, high_level, 0.0), sigma=15)
+        gate = gaussian_filter1d(np.where(preferred_mask, 1.0, 0.05), sigma=15)
+        return baseline, baseline + behavior, baseline + behavior * gate, ~preferred_mask
+
+    # The reversal-preferring neuron is on top, so that the baselines push away from each other in the
+    # (shaded) reversal state
+    neurons = [make_neuron(reversal_mask), make_neuron(fwd_mask)]
+    n_neurons = len(neurons)
+
+    # 2. Figure Layout Setup (3 Columns x (N neuron + 1 behavior) Rows)
+    # Neurons are stacked tightly on top, with behavior (and the time axis) at the bottom
+    n_rows = n_neurons + 1
+    n_cols = 3
+    figure_opt = paper_figure_page_settings(height_factor=height_factor, width_factor=width_factor)
+    fig = plt.figure(**figure_opt["matplotlib_opt"])
+    gs = fig.add_gridspec(
+        n_rows,
+        n_cols,
+        hspace=0.08,
+        wspace=0.2,
+        left=0.1,
+        right=0.99,
+        top=0.84,
+        bottom=0.2,
+    )
+
+    # axes[row][col]; the bottom row owns the shared x-axis
+    axes = [[None] * n_cols for _ in range(n_rows)]
+    for col in range(n_cols):
+        axes[0][col] = fig.add_subplot(gs[0, col])
+        for row in range(1, n_rows):
+            axes[row][col] = fig.add_subplot(gs[row, col], sharex=axes[0][col])
+    axes_list = [ax for row in axes for ax in row]
+    neuron_rows = axes[:n_neurons]
+    behavior_axes = axes[-1]
+
+    # Column titles
+    titles = ["Null: State encoding", "Behavior: Multiplexed", "Hierarchy: State-modulated"]
+    for ax, title in zip(axes[0], titles):
+        ax.set_title(title, fontsize=font_size_points, fontweight="bold", pad=4)
+
+    # 3. Add Reversal Shading & Colors
+    cmap = plotly_paper_color_discrete_map()
+    # The map mixes hex and 'rgb(...)' strings; convert to hex for matplotlib
+    def to_hex(c):
+        if c.startswith('#'):
+            return c
+        r, g, b = (int(float(x)) for x in c[c.index('(') + 1:-1].split(',')[:3])
+        return '#%02x%02x%02x' % (r, g, b)
+    suppressed_color = to_hex(cmap['Freely Moving'])  # Blue: the suppressed part of the manifold
+    behavior_color = px.colors.qualitative.D3[2]  # Saturated green (#2ca02c): behavior
+
+    # Shading matches the paper: opaque lightgray behind reversals
+    # (see BehaviorCodes.shading_cmap_func)
+    shading_color = "lightgray"
+    for ax in axes_list:
+        ax.axvspan(3.5, 6.5, color=shading_color, alpha=1.0, lw=0, zorder=-10)
+
+    # 4. Plot Traces
+    for i, (m0, m1, m2, suppressed_mask) in enumerate(neurons):
+        neuron_rows[i][0].plot(t, m0, color="black", lw=1.0)
+        neuron_rows[i][1].plot(t, m1, color="black", lw=1.0)
+        # Model 2: the reversal-state portion is drawn as a thicker blue line, to emphasize state modulation
+        neuron_rows[i][2].plot(t, m2, color="black", lw=1.0)
+        neuron_rows[i][2].plot(t[reversal_mask], m2[reversal_mask], color=suppressed_color, lw=2.0)
+        for ax in neuron_rows[i]:
+            ax.set_ylim(-1.4, 3.6)
+
+    for ax in behavior_axes:
+        ax.plot(t, behavior, color=behavior_color, lw=1.0)
+        ax.set_ylim(-1.4, 1.4)
+
+    # 5. Axes Formatting & Labels
+    for ax in axes_list:
+        ax.set_yticks([])
+        ax.set_xticks([])
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    for ax in behavior_axes:
+        ax.set_xlabel("Time (s)", fontsize=font_size_points, labelpad=2)
+
+    # y labels only on the first column (the models share the same rows)
+    behavior_axes[0].set_ylabel("Behavior", fontsize=font_size_points, color=behavior_color, rotation=0,
+                                ha="right", va="center", labelpad=4)
+    # One combined label spanning all the neuron rows
+    top_pos = neuron_rows[0][0].get_position()
+    bottom_pos = neuron_rows[-1][0].get_position()
+    fig.text(top_pos.x0 - 0.006, (top_pos.y1 + bottom_pos.y0) / 2, "Neurons", fontsize=font_size_points,
+             ha="right", va="center")
+
+    # The shared x-axis only needs a bottom spine on the last row
+    for row in axes[:-1]:
+        for ax in row:
+            ax.spines["bottom"].set_visible(False)
+
+    if fname is not None:
+        # No bbox_inches="tight", to keep the exact page-fraction size
+        os.makedirs(output_foldername, exist_ok=True)
+        full_fname = os.path.join(output_foldername, fname)
+        fig.savefig(full_fname + ".png", dpi=300, transparent=True)
+        fig.savefig(full_fname + ".svg", transparent=True)
+    plt.show()
+
+
+# Example invocation
+# plot_model_comparison("residual_encoding_schematic_reversal")
