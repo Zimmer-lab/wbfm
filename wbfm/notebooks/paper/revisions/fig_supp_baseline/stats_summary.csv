@@ -1,0 +1,27 @@
+question,comparison,n,median_a,median_b,median_diff,test,statistic,p,effect_size,effect_size_name,ci_low,ci_high
+Q1,"Gated: off vs. on (paired, class medians)",9 neurons,137.0577352243599,135.46722176969834,-10.156279185689044,Wilcoxon signed-rank,11.0,0.203125,-0.5111111111111111,matched-pairs rank-biserial,,
+Q1,"Gated: off - on (per dataset), hierarchical bootstrap","9 neurons, 247 neuron x dataset pairs",,,-10.269946130017289,"hierarchical bootstrap (neurons, datasets)",,0.0072,,,-13.662571654052124,-1.1138600621029582
+Q1,"Gated: off - on, mixed model (neuron fixed; dataset and neuron x dataset random)","9 neurons, 36 datasets, 494 obs",,,-4.773219220924841,linear mixed model (statsmodels MixedLM),,5.416681961060788e-07,,,-6.640204485938606,-2.906233955911077
+Q2,Gated off vs. always-osc. forward (class medians),9 vs 10 neurons,137.0577352243599,133.2905633547208,3.7671718696390997,Mann-Whitney U,45.0,1.0,0.0,rank-biserial (>0: first larger),,
+Q2,Gated off vs. always-osc. backward (class medians),9 vs 10 neurons,137.0577352243599,142.94358052992294,-5.885845305563038,Mann-Whitney U,44.0,0.967435545139537,-0.022222222222222254,rank-biserial (>0: first larger),,
+Q2,Gated off vs. always-osc. lower state (class medians),9 vs 10 neurons,137.0577352243599,131.79168600626522,5.266049218094679,Mann-Whitney U,49.0,0.7750513736700824,0.0888888888888888,rank-biserial (>0: first larger),,
+Q2,Gated on vs. always-osc. forward (class medians),9 vs 10 neurons,135.46722176969834,133.2905633547208,2.1766584149775383,Mann-Whitney U,45.0,1.0,0.0,rank-biserial (>0: first larger),,
+Q2,Gated off vs. not-osc. forward (class medians),9 vs 42 neurons,137.0577352243599,135.00185924824768,2.055875976112219,Mann-Whitney U,196.0,0.8724052895965767,0.03703703703703698,rank-biserial (>0: first larger),,
+Q2,Gated off vs. not-osc. backward (class medians),9 vs 42 neurons,137.0577352243599,134.0594232736152,2.998311950744693,Mann-Whitney U,182.0,0.8724052895965767,-0.03703703703703709,rank-biserial (>0: first larger),,
+Q2,"Gated off - always-osc. forward, hierarchical bootstrap",9 vs 10 neurons,,,1.8153385493072278,"hierarchical bootstrap (neurons, datasets)",,0.9616,,,-63.766664446877336,49.69462294369381
+Q2,"Gated off - always-osc. backward, hierarchical bootstrap",9 vs 10 neurons,,,-3.455508711210342,"hierarchical bootstrap (neurons, datasets)",,0.9072,,,-54.136836731909064,46.15650653706895
+Q2,"Always-osc. forward - gated off, mixed model (crossed random intercepts: dataset, neuron)",723 obs,,,7.7777839908505255,linear mixed model,,0.6638409731791032,,,-27.297239801213433,42.85280778291448
+Q2,"Always-osc. backward - gated off, mixed model (crossed random intercepts: dataset, neuron)",723 obs,,,6.624853548404743,linear mixed model,,0.7112398373254929,,,-28.450170243659223,41.69987734046871
+Q3,Gated: off-state median percentile within on-state range,9 neurons,29.858197684175195,,,"descriptive (median, IQR across neuron classes)",,,,,26.51509751830493,44.49760765550239
+Q3,Always oscillating: off-state median percentile within on-state range,10 neurons,38.18395182471569,,,"descriptive (median, IQR across neuron classes)",,,,,29.53052071057428,47.343645613854775
+Q3,Not oscillating: off-state median percentile within on-state range,42 neurons,27.361789422394878,,,"descriptive (median, IQR across neuron classes)",,,,,19.73922482682452,39.31448866235209
+Q3,Percentile: gated vs. always oscillating,9 vs 10 neurons,29.858197684175195,38.18395182471569,,Mann-Whitney U,38.0,0.5956108994757296,-0.15555555555555556,rank-biserial,,
+Q3,Percentile: gated vs. not oscillating,9 vs 42 neurons,29.858197684175195,27.361789422394878,,Mann-Whitney U,239.0,0.22130651679425917,0.26455026455026465,rank-biserial,,
+Amplitude,Gated: Bayesian amplitude on vs. off,9 neurons,0.19612744679960215,0.08766780430058069,0.08224952810422369,Wilcoxon signed-rank,0.0,0.00390625,1.0,matched-pairs rank-biserial,,
+Amplitude,Always oscillating: Bayesian amplitude on vs. off,10 neurons,0.05638173127636609,0.07022129349816975,-0.0036678773108939893,Wilcoxon signed-rank,18.0,0.375,-0.34545454545454546,matched-pairs rank-biserial,,
+Amplitude,Not oscillating: Bayesian amplitude on vs. off,42 neurons,0.029293574257513666,0.03271885924018679,-0.0003105445342244332,Wilcoxon signed-rank,422.0,0.7196615585762629,-0.06533776301218161,matched-pairs rank-biserial,,
+Amplitude,"Spearman(baseline, amplitude), gated+always, both states",38 neuron-states,,,,Spearman,0.035124193018929856,0.8341737331260178,,,,
+Gate,"Gated: mean gate s_j, on vs. off state",9 neurons,0.5037149113190019,0.28224053006929434,0.22014390243402604,descriptive (median across neurons),,,,,,
+Gate,"Always oscillating: mean gate s_j, on vs. off state",10 neurons,0.464374636422505,0.4365792130990929,0.028424416325817797,descriptive (median across neurons),,,,,,
+Gate,"Not oscillating: mean gate s_j, on vs. off state",42 neurons,0.4352364864552599,0.4161409787636685,0.013567903278329962,descriptive (median across neurons),,,,,,
+Amplitude,Gated: off/on amplitude ratio (median across neurons),9 neurons,0.47340190663698173,,,"descriptive (median, min-max)",,,,,0.3897450694873133,0.837711832126196
