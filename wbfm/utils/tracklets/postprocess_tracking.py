@@ -121,14 +121,20 @@ class OutlierRemoval:
         scaler.fit(all_dist_flattened)
         dat_normalized = scaler.transform(all_dist_flattened)
 
+        # PPCA.fit silently drops columns (neuron pairs) with fewer than min_obs observations, e.g. two tracks that are
+        # never present at the same time; its reconstruction then has fewer columns than the scaler, which used to
+        # raise and skip outlier removal for the whole project. Fit on the kept columns and leave the others NaN.
+        min_obs = 10
+        valid_columns = np.sum(~np.isnan(dat_normalized), axis=0) >= min_obs
         ppca = PPCA()
         with warnings.catch_warnings():
             warnings.simplefilter(action='ignore', category=RuntimeWarning)
-            ppca.fit(data=dat_normalized, d=ppca_dimension, tol=0.02, verbose=(verbose > 1))
+            ppca.fit(data=dat_normalized, d=ppca_dimension, tol=0.02, min_obs=min_obs, verbose=(verbose > 1))
 
         if verbose > 1:
             print("Project data to that manifold...")
-        full_time_reconstruction = np.dot(ppca.transform(), ppca.C.T)
+        full_time_reconstruction = np.full(dat_normalized.shape, np.nan)
+        full_time_reconstruction[:, valid_columns] = np.dot(ppca.transform(), ppca.C.T)
         # V = ma.masked_invalid(ppca.C)
         # full_time_mode_weights = ma.dot(ma.masked_invalid(dat_normalized), V)
         # full_time_reconstruction = ma.dot(full_time_mode_weights, V.T)
