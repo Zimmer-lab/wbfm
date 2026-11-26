@@ -199,5 +199,15 @@ class PhysicalUnitConversion:
             if num_flyback_planes_discarded is None:
                 raise IncompleteConfigFileError("num_flyback_planes_discarded not found in raw data config")
             opt['num_flyback_planes_discarded'] = num_flyback_planes_discarded
+        else:
+            # Flyback was saved, so every camera frame of a volume is in the raw stack (num_z_planes in the raw config).
+            # num_z_slices may still be smaller (e.g. the project default of 22), so count the difference as frames
+            # outside of the saved slices; this keeps frames_per_volume equal to the true camera frames per volume
+            num_z_planes = raw_data_cfg.config.get('num_z_planes', None)
+            num_z_slices = opt.get('num_z_slices', None)
+            if num_z_planes is not None and num_z_slices is not None:
+                opt['num_flyback_planes_discarded'] = max(int(num_z_planes) - int(num_z_slices), 0)
+            else:
+                opt['num_flyback_planes_discarded'] = 0
 
         return PhysicalUnitConversion(**opt)
